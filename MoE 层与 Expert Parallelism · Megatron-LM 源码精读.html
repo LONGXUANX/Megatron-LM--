@@ -1,0 +1,2055 @@
+<!DOCTYPE html>
+<!-- saved from url=(0071)https://xiaolong-li1.github.io/Blogs/megatron-docs/model/moe_layer.html -->
+<html lang="zh-CN"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MoE 层与 Expert Parallelism · Megatron-LM 源码精读</title>
+<link rel="stylesheet" href="./MoE 层与 Expert Parallelism · Megatron-LM 源码精读_files/github-dark.min.css">
+<link rel="stylesheet" href="./MoE 层与 Expert Parallelism · Megatron-LM 源码精读_files/style.css">
+<script src="./MoE 层与 Expert Parallelism · Megatron-LM 源码精读_files/highlight.min.js"></script>
+<script src="./MoE 层与 Expert Parallelism · Megatron-LM 源码精读_files/highlight-python.min.js"></script>
+<script src="./MoE 层与 Expert Parallelism · Megatron-LM 源码精读_files/mermaid.min.js"></script>
+<script>
+MathJax = {
+  tex: { inlineMath: [['\\(','\\)']], displayMath: [['$$','$$']] },
+  svg: { fontCache: 'global' }
+};
+</script>
+<script src="./MoE 层与 Expert Parallelism · Megatron-LM 源码精读_files/tex-chtml.js" async="" defer=""></script>
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      darkMode: true,
+      background: '#1c2129',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
+      fontSize: '13px',
+      primaryColor: '#1f2937',
+      primaryTextColor: '#e6edf3',
+      primaryBorderColor: '#30363d',
+      lineColor: '#58a6ff',
+      secondaryColor: '#161b22',
+      tertiaryColor: '#0d1117',
+      mainBkg: '#161b22',
+      nodeBorder: '#30363d',
+      clusterBkg: 'rgba(88,166,255,0.05)',
+      clusterBorder: '#30363d',
+      titleColor: '#e6edf3',
+      edgeLabelBackground: '#1c2129',
+      nodeTextColor: '#e6edf3'
+    }
+  });
+</script>
+<style type="text/css">.CtxtMenu_InfoClose {  top:.2em; right:.2em;}
+.CtxtMenu_InfoContent {  overflow:auto; text-align:left; font-size:80%;  padding:.4em .6em; border:1px inset; margin:1em 0px;  max-height:20em; max-width:30em; background-color:#EEEEEE;  white-space:normal;}
+.CtxtMenu_Info.CtxtMenu_MousePost {outline:none;}
+.CtxtMenu_Info {  position:fixed; left:50%; width:auto; text-align:center;  border:3px outset; padding:1em 2em; background-color:#DDDDDD;  color:black;  cursor:default; font-family:message-box; font-size:120%;  font-style:normal; text-indent:0; text-transform:none;  line-height:normal; letter-spacing:normal; word-spacing:normal;  word-wrap:normal; white-space:nowrap; float:none; z-index:201;  border-radius: 15px;                     /* Opera 10.5 and IE9 */  -webkit-border-radius:15px;               /* Safari and Chrome */  -moz-border-radius:15px;                  /* Firefox */  -khtml-border-radius:15px;                /* Konqueror */  box-shadow:0px 10px 20px #808080;         /* Opera 10.5 and IE9 */  -webkit-box-shadow:0px 10px 20px #808080; /* Safari 3 & Chrome */  -moz-box-shadow:0px 10px 20px #808080;    /* Forefox 3.5 */  -khtml-box-shadow:0px 10px 20px #808080;  /* Konqueror */  filter:progid:DXImageTransform.Microsoft.dropshadow(OffX=2, OffY=2, Color="gray", Positive="true"); /* IE */}
+</style><style type="text/css">.CtxtMenu_MenuClose {  position:absolute;  cursor:pointer;  display:inline-block;  border:2px solid #AAA;  border-radius:18px;  -webkit-border-radius: 18px;             /* Safari and Chrome */  -moz-border-radius: 18px;                /* Firefox */  -khtml-border-radius: 18px;              /* Konqueror */  font-family: "Courier New", Courier;  font-size:24px;  color:#F0F0F0}
+.CtxtMenu_MenuClose span {  display:block; background-color:#AAA; border:1.5px solid;  border-radius:18px;  -webkit-border-radius: 18px;             /* Safari and Chrome */  -moz-border-radius: 18px;                /* Firefox */  -khtml-border-radius: 18px;              /* Konqueror */  line-height:0;  padding:8px 0 6px     /* may need to be browser-specific */}
+.CtxtMenu_MenuClose:hover {  color:white!important;  border:2px solid #CCC!important}
+.CtxtMenu_MenuClose:hover span {  background-color:#CCC!important}
+.CtxtMenu_MenuClose:hover:focus {  outline:none}
+</style><style type="text/css">.CtxtMenu_Menu {  position:absolute;  background-color:white;  color:black;  width:auto; padding:5px 0px;  border:1px solid #CCCCCC; margin:0; cursor:default;  font: menu; text-align:left; text-indent:0; text-transform:none;  line-height:normal; letter-spacing:normal; word-spacing:normal;  word-wrap:normal; white-space:nowrap; float:none; z-index:201;  border-radius: 5px;                     /* Opera 10.5 and IE9 */  -webkit-border-radius: 5px;             /* Safari and Chrome */  -moz-border-radius: 5px;                /* Firefox */  -khtml-border-radius: 5px;              /* Konqueror */  box-shadow:0px 10px 20px #808080;         /* Opera 10.5 and IE9 */  -webkit-box-shadow:0px 10px 20px #808080; /* Safari 3 & Chrome */  -moz-box-shadow:0px 10px 20px #808080;    /* Forefox 3.5 */  -khtml-box-shadow:0px 10px 20px #808080;  /* Konqueror */}
+.CtxtMenu_MenuItem {  padding: 1px 2em;  background:transparent;}
+.CtxtMenu_MenuArrow {  position:absolute; right:.5em; padding-top:.25em; color:#666666;  font-family: null; font-size: .75em}
+.CtxtMenu_MenuActive .CtxtMenu_MenuArrow {color:white}
+.CtxtMenu_MenuArrow.CtxtMenu_RTL {left:.5em; right:auto}
+.CtxtMenu_MenuCheck {  position:absolute; left:.7em;  font-family: null}
+.CtxtMenu_MenuCheck.CtxtMenu_RTL { right:.7em; left:auto }
+.CtxtMenu_MenuRadioCheck {  position:absolute; left: .7em;}
+.CtxtMenu_MenuRadioCheck.CtxtMenu_RTL {  right: .7em; left:auto}
+.CtxtMenu_MenuInputBox {  padding-left: 1em; right:.5em; color:#666666;  font-family: null;}
+.CtxtMenu_MenuInputBox.CtxtMenu_RTL {  left: .1em;}
+.CtxtMenu_MenuComboBox {  left:.1em; padding-bottom:.5em;}
+.CtxtMenu_MenuSlider {  left: .1em;}
+.CtxtMenu_SliderValue {  position:absolute; right:.1em; padding-top:.25em; color:#333333;  font-size: .75em}
+.CtxtMenu_SliderBar {  outline: none; background: #d3d3d3}
+.CtxtMenu_MenuLabel {  padding: 1px 2em 3px 1.33em;  font-style:italic}
+.CtxtMenu_MenuRule {  border-top: 1px solid #DDDDDD;  margin: 4px 3px;}
+.CtxtMenu_MenuDisabled {  color:GrayText}
+.CtxtMenu_MenuActive {  background-color: #606872;  color: white;}
+.CtxtMenu_MenuDisabled:focus {  background-color: #E8E8E8}
+.CtxtMenu_MenuLabel:focus {  background-color: #E8E8E8}
+.CtxtMenu_ContextMenu:focus {  outline:none}
+.CtxtMenu_ContextMenu .CtxtMenu_MenuItem:focus {  outline:none}
+.CtxtMenu_SelectionMenu {  position:relative; float:left;  border-bottom: none; -webkit-box-shadow:none; -webkit-border-radius:0px; }
+.CtxtMenu_SelectionItem {  padding-right: 1em;}
+.CtxtMenu_Selection {  right: 40%; width:50%; }
+.CtxtMenu_SelectionBox {  padding: 0em; max-height:20em; max-width: none;  background-color:#FFFFFF;}
+.CtxtMenu_SelectionDivider {  clear: both; border-top: 2px solid #000000;}
+.CtxtMenu_Menu .CtxtMenu_MenuClose {  top:-10px; left:-10px}
+</style><style id="MJX-CHTML-styles">
+mjx-container[jax="CHTML"] {
+  line-height: 0;
+}
+
+mjx-container [space="1"] {
+  margin-left: .111em;
+}
+
+mjx-container [space="2"] {
+  margin-left: .167em;
+}
+
+mjx-container [space="3"] {
+  margin-left: .222em;
+}
+
+mjx-container [space="4"] {
+  margin-left: .278em;
+}
+
+mjx-container [space="5"] {
+  margin-left: .333em;
+}
+
+mjx-container [rspace="1"] {
+  margin-right: .111em;
+}
+
+mjx-container [rspace="2"] {
+  margin-right: .167em;
+}
+
+mjx-container [rspace="3"] {
+  margin-right: .222em;
+}
+
+mjx-container [rspace="4"] {
+  margin-right: .278em;
+}
+
+mjx-container [rspace="5"] {
+  margin-right: .333em;
+}
+
+mjx-container [size="s"] {
+  font-size: 70.7%;
+}
+
+mjx-container [size="ss"] {
+  font-size: 50%;
+}
+
+mjx-container [size="Tn"] {
+  font-size: 60%;
+}
+
+mjx-container [size="sm"] {
+  font-size: 85%;
+}
+
+mjx-container [size="lg"] {
+  font-size: 120%;
+}
+
+mjx-container [size="Lg"] {
+  font-size: 144%;
+}
+
+mjx-container [size="LG"] {
+  font-size: 173%;
+}
+
+mjx-container [size="hg"] {
+  font-size: 207%;
+}
+
+mjx-container [size="HG"] {
+  font-size: 249%;
+}
+
+mjx-container [width="full"] {
+  width: 100%;
+}
+
+mjx-box {
+  display: inline-block;
+}
+
+mjx-block {
+  display: block;
+}
+
+mjx-itable {
+  display: inline-table;
+}
+
+mjx-row {
+  display: table-row;
+}
+
+mjx-row > * {
+  display: table-cell;
+}
+
+mjx-mtext {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-mstyle {
+  display: inline-block;
+}
+
+mjx-merror {
+  display: inline-block;
+  color: red;
+  background-color: yellow;
+}
+
+mjx-mphantom {
+  visibility: hidden;
+}
+
+_::-webkit-full-page-media, _:future, :root mjx-container {
+  will-change: opacity;
+}
+
+mjx-assistive-mml {
+  position: absolute !important;
+  top: 0px;
+  left: 0px;
+  clip: rect(1px, 1px, 1px, 1px);
+  padding: 1px 0px 0px 0px !important;
+  border: 0px !important;
+  display: block !important;
+  width: auto !important;
+  overflow: hidden !important;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+mjx-assistive-mml[display="block"] {
+  width: 100% !important;
+}
+
+mjx-math {
+  display: inline-block;
+  text-align: left;
+  line-height: 0;
+  text-indent: 0;
+  font-style: normal;
+  font-weight: normal;
+  font-size: 100%;
+  font-size-adjust: none;
+  letter-spacing: normal;
+  border-collapse: collapse;
+  word-wrap: normal;
+  word-spacing: normal;
+  white-space: nowrap;
+  direction: ltr;
+  padding: 1px 0;
+}
+
+mjx-container[jax="CHTML"][display="true"] {
+  display: block;
+  text-align: center;
+  margin: 1em 0;
+}
+
+mjx-container[jax="CHTML"][display="true"][width="full"] {
+  display: flex;
+}
+
+mjx-container[jax="CHTML"][display="true"] mjx-math {
+  padding: 0;
+}
+
+mjx-container[jax="CHTML"][justify="left"] {
+  text-align: left;
+}
+
+mjx-container[jax="CHTML"][justify="right"] {
+  text-align: right;
+}
+
+mjx-c {
+  display: inline-block;
+}
+
+mjx-utext {
+  display: inline-block;
+  padding: .75em 0 .2em 0;
+}
+
+mjx-mo {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-stretchy-h {
+  display: inline-table;
+  width: 100%;
+}
+
+mjx-stretchy-h > * {
+  display: table-cell;
+  width: 0;
+}
+
+mjx-stretchy-h > * > mjx-c {
+  display: inline-block;
+  transform: scalex(1.0000001);
+}
+
+mjx-stretchy-h > * > mjx-c::before {
+  display: inline-block;
+  width: initial;
+}
+
+mjx-stretchy-h > mjx-ext {
+  /* IE */ overflow: hidden;
+  /* others */ overflow: clip visible;
+  width: 100%;
+}
+
+mjx-stretchy-h > mjx-ext > mjx-c::before {
+  transform: scalex(500);
+}
+
+mjx-stretchy-h > mjx-ext > mjx-c {
+  width: 0;
+}
+
+mjx-stretchy-h > mjx-beg > mjx-c {
+  margin-right: -.1em;
+}
+
+mjx-stretchy-h > mjx-end > mjx-c {
+  margin-left: -.1em;
+}
+
+mjx-stretchy-v {
+  display: inline-block;
+}
+
+mjx-stretchy-v > * {
+  display: block;
+}
+
+mjx-stretchy-v > mjx-beg {
+  height: 0;
+}
+
+mjx-stretchy-v > mjx-end > mjx-c {
+  display: block;
+}
+
+mjx-stretchy-v > * > mjx-c {
+  transform: scaley(1.0000001);
+  transform-origin: left center;
+  overflow: hidden;
+}
+
+mjx-stretchy-v > mjx-ext {
+  display: block;
+  height: 100%;
+  box-sizing: border-box;
+  border: 0px solid transparent;
+  /* IE */ overflow: hidden;
+  /* others */ overflow: visible clip;
+}
+
+mjx-stretchy-v > mjx-ext > mjx-c::before {
+  width: initial;
+  box-sizing: border-box;
+}
+
+mjx-stretchy-v > mjx-ext > mjx-c {
+  transform: scaleY(500) translateY(.075em);
+  overflow: visible;
+}
+
+mjx-mark {
+  display: inline-block;
+  height: 0px;
+}
+
+mjx-msup {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-mn {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-msub {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-mi {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-TeXAtom {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-munderover {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-munderover:not([limits="false"]) {
+  padding-top: .1em;
+}
+
+mjx-munderover:not([limits="false"]) > * {
+  display: block;
+}
+
+mjx-msubsup {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-script {
+  display: inline-block;
+  padding-right: .05em;
+  padding-left: .033em;
+}
+
+mjx-script > mjx-spacer {
+  display: block;
+}
+
+mjx-mfrac {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-frac {
+  display: inline-block;
+  vertical-align: 0.17em;
+  padding: 0 .22em;
+}
+
+mjx-frac[type="d"] {
+  vertical-align: .04em;
+}
+
+mjx-frac[delims] {
+  padding: 0 .1em;
+}
+
+mjx-frac[atop] {
+  padding: 0 .12em;
+}
+
+mjx-frac[atop][delims] {
+  padding: 0;
+}
+
+mjx-dtable {
+  display: inline-table;
+  width: 100%;
+}
+
+mjx-dtable > * {
+  font-size: 2000%;
+}
+
+mjx-dbox {
+  display: block;
+  font-size: 5%;
+}
+
+mjx-num {
+  display: block;
+  text-align: center;
+}
+
+mjx-den {
+  display: block;
+  text-align: center;
+}
+
+mjx-mfrac[bevelled] > mjx-num {
+  display: inline-block;
+}
+
+mjx-mfrac[bevelled] > mjx-den {
+  display: inline-block;
+}
+
+mjx-den[align="right"], mjx-num[align="right"] {
+  text-align: right;
+}
+
+mjx-den[align="left"], mjx-num[align="left"] {
+  text-align: left;
+}
+
+mjx-nstrut {
+  display: inline-block;
+  height: .054em;
+  width: 0;
+  vertical-align: -.054em;
+}
+
+mjx-nstrut[type="d"] {
+  height: .217em;
+  vertical-align: -.217em;
+}
+
+mjx-dstrut {
+  display: inline-block;
+  height: .505em;
+  width: 0;
+}
+
+mjx-dstrut[type="d"] {
+  height: .726em;
+}
+
+mjx-line {
+  display: block;
+  box-sizing: border-box;
+  min-height: 1px;
+  height: .06em;
+  border-top: .06em solid;
+  margin: .06em -.1em;
+  overflow: hidden;
+}
+
+mjx-line[type="d"] {
+  margin: .18em -.1em;
+}
+
+mjx-mrow {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-munder {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-over {
+  text-align: left;
+}
+
+mjx-munder:not([limits="false"]) {
+  display: inline-table;
+}
+
+mjx-munder > mjx-row {
+  text-align: left;
+}
+
+mjx-under {
+  padding-bottom: .1em;
+}
+
+mjx-c::before {
+  display: block;
+  width: 0;
+}
+
+.MJX-TEX {
+  font-family: MJXZERO, MJXTEX;
+}
+
+.TEX-B {
+  font-family: MJXZERO, MJXTEX-B;
+}
+
+.TEX-I {
+  font-family: MJXZERO, MJXTEX-I;
+}
+
+.TEX-MI {
+  font-family: MJXZERO, MJXTEX-MI;
+}
+
+.TEX-BI {
+  font-family: MJXZERO, MJXTEX-BI;
+}
+
+.TEX-S1 {
+  font-family: MJXZERO, MJXTEX-S1;
+}
+
+.TEX-S2 {
+  font-family: MJXZERO, MJXTEX-S2;
+}
+
+.TEX-S3 {
+  font-family: MJXZERO, MJXTEX-S3;
+}
+
+.TEX-S4 {
+  font-family: MJXZERO, MJXTEX-S4;
+}
+
+.TEX-A {
+  font-family: MJXZERO, MJXTEX-A;
+}
+
+.TEX-C {
+  font-family: MJXZERO, MJXTEX-C;
+}
+
+.TEX-CB {
+  font-family: MJXZERO, MJXTEX-CB;
+}
+
+.TEX-FR {
+  font-family: MJXZERO, MJXTEX-FR;
+}
+
+.TEX-FRB {
+  font-family: MJXZERO, MJXTEX-FRB;
+}
+
+.TEX-SS {
+  font-family: MJXZERO, MJXTEX-SS;
+}
+
+.TEX-SSB {
+  font-family: MJXZERO, MJXTEX-SSB;
+}
+
+.TEX-SSI {
+  font-family: MJXZERO, MJXTEX-SSI;
+}
+
+.TEX-SC {
+  font-family: MJXZERO, MJXTEX-SC;
+}
+
+.TEX-T {
+  font-family: MJXZERO, MJXTEX-T;
+}
+
+.TEX-V {
+  font-family: MJXZERO, MJXTEX-V;
+}
+
+.TEX-VB {
+  font-family: MJXZERO, MJXTEX-VB;
+}
+
+mjx-stretchy-v mjx-c, mjx-stretchy-h mjx-c {
+  font-family: MJXZERO, MJXTEX-S1, MJXTEX-S4, MJXTEX, MJXTEX-A ! important;
+}
+
+@font-face /* 0 */ {
+  font-family: MJXZERO;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Zero.woff") format("woff");
+}
+
+@font-face /* 1 */ {
+  font-family: MJXTEX;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Main-Regular.woff") format("woff");
+}
+
+@font-face /* 2 */ {
+  font-family: MJXTEX-B;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Main-Bold.woff") format("woff");
+}
+
+@font-face /* 3 */ {
+  font-family: MJXTEX-I;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Math-Italic.woff") format("woff");
+}
+
+@font-face /* 4 */ {
+  font-family: MJXTEX-MI;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Main-Italic.woff") format("woff");
+}
+
+@font-face /* 5 */ {
+  font-family: MJXTEX-BI;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Math-BoldItalic.woff") format("woff");
+}
+
+@font-face /* 6 */ {
+  font-family: MJXTEX-S1;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Size1-Regular.woff") format("woff");
+}
+
+@font-face /* 7 */ {
+  font-family: MJXTEX-S2;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Size2-Regular.woff") format("woff");
+}
+
+@font-face /* 8 */ {
+  font-family: MJXTEX-S3;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Size3-Regular.woff") format("woff");
+}
+
+@font-face /* 9 */ {
+  font-family: MJXTEX-S4;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Size4-Regular.woff") format("woff");
+}
+
+@font-face /* 10 */ {
+  font-family: MJXTEX-A;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_AMS-Regular.woff") format("woff");
+}
+
+@font-face /* 11 */ {
+  font-family: MJXTEX-C;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Calligraphic-Regular.woff") format("woff");
+}
+
+@font-face /* 12 */ {
+  font-family: MJXTEX-CB;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Calligraphic-Bold.woff") format("woff");
+}
+
+@font-face /* 13 */ {
+  font-family: MJXTEX-FR;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Fraktur-Regular.woff") format("woff");
+}
+
+@font-face /* 14 */ {
+  font-family: MJXTEX-FRB;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Fraktur-Bold.woff") format("woff");
+}
+
+@font-face /* 15 */ {
+  font-family: MJXTEX-SS;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_SansSerif-Regular.woff") format("woff");
+}
+
+@font-face /* 16 */ {
+  font-family: MJXTEX-SSB;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_SansSerif-Bold.woff") format("woff");
+}
+
+@font-face /* 17 */ {
+  font-family: MJXTEX-SSI;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_SansSerif-Italic.woff") format("woff");
+}
+
+@font-face /* 18 */ {
+  font-family: MJXTEX-SC;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Script-Regular.woff") format("woff");
+}
+
+@font-face /* 19 */ {
+  font-family: MJXTEX-T;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Typewriter-Regular.woff") format("woff");
+}
+
+@font-face /* 20 */ {
+  font-family: MJXTEX-V;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Vector-Regular.woff") format("woff");
+}
+
+@font-face /* 21 */ {
+  font-family: MJXTEX-VB;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Vector-Bold.woff") format("woff");
+}
+
+mjx-c.mjx-c7A::before {
+  padding: 0.431em 0.444em 0 0;
+  content: "z";
+}
+
+mjx-c.mjx-c5C::before {
+  padding: 0.75em 0.5em 0.25em 0;
+  content: "\5C";
+}
+
+mjx-c.mjx-c5F::before {
+  padding: 0 0.5em 0.062em 0;
+  content: "_";
+}
+
+mjx-c.mjx-c6C::before {
+  padding: 0.694em 0.278em 0 0;
+  content: "l";
+}
+
+mjx-c.mjx-c6F::before {
+  padding: 0.448em 0.5em 0.01em 0;
+  content: "o";
+}
+
+mjx-c.mjx-c73::before {
+  padding: 0.448em 0.394em 0.011em 0;
+  content: "s";
+}
+
+mjx-c.mjx-c3D::before {
+  padding: 0.583em 0.778em 0.082em 0;
+  content: "=";
+}
+
+mjx-c.mjx-c63::before {
+  padding: 0.448em 0.444em 0.011em 0;
+  content: "c";
+}
+
+mjx-c.mjx-c65::before {
+  padding: 0.448em 0.444em 0.011em 0;
+  content: "e";
+}
+
+mjx-c.mjx-c66::before {
+  padding: 0.705em 0.372em 0 0;
+  content: "f";
+}
+
+mjx-c.mjx-c22C5::before {
+  padding: 0.31em 0.278em 0 0;
+  content: "\22C5";
+}
+
+mjx-c.mjx-c6D::before {
+  padding: 0.442em 0.833em 0 0;
+  content: "m";
+}
+
+mjx-c.mjx-c61::before {
+  padding: 0.448em 0.5em 0.011em 0;
+  content: "a";
+}
+
+mjx-c.mjx-c6E::before {
+  padding: 0.442em 0.556em 0 0;
+  content: "n";
+}
+
+mjx-c.mjx-c28::before {
+  padding: 0.75em 0.389em 0.25em 0;
+  content: "(";
+}
+
+mjx-c.mjx-c67::before {
+  padding: 0.453em 0.5em 0.206em 0;
+  content: "g";
+}
+
+mjx-c.mjx-c75::before {
+  padding: 0.442em 0.556em 0.011em 0;
+  content: "u";
+}
+
+mjx-c.mjx-c78::before {
+  padding: 0.431em 0.528em 0 0;
+  content: "x";
+}
+
+mjx-c.mjx-c70::before {
+  padding: 0.442em 0.556em 0.194em 0;
+  content: "p";
+}
+
+mjx-c.mjx-c69::before {
+  padding: 0.669em 0.278em 0 0;
+  content: "i";
+}
+
+mjx-c.mjx-c74::before {
+  padding: 0.615em 0.389em 0.01em 0;
+  content: "t";
+}
+
+mjx-c.mjx-c29::before {
+  padding: 0.75em 0.389em 0.25em 0;
+  content: ")";
+}
+
+mjx-c.mjx-c32::before {
+  padding: 0.666em 0.5em 0 0;
+  content: "2";
+}
+
+mjx-c.mjx-c1D43F.TEX-I::before {
+  padding: 0.683em 0.681em 0 0;
+  content: "L";
+}
+
+mjx-c.mjx-c1D438.TEX-I::before {
+  padding: 0.68em 0.764em 0 0;
+  content: "E";
+}
+
+mjx-c.mjx-c2211.TEX-S2::before {
+  padding: 0.95em 1.444em 0.45em 0;
+  content: "\2211";
+}
+
+mjx-c.mjx-c1D456.TEX-I::before {
+  padding: 0.661em 0.345em 0.011em 0;
+  content: "i";
+}
+
+mjx-c.mjx-c31::before {
+  padding: 0.666em 0.5em 0 0;
+  content: "1";
+}
+
+mjx-c.mjx-c1D453.TEX-I::before {
+  padding: 0.705em 0.55em 0.205em 0;
+  content: "f";
+}
+
+mjx-c.mjx-c1D443.TEX-I::before {
+  padding: 0.683em 0.751em 0 0;
+  content: "P";
+}
+
+mjx-c.mjx-c1D447.TEX-I::before {
+  padding: 0.677em 0.704em 0 0;
+  content: "T";
+}
+
+mjx-c.mjx-c1D458.TEX-I::before {
+  padding: 0.694em 0.521em 0.011em 0;
+  content: "k";
+}
+
+mjx-c.mjx-c2211.TEX-S1::before {
+  padding: 0.75em 1.056em 0.25em 0;
+  content: "\2211";
+}
+
+mjx-c.mjx-c1D465.TEX-I::before {
+  padding: 0.442em 0.572em 0.011em 0;
+  content: "x";
+}
+
+mjx-c.mjx-c2208::before {
+  padding: 0.54em 0.667em 0.04em 0;
+  content: "\2208";
+}
+
+mjx-c.mjx-c1D435.TEX-I::before {
+  padding: 0.683em 0.759em 0 0;
+  content: "B";
+}
+
+mjx-c.mjx-c5B::before {
+  padding: 0.75em 0.278em 0.25em 0;
+  content: "[";
+}
+
+mjx-c.mjx-c72::before {
+  padding: 0.442em 0.392em 0 0;
+  content: "r";
+}
+
+mjx-c.mjx-c2C::before {
+  padding: 0.121em 0.278em 0.194em 0;
+  content: ",";
+}
+
+mjx-c.mjx-c5D::before {
+  padding: 0.75em 0.278em 0.25em 0;
+  content: "]";
+}
+
+mjx-c.mjx-c62::before {
+  padding: 0.694em 0.556em 0.011em 0;
+  content: "b";
+}
+
+mjx-c.mjx-c2F::before {
+  padding: 0.75em 0.5em 0.25em 0;
+  content: "/";
+}
+</style></head>
+<body>
+
+<!-- ==================== HERO ==================== -->
+<div class="hero">
+  <div class="container">
+    <h1>Megatron-LM <span class="file">MoE Layer</span> 源码精读</h1>
+    <p class="subtitle">MoE 架构全景 · Expert Parallelism · TopKRouter · Token Dispatcher · GroupedGEMM · Shared Experts</p>
+    <div class="meta">
+      <span>Megatron-LM (NVIDIA)</span>
+      <span>megatron/core/transformer/moe/</span>
+      <span>MoE · Expert Parallelism</span>
+    </div>
+  </div>
+</div>
+
+<div class="page-body">
+
+<!-- ==================== TOC (Left Sidebar) ==================== -->
+<aside class="toc-sidebar">
+<nav class="toc">
+  <div id="global-nav"><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/index.html" class="toc-home">← 文档目录</a>
+<div class="toc-group">入口</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/entry/pretrain_gpt.html" class="toc-doc">pretrain_gpt.py</a>
+<div class="toc-group">基础设施</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/pretrain_and_setup.html" class="toc-doc">初始化篇</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/training_loop.html" class="toc-doc">训练循环篇</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/memory_calculator.html" class="toc-doc">GPU 显存计算</a>
+<div class="toc-group">并行策略</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/rank_and_parallel_groups.html" class="toc-doc">Rank 与并行组</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/collective_operations.html" class="toc-doc">集合通信操作</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/tensor_parallel.html" class="toc-doc">Tensor Parallelism</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/pipeline_parallel.html" class="toc-doc">Pipeline Parallelism</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/schedules_deep_dive.html" class="toc-doc">Schedule 深度精读</a>
+<div class="toc-group">模型架构</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/transformer_architecture.html" class="toc-doc">GPT 模型架构</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/moe_layer.html" class="toc-doc active">MoE 层与 EP</a>
+<div class="toc-group">数据</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/data/vpp_data_iterator.html" class="toc-doc">VPP 数据迭代器</a>
+<div class="toc-group">优化器</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/optimizer/distrib_optimizer.html" class="toc-doc">分布式优化器</a>
+</div>
+  <script src="./MoE 层与 Expert Parallelism · Megatron-LM 源码精读_files/nav.js"></script>
+  <div class="toc-divider"></div>
+  <h2>本文目录</h2>
+  <ol>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/moe_layer.html#sec01">MoE 架构全景</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/moe_layer.html#sec02">Expert Parallelism</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/moe_layer.html#sec03">TopKRouter 路由机制</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/moe_layer.html#sec04">负载均衡策略</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/moe_layer.html#sec05">Token Dispatcher</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/moe_layer.html#sec06">Expert 计算</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/moe_layer.html#sec07">Shared Experts</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/moe_layer.html#sec08">通信-计算 Overlap</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/moe_layer.html#sec09">配置参数速查表</a></li>
+  </ol>
+</nav>
+</aside>
+
+<!-- ==================== MAIN ==================== -->
+<div class="main-content">
+
+<!-- ==================== 01. MoE 架构全景 ==================== -->
+<section id="sec01">
+  <div class="section-header">
+    <span class="section-num">01</span>
+    <h2>MoE 架构全景</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">moe_layer.py</span>
+    <span class="tag tag-green">MoELayer</span>
+    <span class="tag tag-purple">BaseMoELayer</span>
+  </div>
+
+  <div class="prose">
+    <p>在标准 Transformer 中，每个 token 都经过同一个 MLP 层。<strong>Mixture of Experts（MoE）</strong> 的核心思想是：用多个独立的 expert MLP 替换单一 MLP，每个 token 只被路由到其中 top-k 个 expert 进行计算。这样模型参数量可以大幅增加（例如 256 个 expert），但每个 token 的实际计算量只等价于 k 个 expert，实现了<strong>参数量与计算量的解耦</strong>。</p>
+    <p>Megatron-LM 的 MoE 实现位于 <code>megatron/core/transformer/moe/</code> 目录，核心文件包括：</p>
+    <ul>
+      <li><code>moe_layer.py</code> — MoELayer 主类，编排整个前向流程</li>
+      <li><code>router.py</code> — TopKRouter，决定 token 到 expert 的路由</li>
+      <li><code>token_dispatcher.py</code> — AlltoAll / AllGather / Flex 三种 token 分发策略</li>
+      <li><code>experts.py</code> — GroupedMLP / TEGroupedMLP / SequentialMLP 三种 expert 实现</li>
+      <li><code>shared_experts.py</code> — SharedExpertMLP，所有 token 共享的"常驻 expert"</li>
+      <li><code>moe_utils.py</code> — 辅助函数（aux loss、sinkhorn、permute/unpermute 等）</li>
+    </ul>
+  </div>
+
+  <div class="prose">
+    <p><strong>MoELayer 的前向流程</strong>由五个阶段组成，定义在 <code>MoELayer.forward()</code> 的 <code>custom_forward</code> 内部函数中：</p>
+  </div>
+
+  <div class="flow-steps">
+    <div class="flow-step">
+      <div class="flow-line">
+        <div class="flow-dot"></div>
+        <div class="flow-connector"></div>
+      </div>
+      <div class="flow-content">
+        <h4>shared_experts_compute(hidden_states)</h4>
+        <p>Shared expert 使用<strong>原始 hidden_states</strong>（路由之前）进行前向计算。这一步在 route 之前执行，确保 shared expert 看到的是未经修改的输入。</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line">
+        <div class="flow-dot green"></div>
+        <div class="flow-connector"></div>
+      </div>
+      <div class="flow-content">
+        <h4>route(hidden_states) → probs, routing_map</h4>
+        <p>Router 计算每个 token 到各 expert 的路由概率。输出 <code>probs</code>（权重）和 <code>routing_map</code>（bool 掩码，标记哪些 expert 被选中）。</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line">
+        <div class="flow-dot purple"></div>
+        <div class="flow-connector"></div>
+      </div>
+      <div class="flow-content">
+        <h4>preprocess → dispatch → routed_experts_compute</h4>
+        <p><strong>preprocess</strong>：Token Dispatcher 的预处理（排列 token、计算 split 元信息）。<strong>dispatch</strong>：通过 All-to-All 通信将 token 发送到对应 EP rank。<strong>routed_experts_compute</strong>：各 rank 上的 local expert 处理接收到的 token。</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line">
+        <div class="flow-dot orange"></div>
+      </div>
+      <div class="flow-content">
+        <h4>combine(output, shared_expert_output)</h4>
+        <p>通过反向 All-to-All 收集 expert 输出，unpermute 恢复原始 token 顺序，最后加上 shared expert 的输出。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>moe_layer.py — MoELayer.forward() 核心流程</span>
+      <span class="lines">L312-366</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">def</span> <span class="hljs-title function_">forward</span>(<span class="hljs-params">self, hidden_states: torch.Tensor</span>):
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">custom_forward</span>(<span class="hljs-params">hidden_states</span>):
+        <span class="hljs-comment"># ① Shared expert 先于路由执行（使用原始 hidden_states）</span>
+        shared_expert_output = self.shared_experts_compute(hidden_states)
+
+        <span class="hljs-comment"># ② Route：计算路由概率与选择掩码</span>
+        probs, routing_map = self.route(hidden_states)
+
+        <span class="hljs-comment"># ③ Preprocess：token dropping / padding 等前处理</span>
+        hidden_states, probs, residual = self.preprocess(
+            hidden_states, probs, routing_map
+        )
+
+        <span class="hljs-comment"># ④ Dispatch：All-to-All 分发 token 到对应 EP rank</span>
+        dispatched_input, probs = self.dispatch(hidden_states, probs)
+
+        <span class="hljs-comment"># ⑤ Compute：本 rank 上的 local experts 计算</span>
+        output, mlp_bias = self.routed_experts_compute(
+            dispatched_input, probs, residual
+        )
+
+        <span class="hljs-comment"># ⑥ Combine：All-to-All 收集 + 加权合并 + 叠加 shared expert</span>
+        output = self.combine(output, shared_expert_output)
+        <span class="hljs-keyword">return</span> output, mlp_bias
+
+    <span class="hljs-keyword">if</span> self.moe_layer_recompute:
+        outputs = tensor_parallel.checkpoint(custom_forward, <span class="hljs-literal">False</span>, hidden_states)
+    <span class="hljs-keyword">else</span>:
+        outputs = custom_forward(hidden_states)
+    <span class="hljs-keyword">return</span> outputs</code></pre>
+  </div>
+
+  <div class="mermaid" data-processed="true"><svg aria-roledescription="flowchart-v2" role="graphics-document document" viewBox="-8 -8 396 868.4296875" style="max-width: 396px;" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="100%" id="mermaid-1783856836183"><style>#mermaid-1783856836183{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;fill:#e6edf3;}#mermaid-1783856836183 .error-icon{fill:#0d1117;}#mermaid-1783856836183 .error-text{fill:#f2eee8;stroke:#f2eee8;}#mermaid-1783856836183 .edge-thickness-normal{stroke-width:2px;}#mermaid-1783856836183 .edge-thickness-thick{stroke-width:3.5px;}#mermaid-1783856836183 .edge-pattern-solid{stroke-dasharray:0;}#mermaid-1783856836183 .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-1783856836183 .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-1783856836183 .marker{fill:#58a6ff;stroke:#58a6ff;}#mermaid-1783856836183 .marker.cross{stroke:#58a6ff;}#mermaid-1783856836183 svg{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;}#mermaid-1783856836183 .label{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:#e6edf3;}#mermaid-1783856836183 .cluster-label text{fill:#e6edf3;}#mermaid-1783856836183 .cluster-label span,#mermaid-1783856836183 p{color:#e6edf3;}#mermaid-1783856836183 .label text,#mermaid-1783856836183 span,#mermaid-1783856836183 p{fill:#e6edf3;color:#e6edf3;}#mermaid-1783856836183 .node rect,#mermaid-1783856836183 .node circle,#mermaid-1783856836183 .node ellipse,#mermaid-1783856836183 .node polygon,#mermaid-1783856836183 .node path{fill:#161b22;stroke:#30363d;stroke-width:1px;}#mermaid-1783856836183 .flowchart-label text{text-anchor:middle;}#mermaid-1783856836183 .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#mermaid-1783856836183 .node .label{text-align:center;}#mermaid-1783856836183 .node.clickable{cursor:pointer;}#mermaid-1783856836183 .arrowheadPath{fill:#e3ded6;}#mermaid-1783856836183 .edgePath .path{stroke:#58a6ff;stroke-width:2.0px;}#mermaid-1783856836183 .flowchart-link{stroke:#58a6ff;fill:none;}#mermaid-1783856836183 .edgeLabel{background-color:#1c2129;text-align:center;}#mermaid-1783856836183 .edgeLabel rect{opacity:0.5;background-color:#1c2129;fill:#1c2129;}#mermaid-1783856836183 .labelBkg{background-color:rgba(28, 33, 41, 0.5);}#mermaid-1783856836183 .cluster rect{fill:rgba(88,166,255,0.05);stroke:#30363d;stroke-width:1px;}#mermaid-1783856836183 .cluster text{fill:#e6edf3;}#mermaid-1783856836183 .cluster span,#mermaid-1783856836183 p{color:#e6edf3;}#mermaid-1783856836183 div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:12px;background:#0d1117;border:1px solid hsl(216, 0%, 17.0588235294%);border-radius:2px;pointer-events:none;z-index:100;}#mermaid-1783856836183 .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#e6edf3;}#mermaid-1783856836183 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="6" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783856836183_flowchart-pointEnd"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 0 L 10 5 L 0 10 z"></path></marker><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="4.5" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783856836183_flowchart-pointStart"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 5 L 10 10 L 10 0 z"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="11" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783856836183_flowchart-circleEnd"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="-1" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783856836183_flowchart-circleStart"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="12" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783856836183_flowchart-crossEnd"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="-1" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783856836183_flowchart-crossStart"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><g class="root"><g class="clusters"></g><g class="edgePaths"><path marker-end="url(#mermaid-1783856836183_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-input LE-shared" id="L-input-shared-0" d="M139.306,37.094L129.6,41.26C119.894,45.427,100.482,53.76,90.776,65.185C81.07,76.609,81.07,91.125,81.07,107.482C81.07,123.839,81.07,142.036,81.07,162.076C81.07,182.115,81.07,203.995,81.07,224.034C81.07,244.073,81.07,262.271,81.07,280.469C81.07,298.667,81.07,316.865,81.07,335.063C81.07,353.26,81.07,371.458,81.07,389.656C81.07,407.854,81.07,426.052,81.07,444.25C81.07,462.448,81.07,480.646,81.07,498.844C81.07,517.042,81.07,535.24,81.07,553.438C81.07,571.635,81.07,589.833,81.07,602.216C81.07,614.598,81.07,621.165,81.07,624.448L81.07,627.731"></path><path marker-end="url(#mermaid-1783856836183_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-input LE-router" id="L-input-router-0" d="M225.713,37.094L235.419,41.26C245.125,45.427,264.537,53.76,274.243,61.21C283.949,68.66,283.949,75.227,283.949,78.51L283.949,81.794"></path><path marker-end="url(#mermaid-1783856836183_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-router LE-prep" id="L-router-prep-0" d="M283.949,124.188L283.949,130.195C283.949,136.203,283.949,148.219,283.949,159.351C283.949,170.483,283.949,180.732,283.949,185.857L283.949,190.981"></path><path marker-end="url(#mermaid-1783856836183_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-prep LE-dispatch" id="L-prep-dispatch-0" d="M283.949,255.469L283.949,259.635C283.949,263.802,283.949,272.135,283.949,279.585C283.949,287.035,283.949,293.602,283.949,296.885L283.949,300.169"></path><path marker-end="url(#mermaid-1783856836183_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-dispatch LE-compute" id="L-dispatch-compute-0" d="M283.949,364.656L283.949,368.823C283.949,372.99,283.949,381.323,283.949,388.773C283.949,396.223,283.949,402.79,283.949,406.073L283.949,409.356"></path><path marker-end="url(#mermaid-1783856836183_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-compute LE-combine_a2a" id="L-compute-combine_a2a-0" d="M283.949,473.844L283.949,478.01C283.949,482.177,283.949,490.51,283.949,497.96C283.949,505.41,283.949,511.977,283.949,515.26L283.949,518.544"></path><path marker-end="url(#mermaid-1783856836183_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-combine_a2a LE-unp" id="L-combine_a2a-unp-0" d="M283.949,583.031L283.949,587.198C283.949,591.365,283.949,599.698,283.949,607.148C283.949,614.598,283.949,621.165,283.949,624.448L283.949,627.731"></path><path marker-end="url(#mermaid-1783856836183_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-shared LE-add" id="L-shared-add-0" d="M81.07,692.219L81.07,696.385C81.07,700.552,81.07,708.885,95.334,718.193C109.597,727.5,138.123,737.781,152.387,742.921L166.65,748.061"></path><path marker-end="url(#mermaid-1783856836183_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-unp LE-add" id="L-unp-add-0" d="M283.949,692.219L283.949,696.385C283.949,700.552,283.949,708.885,269.686,718.193C255.423,727.5,226.896,737.781,212.633,742.921L198.37,748.061"></path><path marker-end="url(#mermaid-1783856836183_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-add LE-output" id="L-add-output-0" d="M182.51,765.336L182.51,769.503C182.51,773.669,182.51,782.003,182.51,789.453C182.51,796.903,182.51,803.469,182.51,806.753L182.51,810.036"></path></g><g class="edgeLabels"><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g transform="translate(283.94921875, 160.234375)" class="edgeLabel"><g transform="translate(-59.5859375, -11.046875)" class="label"><foreignobject height="22.09375" width="119.171875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel">probs, routing_map</span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g></g><g class="nodes"><g transform="translate(182.509765625, 18.546875)" data-id="input" data-node="true" id="flowchart-input-0" class="node default default flowchart-label"><rect height="37.09375" width="174.2890625" y="-18.546875" x="-87.14453125" ry="0" rx="0" style="fill:#161b22;stroke:#58a6ff;stroke-width:2px;" class="basic label-container"></rect><g transform="translate(-79.64453125, -11.046875)" style="color:#58a6ff;" class="label"><rect></rect><foreignobject height="22.09375" width="159.2890625"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(88, 166, 255); display: inline-block; white-space: nowrap;"><span style="color:#58a6ff;" class="nodeLabel">hidden_states [S/TP, B, H]</span></div></foreignobject></g></g><g transform="translate(81.0703125, 662.625)" data-id="shared" data-node="true" id="flowchart-shared-2" class="node default default flowchart-label"><rect height="59.1875" width="162.140625" y="-29.59375" x="-81.0703125" ry="0" rx="0" style="fill:#161b22;stroke:#d2a8ff;stroke-width:2px;" class="basic label-container"></rect><g transform="translate(-73.5703125, -22.09375)" style="color:#d2a8ff;" class="label"><rect></rect><foreignobject height="44.1875" width="147.140625"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(210, 168, 255); display: inline-block; white-space: nowrap;"><span style="color:#d2a8ff;" class="nodeLabel">SharedExpertMLP<br>(可选, 在原始输入上计算)</span></div></foreignobject></g></g><g transform="translate(283.94921875, 105.640625)" data-id="router" data-node="true" id="flowchart-router-4" class="node default default flowchart-label"><rect height="37.09375" width="85.9609375" y="-18.546875" x="-42.98046875" ry="0" rx="0" style="fill:#161b22;stroke:#3fb950;stroke-width:2px;" class="basic label-container"></rect><g transform="translate(-35.48046875, -11.046875)" style="color:#3fb950;" class="label"><rect></rect><foreignobject height="22.09375" width="70.9609375"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(63, 185, 80); display: inline-block; white-space: nowrap;"><span style="color:#3fb950;" class="nodeLabel">TopKRouter</span></div></foreignobject></g></g><g transform="translate(283.94921875, 225.875)" data-id="prep" data-node="true" id="flowchart-prep-6" class="node default default flowchart-label"><rect height="59.1875" width="119.625" y="-29.59375" x="-59.8125" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-52.3125, -22.09375)" style="" class="label"><rect></rect><foreignobject height="44.1875" width="104.625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">preprocess<br>(permute tokens)</span></div></foreignobject></g></g><g transform="translate(283.94921875, 335.0625)" data-id="dispatch" data-node="true" id="flowchart-dispatch-8" class="node default default flowchart-label"><rect height="59.1875" width="124.671875" y="-29.59375" x="-62.3359375" ry="0" rx="0" style="fill:#161b22;stroke:#f0883e;stroke-width:2px;" class="basic label-container"></rect><g transform="translate(-54.8359375, -22.09375)" style="color:#f0883e;" class="label"><rect></rect><foreignobject height="44.1875" width="109.671875"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(240, 136, 62); display: inline-block; white-space: nowrap;"><span style="color:#f0883e;" class="nodeLabel">All-to-All dispatch<br>(跨 EP rank 分发)</span></div></foreignobject></g></g><g transform="translate(283.94921875, 444.25)" data-id="compute" data-node="true" id="flowchart-compute-10" class="node default default flowchart-label"><rect height="59.1875" width="192.1015625" y="-29.59375" x="-96.05078125" ry="0" rx="0" style="fill:#161b22;stroke:#3fb950;" class="basic label-container"></rect><g transform="translate(-88.55078125, -22.09375)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="44.1875" width="177.1015625"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel">local experts compute<br>(GroupedGEMM / Sequential)</span></div></foreignobject></g></g><g transform="translate(283.94921875, 553.4375)" data-id="combine_a2a" data-node="true" id="flowchart-combine_a2a-12" class="node default default flowchart-label"><rect height="59.1875" width="124.5625" y="-29.59375" x="-62.28125" ry="0" rx="0" style="fill:#161b22;stroke:#f0883e;stroke-width:2px;" class="basic label-container"></rect><g transform="translate(-54.78125, -22.09375)" style="color:#f0883e;" class="label"><rect></rect><foreignobject height="44.1875" width="109.5625"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(240, 136, 62); display: inline-block; white-space: nowrap;"><span style="color:#f0883e;" class="nodeLabel">All-to-All combine<br>(跨 EP rank 收集)</span></div></foreignobject></g></g><g transform="translate(283.94921875, 662.625)" data-id="unp" data-node="true" id="flowchart-unp-14" class="node default default flowchart-label"><rect height="59.1875" width="143.6171875" y="-29.59375" x="-71.80859375" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-64.30859375, -22.09375)" style="" class="label"><rect></rect><foreignobject height="44.1875" width="128.6171875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">unpermute<br>(恢复原始 token 顺序)</span></div></foreignobject></g></g><g transform="translate(182.509765625, 753.77734375)" data-id="add" data-node="true" id="flowchart-add-16" class="node default default flowchart-label"><circle height="37.09375" width="23.1171875" r="11.55859375" ry="0" rx="0" style="fill:#0d1117;stroke:#58a6ff;"></circle><g transform="translate(-4.05859375, -11.046875)" style="color:#58a6ff;" class="label"><rect></rect><foreignobject height="22.09375" width="8.1171875"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(88, 166, 255); display: inline-block; white-space: nowrap;"><span style="color:#58a6ff;" class="nodeLabel">+</span></div></foreignobject></g></g><g transform="translate(182.509765625, 833.8828125)" data-id="output" data-node="true" id="flowchart-output-20" class="node default default flowchart-label"><rect height="37.09375" width="128.2578125" y="-18.546875" x="-64.12890625" ry="0" rx="0" style="fill:#161b22;stroke:#58a6ff;stroke-width:2px;" class="basic label-container"></rect><g transform="translate(-56.62890625, -11.046875)" style="color:#58a6ff;" class="label"><rect></rect><foreignobject height="22.09375" width="113.2578125"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(88, 166, 255); display: inline-block; white-space: nowrap;"><span style="color:#58a6ff;" class="nodeLabel">output [S/TP, B, H]</span></div></foreignobject></g></g></g></g></g></svg></div>
+
+  <div class="callout callout-info">
+    <div class="callout-title">MoELayer 替换 MLP</div>
+    在 Megatron 的 Layer Spec 机制中，MoE 层通过将 <code>TransformerLayerSubmodules.mlp</code> 的 spec 从普通 <code>MLP</code> 替换为 <code>MoELayer</code> 来启用。MoE 层在 TransformerLayer 中的位置与 MLP 完全相同：位于第二个 LayerNorm 之后，接收 <code>[S/TP, B, H]</code> 的输入，输出相同形状的张量。
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>moe_layer.py — MoELayer.__init__() 四大组件初始化</span>
+      <span class="lines">L108-179</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">class</span> <span class="hljs-title class_">MoELayer</span>(<span class="hljs-title class_ inherited__">BaseMoELayer</span>):
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">__init__</span>(<span class="hljs-params">self, config, submodules, layer_number, pg_collection</span>):
+        <span class="hljs-built_in">super</span>().__init__(config=config, ...)
+
+        <span class="hljs-comment"># ---- 1. Router ----</span>
+        self.router = TopKRouter(config=self.config, pg_collection=pg_collection)
+
+        <span class="hljs-comment"># ---- 2. Token Dispatcher ----</span>
+        <span class="hljs-keyword">if</span> config.moe_token_dispatcher_type == <span class="hljs-string">"alltoall"</span>:
+            self.token_dispatcher = MoEAlltoAllTokenDispatcher(...)
+        <span class="hljs-keyword">elif</span> config.moe_token_dispatcher_type == <span class="hljs-string">"allgather"</span>:
+            self.token_dispatcher = MoEAllGatherTokenDispatcher(...)
+        <span class="hljs-keyword">elif</span> config.moe_token_dispatcher_type == <span class="hljs-string">"flex"</span>:
+            self.token_dispatcher = MoEFlexTokenDispatcher(...)
+
+        <span class="hljs-comment"># ---- 3. Routed Experts ----</span>
+        self.experts = build_module(submodules.experts, self.num_local_experts, ...)
+
+        <span class="hljs-comment"># ---- 4. Shared Experts (可选) ----</span>
+        <span class="hljs-keyword">if</span> self.use_shared_expert:
+            self.shared_experts = build_module(submodules.shared_experts, ...)
+            <span class="hljs-keyword">if</span> self.shared_expert_overlap:
+                self.token_dispatcher.set_shared_experts(self.shared_experts)</code></pre>
+  </div>
+</section>
+
+<!-- ==================== 02. Expert Parallelism ==================== -->
+<section id="sec02">
+  <div class="section-header">
+    <span class="section-num">02</span>
+    <h2>Expert Parallelism</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">EP</span>
+    <span class="tag tag-purple">Expert TP</span>
+    <span class="tag tag-orange">Expert DP</span>
+  </div>
+
+  <div class="prose">
+    <p><strong>Expert Parallelism（EP）</strong> 是 MoE 模型特有的并行策略：将 expert 分配到不同 GPU 上，每个 GPU 只持有总 expert 数的一个子集。例如 64 个 expert 分到 8 个 EP rank 上，每个 rank 持有 8 个 local expert。</p>
+    <p>与 TP/PP/DP 不同，EP 不切分单个 expert 的参数，而是将<strong>不同的 expert 放到不同 rank</strong>。由于每个 token 只被路由到 top-k 个 expert，而这些 expert 可能分布在不同 rank 上，因此需要 <strong>All-to-All</strong> 通信来跨 rank 交换 token。</p>
+  </div>
+
+  <table class="arch-grid">
+    <thead>
+      <tr>
+        <th>EP Rank 0</th>
+        <th>EP Rank 1</th>
+        <th>EP Rank 2</th>
+        <th>EP Rank 3</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>
+          <span class="layer-badge s0">E0</span> <span class="layer-badge s0">E1</span><br>
+          <span class="layer-badge s0">E2</span> <span class="layer-badge s0">E3</span>
+          <span class="tp-label">num_local_experts = 4</span>
+        </td>
+        <td>
+          <span class="layer-badge s1">E4</span> <span class="layer-badge s1">E5</span><br>
+          <span class="layer-badge s1">E6</span> <span class="layer-badge s1">E7</span>
+          <span class="tp-label">num_local_experts = 4</span>
+        </td>
+        <td>
+          <span class="layer-badge s2">E8</span> <span class="layer-badge s2">E9</span><br>
+          <span class="layer-badge s2">E10</span> <span class="layer-badge s2">E11</span>
+          <span class="tp-label">num_local_experts = 4</span>
+        </td>
+        <td>
+          <span class="layer-badge s3">E12</span> <span class="layer-badge s3">E13</span><br>
+          <span class="layer-badge s3">E14</span> <span class="layer-badge s3">E15</span>
+          <span class="tp-label">num_local_experts = 4</span>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="op-vis" style="padding:10px 24px;margin-top:-10px">
+    <div class="op-note">EP=4, 16 experts · 每个 rank 持有 16 / 4 = 4 个 local expert · All-to-All 通信在 EP group 内进行</div>
+  </div>
+
+  <div class="prose">
+    <p>Megatron 的 MoE 并行涉及三个独立的通信组：</p>
+  </div>
+
+  <table class="data-table">
+    <thead>
+      <tr><th>通信组</th><th>配置</th><th>用途</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>EP group</strong></td>
+        <td><code>expert_model_parallel_size</code></td>
+        <td>expert 分布的维度，All-to-All token 交换发生在此组内</td>
+      </tr>
+      <tr>
+        <td><strong>Expert TP group</strong></td>
+        <td><code>expert_tensor_parallel_size</code></td>
+        <td>对单个 expert 的 MLP 做 TP 切分（当 expert FFN 太大时使用），与 Attention 的 TP 组独立</td>
+      </tr>
+      <tr>
+        <td><strong>Expert DP group</strong></td>
+        <td>自动计算</td>
+        <td>Expert 级别的数据并行，持有相同 expert 副本的 rank 组成此组，用于梯度同步</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-key">
+    <div class="callout-title">EP 与 TP 的区别</div>
+    <strong>TP</strong> 是将单个大矩阵按列/行切分到多个 rank，每个 rank 持有同一层参数的一部分，通过 AllReduce 聚合。<strong>EP</strong> 是将不同的 expert 放到不同 rank，每个 rank 持有完整但不同的 expert，通过 All-to-All 交换 token。两者可以组合使用：先用 EP 将 expert 分到不同 rank，再用 Expert TP 对每个 expert 内部做 TP 切分。
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>moe_layer.py — BaseMoELayer.__init__() EP 初始化</span>
+      <span class="lines">L54-84</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">class</span> <span class="hljs-title class_">BaseMoELayer</span>(MegatronModule, ABC):
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">__init__</span>(<span class="hljs-params">self, config, layer_number, pg_collection</span>):
+        <span class="hljs-built_in">super</span>().__init__(config)
+        self.ep_group = pg_collection.ep
+        ep_size = utils.get_pg_size(self.ep_group)
+        ep_rank = utils.get_pg_rank(self.ep_group)
+
+        <span class="hljs-comment"># 每个 EP rank 持有的 local expert 数量</span>
+        <span class="hljs-keyword">assert</span> self.config.num_moe_experts % ep_size == <span class="hljs-number">0</span>
+        self.num_local_experts = self.config.num_moe_experts // ep_size
+
+        <span class="hljs-comment"># 本 rank 负责的 expert 索引范围</span>
+        local_expert_indices_offset = ep_rank * self.num_local_experts
+        self.local_expert_indices = [
+            local_expert_indices_offset + i
+            <span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(self.num_local_experts)
+        ]</code></pre>
+  </div>
+
+  <table class="arch-grid">
+    <thead>
+      <tr>
+        <th></th>
+        <th>EP Rank 0</th>
+        <th>EP Rank 1</th>
+        <th>EP Rank 2</th>
+        <th>EP Rank 3</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="row-label">Expert TP=0</td>
+        <td><span class="gpu tp0">GPU 0</span></td>
+        <td><span class="gpu tp0">GPU 2</span></td>
+        <td><span class="gpu tp0">GPU 4</span></td>
+        <td><span class="gpu tp0">GPU 6</span></td>
+      </tr>
+      <tr>
+        <td class="row-label">Expert TP=1</td>
+        <td><span class="gpu tp1">GPU 1</span></td>
+        <td><span class="gpu tp1">GPU 3</span></td>
+        <td><span class="gpu tp1">GPU 5</span></td>
+        <td><span class="gpu tp1">GPU 7</span></td>
+      </tr>
+      <tr>
+        <td class="row-label">Experts</td>
+        <td><span class="layer-badge s0">E0</span> <span class="layer-badge s0">E1</span><span class="tp-label">TP=2 切分</span></td>
+        <td><span class="layer-badge s1">E2</span> <span class="layer-badge s1">E3</span><span class="tp-label">TP=2 切分</span></td>
+        <td><span class="layer-badge s2">E4</span> <span class="layer-badge s2">E5</span><span class="tp-label">TP=2 切分</span></td>
+        <td><span class="layer-badge s3">E6</span> <span class="layer-badge s3">E7</span><span class="tp-label">TP=2 切分</span></td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="op-vis" style="padding:10px 24px;margin-top:-10px">
+    <div class="op-note">EP group: {GPU0, GPU2, GPU4, GPU6} 和 {GPU1, GPU3, GPU5, GPU7}<br>Expert TP group: {GPU0, GPU1}, {GPU2, GPU3}, {GPU4, GPU5}, {GPU6, GPU7}</div>
+  </div>
+</section>
+
+<!-- ==================== 03. TopKRouter 路由机制 ==================== -->
+<section id="sec03">
+  <div class="section-header">
+    <span class="section-num">03</span>
+    <h2>TopKRouter 路由机制</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">router.py</span>
+    <span class="tag tag-green">TopKRouter</span>
+    <span class="tag tag-purple">softmax / sigmoid</span>
+  </div>
+
+  <div class="prose">
+    <p><code>TopKRouter</code> 是 Megatron MoE 唯一的 Router 实现，负责将每个 token 路由到 top-k 个 expert。Router 的核心是一个<strong>线性门控网络</strong>（gating network）：一个形状为 <code>[E, H]</code> 的权重矩阵，将 <code>hidden_states [num_tokens, H]</code> 投影到 <code>[num_tokens, E]</code> 的 logits 空间，其中 E 为 expert 总数。</p>
+    <p>Router 的完整前向流程如下：</p>
+  </div>
+
+  <div class="flow-steps">
+    <div class="flow-step">
+      <div class="flow-line">
+        <div class="flow-dot"></div>
+        <div class="flow-connector"></div>
+      </div>
+      <div class="flow-content">
+        <h4>① Input Jitter（可选）</h4>
+        <p>为输入添加均匀噪声 <code>input * U(1-eps, 1+eps)</code>，增强训练稳定性（参考 ST-MoE）。通过 <code>moe_input_jitter_eps</code> 控制。</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line">
+        <div class="flow-dot green"></div>
+        <div class="flow-connector"></div>
+      </div>
+      <div class="flow-content">
+        <h4>② Gating（线性投影）</h4>
+        <p><code>logits = hidden_states @ W_gate.T</code>，输出形状 <code>[num_tokens, num_experts]</code>。Gate 权重默认使用 FP32 精度（<code>self.weight.fp32 = True</code>）。</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line">
+        <div class="flow-dot purple"></div>
+        <div class="flow-connector"></div>
+      </div>
+      <div class="flow-content">
+        <h4>③ Z-Loss（可选）</h4>
+        <p>鼓励 logits 保持较小值以增强训练稳定性：<mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="0" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mtext class="mjx-n"><mjx-c class="mjx-c7A"></mjx-c><mjx-c class="mjx-c5C"></mjx-c><mjx-c class="mjx-c5F"></mjx-c><mjx-c class="mjx-c6C"></mjx-c><mjx-c class="mjx-c6F"></mjx-c><mjx-c class="mjx-c73"></mjx-c><mjx-c class="mjx-c73"></mjx-c></mjx-mtext><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mtext class="mjx-n" space="4"><mjx-c class="mjx-c63"></mjx-c><mjx-c class="mjx-c6F"></mjx-c><mjx-c class="mjx-c65"></mjx-c><mjx-c class="mjx-c66"></mjx-c><mjx-c class="mjx-c66"></mjx-c></mjx-mtext><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-mtext class="mjx-n" space="3"><mjx-c class="mjx-c6D"></mjx-c><mjx-c class="mjx-c65"></mjx-c><mjx-c class="mjx-c61"></mjx-c><mjx-c class="mjx-c6E"></mjx-c></mjx-mtext><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mtext class="mjx-n"><mjx-c class="mjx-c6C"></mjx-c><mjx-c class="mjx-c6F"></mjx-c><mjx-c class="mjx-c67"></mjx-c><mjx-c class="mjx-c73"></mjx-c><mjx-c class="mjx-c75"></mjx-c><mjx-c class="mjx-c6D"></mjx-c><mjx-c class="mjx-c65"></mjx-c><mjx-c class="mjx-c78"></mjx-c><mjx-c class="mjx-c70"></mjx-c></mjx-mtext><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mtext class="mjx-n"><mjx-c class="mjx-c6C"></mjx-c><mjx-c class="mjx-c6F"></mjx-c><mjx-c class="mjx-c67"></mjx-c><mjx-c class="mjx-c69"></mjx-c><mjx-c class="mjx-c74"></mjx-c><mjx-c class="mjx-c73"></mjx-c></mjx-mtext><mjx-msup><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo><mjx-script style="vertical-align: 0.363em;"><mjx-mn class="mjx-n" size="s"><mjx-c class="mjx-c32"></mjx-c></mjx-mn></mjx-script></mjx-msup><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mtext>z\_loss</mtext><mo>=</mo><mtext>coeff</mtext><mo>⋅</mo><mtext>mean</mtext><mo stretchy="false">(</mo><mtext>logsumexp</mtext><mo stretchy="false">(</mo><mtext>logits</mtext><msup><mo stretchy="false">)</mo><mn>2</mn></msup><mo stretchy="false">)</mo></math></mjx-assistive-mml></mjx-container>。来自 ST-MoE 论文。</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line">
+        <div class="flow-dot orange"></div>
+        <div class="flow-connector"></div>
+      </div>
+      <div class="flow-content">
+        <h4>④ Top-K 选择 + Score Function</h4>
+        <p>通过 <code>topk_routing_with_score_function()</code> 计算路由。支持两种 score function：<strong>softmax</strong>（传统方式）和 <strong>sigmoid</strong>（DeepSeek-V3 风格）。sigmoid 模式下，<code>expert_bias</code> 作为参数传入，在 top-k 选择时加到 logits 上。输出 <code>probs [num_tokens, E]</code> 和 <code>routing_map [num_tokens, E]</code>（bool 掩码）。</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line">
+        <div class="flow-dot"></div>
+      </div>
+      <div class="flow-content">
+        <h4>⑤ _apply_expert_bias（更新 token 计数 buffer）</h4>
+        <p>统计本步各专家收到的 token 数，写入 <code>local_tokens_per_expert</code> buffer，用于下一步更新 <code>expert_bias</code>（不影响当前步路由）。仅在 <code>moe_router_enable_expert_bias=True</code> 且 <code>torch.is_grad_enabled()</code> 时执行。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>moe_utils.py — topk_routing_with_score_function() sigmoid 分支</span>
+      <span class="lines">L528-630</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">def</span> <span class="hljs-title function_">topk_routing_with_score_function</span>(<span class="hljs-params">
+    logits, topk, use_pre_softmax=<span class="hljs-literal">False</span>, num_groups=<span class="hljs-literal">None</span>,
+    group_topk=<span class="hljs-literal">None</span>, scaling_factor=<span class="hljs-literal">None</span>, score_function=<span class="hljs-string">"softmax"</span>,
+    expert_bias=<span class="hljs-literal">None</span>, fused=<span class="hljs-literal">False</span>,
+</span>):
+    <span class="hljs-keyword">if</span> score_function == <span class="hljs-string">"sigmoid"</span>:
+        scores = torch.sigmoid(logits.<span class="hljs-built_in">float</span>()).type_as(logits)
+        <span class="hljs-keyword">if</span> expert_bias <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span>:
+            <span class="hljs-comment"># expert_bias 在 top-k 选择时加到 scores 上</span>
+            scores_for_routing = scores + expert_bias
+            _, top_indices = compute_topk(scores_for_routing, topk, ...)
+            <span class="hljs-comment"># 但 probs 仍然使用原始 scores（不含 bias）</span>
+            scores = torch.gather(scores, dim=<span class="hljs-number">1</span>, index=top_indices)
+        <span class="hljs-keyword">else</span>:
+            scores, top_indices = compute_topk(scores, topk, ...)
+
+        <span class="hljs-keyword">if</span> topk &gt; <span class="hljs-number">1</span>:
+            probs = scores / (scores.<span class="hljs-built_in">sum</span>(dim=-<span class="hljs-number">1</span>, keepdim=<span class="hljs-literal">True</span>) + <span class="hljs-number">1e-20</span>)
+        <span class="hljs-keyword">else</span>:
+            probs = scores
+
+    routing_probs = torch.zeros_like(logits).scatter(<span class="hljs-number">1</span>, top_indices, probs)
+    routing_map = torch.zeros_like(logits).<span class="hljs-built_in">int</span>().scatter(<span class="hljs-number">1</span>, top_indices, <span class="hljs-number">1</span>).<span class="hljs-built_in">bool</span>()
+    <span class="hljs-keyword">return</span> routing_probs, routing_map</code></pre>
+  </div>
+
+  <div class="callout callout-key">
+    <div class="callout-title">Softmax vs Sigmoid 路由</div>
+    <strong>Softmax</strong>（传统方式）：所有 expert 的概率和为 1，形成零和博弈。支持 <code>pre_softmax</code>（先 softmax 再 top-k）和 <code>post_softmax</code>（先 top-k 再 softmax）两种模式。<strong>Sigmoid</strong>（DeepSeek-V3 风格）：每个 expert 独立计算分数，不受其他 expert 约束。当 top-k &gt; 1 时，对选中的 expert 做归一化（scores / sum）。sigmoid 模式支持 <code>expert_bias</code> 来动态调整路由偏好。
+  </div>
+
+  <div class="prose">
+    <p><strong>Group TopK</strong>：当配置了 <code>moe_router_num_groups</code> 和 <code>moe_router_group_topk</code> 时，expert 被分成若干组，先在组间选 top-k_group 个组，再在选中的组内选 top-k 个 expert。这是 DeepSeek-V3 使用的分组路由策略。</p>
+  </div>
+</section>
+
+<!-- ==================== 04. 负载均衡策略 ==================== -->
+<section id="sec04">
+  <div class="section-header">
+    <span class="section-num">04</span>
+    <h2>负载均衡策略</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">Aux Loss</span>
+    <span class="tag tag-green">Sinkhorn</span>
+    <span class="tag tag-purple">Expert Bias</span>
+  </div>
+
+  <div class="prose">
+    <p>MoE 训练的核心挑战之一是<strong>负载不均衡</strong>：如果 router 总是把 token 发给少数几个 expert，其余 expert 的参数就浪费了。Megatron 提供了多种负载均衡策略，通过 <code>moe_router_load_balancing_type</code> 配置。</p>
+  </div>
+
+  <table class="data-table">
+    <thead>
+      <tr><th>策略</th><th>核心思想</th><th>配置</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Aux Loss</strong></td>
+        <td>Switch Transformer 的辅助损失，在 micro-batch 级别鼓励 token 均匀分配。<code>loss = E * Σ f_i * P_i</code>，其中 f_i 是 expert i 的 token 占比，P_i 是平均路由概率。</td>
+        <td><code>moe_router_load_balancing_type="aux_loss"</code><br><code>moe_aux_loss_coeff=0.01</code></td>
+      </tr>
+      <tr>
+        <td><strong>Seq Aux Loss</strong></td>
+        <td>序列级别辅助损失：将 batch 维度 reshape 到 expert 维度，对每个序列独立计算 aux loss 后取平均。粒度更细。</td>
+        <td><code>moe_router_load_balancing_type="seq_aux_loss"</code></td>
+      </tr>
+      <tr>
+        <td><strong>Global Aux Loss</strong></td>
+        <td>全局级别辅助损失：跨所有 DP rank 累积 token 分布（使用滑动平均），在全局维度上鼓励均衡。参考 DeepSeek-V3 论文。</td>
+        <td><code>moe_router_load_balancing_type="global_aux_loss"</code></td>
+      </tr>
+      <tr>
+        <td><strong>Sinkhorn</strong></td>
+        <td>使用 Sinkhorn 迭代（双随机矩阵归一化）使 token-expert 分配矩阵接近均匀，无需额外损失项。</td>
+        <td><code>moe_router_load_balancing_type="sinkhorn"</code></td>
+      </tr>
+      <tr>
+        <td><strong>Expert Bias</strong></td>
+        <td>为每个 expert 维护一个可训练的 bias（DeepSeek-V3 风格），在 top-k 选择时加到 logits 上引导路由。bias 根据 token 分布的不均衡程度动态更新。</td>
+        <td><code>moe_router_enable_expert_bias=True</code></td>
+      </tr>
+      <tr>
+        <td><strong>None</strong></td>
+        <td>不使用任何负载均衡（仅用于测试/基准）。</td>
+        <td><code>moe_router_load_balancing_type="none"</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="prose">
+    <p><strong>多策略组合</strong>：<code>moe_router_load_balancing_type</code> 可以接受列表，同时启用多种策略。例如 <code>["aux_loss", "global_aux_loss"]</code> 会在同一个前向中依次应用两种 aux loss。对应的 <code>moe_aux_loss_coeff</code> 也需要是列表。</p>
+  </div>
+
+  <div class="callout callout-info">
+    <div class="callout-title">Aux Loss 的数学公式</div>
+    Switch Transformer 辅助损失：
+    <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" display="true" tabindex="0" ctxtmenu_counter="1" style="font-size: 119.1%; position: relative;"><mjx-math display="true" class="MJX-TEX" aria-hidden="true" style="margin-left: 0px; margin-right: 0px;"><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D43F TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em;"><mjx-texatom size="s" texclass="ORD"><mjx-mtext class="mjx-n"><mjx-c class="mjx-c61"></mjx-c><mjx-c class="mjx-c75"></mjx-c><mjx-c class="mjx-c78"></mjx-c></mjx-mtext></mjx-texatom></mjx-script></mjx-msub><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="4"><mjx-c class="mjx-c1D438 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-mtext class="mjx-n" space="3"><mjx-c class="mjx-c63"></mjx-c><mjx-c class="mjx-c6F"></mjx-c><mjx-c class="mjx-c65"></mjx-c><mjx-c class="mjx-c66"></mjx-c><mjx-c class="mjx-c66"></mjx-c></mjx-mtext><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-munderover space="3"><mjx-over style="padding-bottom: 0.2em; padding-left: 0.452em;"><mjx-texatom size="s" texclass="ORD"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D438 TEX-I"></mjx-c></mjx-mi></mjx-texatom></mjx-over><mjx-box><mjx-munder><mjx-row><mjx-base><mjx-mo class="mjx-lop"><mjx-c class="mjx-c2211 TEX-S2"></mjx-c></mjx-mo></mjx-base></mjx-row><mjx-row><mjx-under style="padding-top: 0.167em; padding-left: 0.148em;"><mjx-texatom size="s" texclass="ORD"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn></mjx-texatom></mjx-under></mjx-row></mjx-munder></mjx-box></mjx-munderover><mjx-msub space="2"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D453 TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em; margin-left: -0.06em;"><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi></mjx-script></mjx-msub><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-msub space="3"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D443 TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em; margin-left: -0.109em;"><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi></mjx-script></mjx-msub></mjx-math><mjx-assistive-mml unselectable="on" display="block"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><msub><mi>L</mi><mrow data-mjx-texclass="ORD"><mtext>aux</mtext></mrow></msub><mo>=</mo><mi>E</mi><mo>⋅</mo><mtext>coeff</mtext><mo>⋅</mo><munderover><mo data-mjx-texclass="OP">∑</mo><mrow data-mjx-texclass="ORD"><mi>i</mi><mo>=</mo><mn>1</mn></mrow><mrow data-mjx-texclass="ORD"><mi>E</mi></mrow></munderover><msub><mi>f</mi><mi>i</mi></msub><mo>⋅</mo><msub><mi>P</mi><mi>i</mi></msub></math></mjx-assistive-mml></mjx-container>
+    其中 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="2" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D453 TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em; margin-left: -0.06em;"><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi></mjx-script></mjx-msub><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mfrac space="4"><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mn class="mjx-n" size="s"><mjx-c class="mjx-c31"></mjx-c></mjx-mn></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mrow size="s"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D447 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D458 TEX-I"></mjx-c></mjx-mi></mjx-mrow></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-munder space="2" limits="false"><mjx-mo class="mjx-sop"><mjx-c class="mjx-c2211 TEX-S1"></mjx-c></mjx-mo><mjx-script style="vertical-align: -0.285em;"><mjx-texatom size="s" texclass="ORD"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D465 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2208"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D435 TEX-I"></mjx-c></mjx-mi></mjx-texatom></mjx-script></mjx-munder><mjx-texatom space="2" texclass="ORD"><mjx-mn class="mjx-ds mjx-b"><mjx-utext variant="double-struck" style="font-size: 83.9%; padding: 0.894em 0px 0.238em;">𝟙</mjx-utext></mjx-mn></mjx-texatom><mjx-mo class="mjx-n"><mjx-c class="mjx-c5B"></mjx-c></mjx-mo><mjx-mtext class="mjx-n"><mjx-c class="mjx-c72"></mjx-c><mjx-c class="mjx-c6F"></mjx-c><mjx-c class="mjx-c75"></mjx-c><mjx-c class="mjx-c74"></mjx-c><mjx-c class="mjx-c69"></mjx-c><mjx-c class="mjx-c6E"></mjx-c><mjx-c class="mjx-c67"></mjx-c><mjx-c class="mjx-c5C"></mjx-c><mjx-c class="mjx-c5F"></mjx-c><mjx-c class="mjx-c6D"></mjx-c><mjx-c class="mjx-c61"></mjx-c><mjx-c class="mjx-c70"></mjx-c></mjx-mtext><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D465 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2C"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="2"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo><mjx-mo class="mjx-n"><mjx-c class="mjx-c5D"></mjx-c></mjx-mo></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>f</mi><mi>i</mi></msub><mo>=</mo><mfrac><mn>1</mn><mrow><mi>T</mi><mo>⋅</mo><mi>k</mi></mrow></mfrac><munder><mo data-mjx-texclass="OP">∑</mo><mrow data-mjx-texclass="ORD"><mi>x</mi><mo>∈</mo><mi>B</mi></mrow></munder><mrow data-mjx-texclass="ORD"><mn mathvariant="double-struck">1</mn></mrow><mo stretchy="false">[</mo><mtext>routing\_map</mtext><mo stretchy="false">(</mo><mi>x</mi><mo>,</mo><mi>i</mi><mo stretchy="false">)</mo><mo stretchy="false">]</mo></math></mjx-assistive-mml></mjx-container> 是 expert i 收到的 token 比例，<mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="3" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D443 TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em; margin-left: -0.109em;"><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi></mjx-script></mjx-msub><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mfrac space="4"><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mn class="mjx-n" size="s"><mjx-c class="mjx-c31"></mjx-c></mjx-mn></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D447 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-munder space="2" limits="false"><mjx-mo class="mjx-sop"><mjx-c class="mjx-c2211 TEX-S1"></mjx-c></mjx-mo><mjx-script style="vertical-align: -0.285em;"><mjx-texatom size="s" texclass="ORD"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D465 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2208"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D435 TEX-I"></mjx-c></mjx-mi></mjx-texatom></mjx-script></mjx-munder><mjx-mtext class="mjx-n" space="2"><mjx-c class="mjx-c70"></mjx-c><mjx-c class="mjx-c72"></mjx-c><mjx-c class="mjx-c6F"></mjx-c><mjx-c class="mjx-c62"></mjx-c><mjx-c class="mjx-c73"></mjx-c></mjx-mtext><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D465 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2C"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="2"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>P</mi><mi>i</mi></msub><mo>=</mo><mfrac><mn>1</mn><mi>T</mi></mfrac><munder><mo data-mjx-texclass="OP">∑</mo><mrow data-mjx-texclass="ORD"><mi>x</mi><mo>∈</mo><mi>B</mi></mrow></munder><mtext>probs</mtext><mo stretchy="false">(</mo><mi>x</mi><mo>,</mo><mi>i</mi><mo stretchy="false">)</mo></math></mjx-assistive-mml></mjx-container> 是分配给 expert i 的平均路由概率。当所有 expert 均匀分配时，<mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="4" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D453 TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em; margin-left: -0.06em;"><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi></mjx-script></mjx-msub><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="4"><mjx-c class="mjx-c31"></mjx-c></mjx-mn><mjx-texatom texclass="ORD"><mjx-mo class="mjx-n"><mjx-c class="mjx-c2F"></mjx-c></mjx-mo></mjx-texatom><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D438 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>f</mi><mi>i</mi></msub><mo>=</mo><mn>1</mn><mrow data-mjx-texclass="ORD"><mo>/</mo></mrow><mi>E</mi></math></mjx-assistive-mml></mjx-container>，<mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="5" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D443 TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em; margin-left: -0.109em;"><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi></mjx-script></mjx-msub><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="4"><mjx-c class="mjx-c1D458 TEX-I"></mjx-c></mjx-mi><mjx-texatom texclass="ORD"><mjx-mo class="mjx-n"><mjx-c class="mjx-c2F"></mjx-c></mjx-mo></mjx-texatom><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D438 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>P</mi><mi>i</mi></msub><mo>=</mo><mi>k</mi><mrow data-mjx-texclass="ORD"><mo>/</mo></mrow><mi>E</mi></math></mjx-assistive-mml></mjx-container>，loss 达到最小值 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="6" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D458 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-mtext class="mjx-n" space="3"><mjx-c class="mjx-c63"></mjx-c><mjx-c class="mjx-c6F"></mjx-c><mjx-c class="mjx-c65"></mjx-c><mjx-c class="mjx-c66"></mjx-c><mjx-c class="mjx-c66"></mjx-c></mjx-mtext></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>k</mi><mo>⋅</mo><mtext>coeff</mtext></math></mjx-assistive-mml></mjx-container>。
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>router.py — _apply_aux_loss() 核心逻辑</span>
+      <span class="lines">L283-319</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_apply_aux_loss</span>(<span class="hljs-params">self, probs, scores_for_aux_loss, routing_map</span>):
+    tokens_per_expert = routing_map.<span class="hljs-built_in">sum</span>(dim=<span class="hljs-number">0</span>)  <span class="hljs-comment"># [num_experts]</span>
+
+    <span class="hljs-comment"># EP &gt; 1: 跨 tp_ep 组 reduce，获取完整 EP 组的 token 分布</span>
+    <span class="hljs-comment"># EP = 1: 跨 tp_cp 组 reduce</span>
+    <span class="hljs-keyword">if</span> self.ep_group.size() &gt; <span class="hljs-number">1</span>:
+        reduce_group = self.tp_ep_group     <span class="hljs-comment"># expert_tp x EP</span>
+    <span class="hljs-keyword">else</span>:
+        reduce_group = self.tp_cp_group     <span class="hljs-comment"># TP x CP</span>
+
+    tokens_per_expert = reduce_from_tensor_model_parallel_region(
+        tokens_per_expert, reduce_group
+    )
+
+    aux_loss = switch_load_balancing_loss_func(
+        probs=scores_for_aux_loss,
+        tokens_per_expert=tokens_per_expert,
+        total_num_tokens=num_tokens * reduce_group.size(),
+        topk=self.topk,
+        num_experts=self.config.num_moe_experts,
+        moe_aux_loss_coeff=aux_loss_coeff,
+    )
+    <span class="hljs-comment"># 通过 MoEAuxLossAutoScaler 将 aux loss 附加到 probs 的梯度图上</span>
+    probs = MoEAuxLossAutoScaler.apply(probs, aux_loss)
+    <span class="hljs-keyword">return</span> probs</code></pre>
+  </div>
+
+  <div class="callout callout-warn">
+    <div class="callout-title">MoEAuxLossAutoScaler：巧妙的梯度注入</div>
+    Aux loss 不能直接加到主 loss 上（因为 MoE 层输出的是 hidden states 而非 loss）。Megatron 使用 <code>MoEAuxLossAutoScaler</code>（一个自定义 <code>autograd.Function</code>）将 aux loss 的梯度<strong>注入</strong>到 probs 张量上。前向时 probs 不变，反向时 aux loss 的梯度会流经 probs 传播到 router 的 gate 权重上，从而实现对 router 的正则化。
+  </div>
+</section>
+
+<!-- ==================== 05. Token Dispatcher ==================== -->
+<section id="sec05">
+  <div class="section-header">
+    <span class="section-num">05</span>
+    <h2>Token Dispatcher</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">token_dispatcher.py</span>
+    <span class="tag tag-green">AlltoAll</span>
+    <span class="tag tag-purple">AllGather</span>
+    <span class="tag tag-orange">Flex (DeepEP)</span>
+  </div>
+
+  <div class="prose">
+    <p>Token Dispatcher 负责将 token 从"按 rank 组织"转换为"按 expert 组织"，以及反向操作。这是 MoE 层最复杂的部分，因为它需要协调跨设备的通信和本地的 permute/unpermute 操作。</p>
+    <p>Megatron 提供三种 Token Dispatcher 实现：</p>
+  </div>
+
+  <table class="data-table">
+    <thead>
+      <tr><th>Dispatcher</th><th>通信方式</th><th>适用场景</th><th>配置</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>MoEAlltoAllTokenDispatcher</strong></td>
+        <td>EP 维度 All-to-All + TP 维度 AllGather/ReduceScatter</td>
+        <td>EP &gt; 1 的标准场景，通信量最优</td>
+        <td><code>moe_token_dispatcher_type="alltoall"</code></td>
+      </tr>
+      <tr>
+        <td><strong>MoEAllGatherTokenDispatcher</strong></td>
+        <td>TP*EP 维度 AllGather + ReduceScatter</td>
+        <td>EP == 1 或小规模场景，实现简单</td>
+        <td><code>moe_token_dispatcher_type="allgather"</code></td>
+      </tr>
+      <tr>
+        <td><strong>MoEFlexTokenDispatcher</strong></td>
+        <td>DeepEP / HybridEP 融合 kernel</td>
+        <td>高性能场景，permute + All-to-All 融合为一步</td>
+        <td><code>moe_token_dispatcher_type="flex"</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="prose">
+    <p>Token Dispatcher 的接口被拆分为<strong>六个阶段</strong>，将通信操作（可能在专用 stream 上异步执行）和本地计算操作分离，以实现最大化的通信-计算 overlap：</p>
+  </div>
+
+  <div class="mermaid" data-processed="true"><svg aria-roledescription="flowchart-v2" role="graphics-document document" viewBox="-8 -8 293.8125 730.3125" style="max-width: 293.8125px;" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="100%" id="mermaid-1783856836207"><style>#mermaid-1783856836207{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;fill:#e6edf3;}#mermaid-1783856836207 .error-icon{fill:#0d1117;}#mermaid-1783856836207 .error-text{fill:#f2eee8;stroke:#f2eee8;}#mermaid-1783856836207 .edge-thickness-normal{stroke-width:2px;}#mermaid-1783856836207 .edge-thickness-thick{stroke-width:3.5px;}#mermaid-1783856836207 .edge-pattern-solid{stroke-dasharray:0;}#mermaid-1783856836207 .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-1783856836207 .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-1783856836207 .marker{fill:#58a6ff;stroke:#58a6ff;}#mermaid-1783856836207 .marker.cross{stroke:#58a6ff;}#mermaid-1783856836207 svg{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;}#mermaid-1783856836207 .label{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:#e6edf3;}#mermaid-1783856836207 .cluster-label text{fill:#e6edf3;}#mermaid-1783856836207 .cluster-label span,#mermaid-1783856836207 p{color:#e6edf3;}#mermaid-1783856836207 .label text,#mermaid-1783856836207 span,#mermaid-1783856836207 p{fill:#e6edf3;color:#e6edf3;}#mermaid-1783856836207 .node rect,#mermaid-1783856836207 .node circle,#mermaid-1783856836207 .node ellipse,#mermaid-1783856836207 .node polygon,#mermaid-1783856836207 .node path{fill:#161b22;stroke:#30363d;stroke-width:1px;}#mermaid-1783856836207 .flowchart-label text{text-anchor:middle;}#mermaid-1783856836207 .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#mermaid-1783856836207 .node .label{text-align:center;}#mermaid-1783856836207 .node.clickable{cursor:pointer;}#mermaid-1783856836207 .arrowheadPath{fill:#e3ded6;}#mermaid-1783856836207 .edgePath .path{stroke:#58a6ff;stroke-width:2.0px;}#mermaid-1783856836207 .flowchart-link{stroke:#58a6ff;fill:none;}#mermaid-1783856836207 .edgeLabel{background-color:#1c2129;text-align:center;}#mermaid-1783856836207 .edgeLabel rect{opacity:0.5;background-color:#1c2129;fill:#1c2129;}#mermaid-1783856836207 .labelBkg{background-color:rgba(28, 33, 41, 0.5);}#mermaid-1783856836207 .cluster rect{fill:rgba(88,166,255,0.05);stroke:#30363d;stroke-width:1px;}#mermaid-1783856836207 .cluster text{fill:#e6edf3;}#mermaid-1783856836207 .cluster span,#mermaid-1783856836207 p{color:#e6edf3;}#mermaid-1783856836207 div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:12px;background:#0d1117;border:1px solid hsl(216, 0%, 17.0588235294%);border-radius:2px;pointer-events:none;z-index:100;}#mermaid-1783856836207 .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#e6edf3;}#mermaid-1783856836207 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="6" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783856836207_flowchart-pointEnd"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 0 L 10 5 L 0 10 z"></path></marker><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="4.5" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783856836207_flowchart-pointStart"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 5 L 10 10 L 10 0 z"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="11" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783856836207_flowchart-circleEnd"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="-1" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783856836207_flowchart-circleStart"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="12" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783856836207_flowchart-crossEnd"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="-1" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783856836207_flowchart-crossStart"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><g class="root"><g class="clusters"></g><g class="edgePaths"><path marker-end="url(#mermaid-1783856836207_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-dp LE-td" id="L-dp-td-0" d="M138.906,59.188L138.906,63.354C138.906,67.521,138.906,75.854,138.906,83.304C138.906,90.754,138.906,97.321,138.906,100.604L138.906,103.888"></path><path marker-end="url(#mermaid-1783856836207_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-td LE-dpost" id="L-td-dpost-0" d="M138.906,168.375L138.906,172.542C138.906,176.708,138.906,185.042,138.906,192.492C138.906,199.942,138.906,206.508,138.906,209.792L138.906,213.075"></path><path marker-end="url(#mermaid-1783856836207_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-dpost LE-ec" id="L-dpost-ec-0" d="M138.906,277.563L138.906,281.729C138.906,285.896,138.906,294.229,138.906,301.679C138.906,309.129,138.906,315.696,138.906,318.979L138.906,322.263"></path><path marker-end="url(#mermaid-1783856836207_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-ec LE-cp" id="L-ec-cp-0" d="M138.906,386.75L138.906,390.917C138.906,395.083,138.906,403.417,138.906,410.867C138.906,418.317,138.906,424.883,138.906,428.167L138.906,431.45"></path><path marker-end="url(#mermaid-1783856836207_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-cp LE-tc" id="L-cp-tc-0" d="M138.906,495.938L138.906,500.104C138.906,504.271,138.906,512.604,138.906,520.054C138.906,527.504,138.906,534.071,138.906,537.354L138.906,540.638"></path><path marker-end="url(#mermaid-1783856836207_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-tc LE-cpost" id="L-tc-cpost-0" d="M138.906,605.125L138.906,609.292C138.906,613.458,138.906,621.792,138.906,629.242C138.906,636.692,138.906,643.258,138.906,646.542L138.906,649.825"></path></g><g class="edgeLabels"><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g></g><g class="nodes"><g transform="translate(138.90625, 29.59375)" data-id="dp" data-node="true" id="flowchart-dp-29" class="node default default flowchart-label"><rect height="59.1875" width="219.671875" y="-29.59375" x="-109.8359375" ry="0" rx="0" style="fill:#161b22;stroke:#3fb950;stroke-width:2px;" class="basic label-container"></rect><g transform="translate(-102.3359375, -22.09375)" style="color:#3fb950;" class="label"><rect></rect><foreignobject height="44.1875" width="204.671875"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(63, 185, 80); display: inline-block; white-space: nowrap;"><span style="color:#3fb950;" class="nodeLabel">dispatch_preprocess<br>本地: reshape, metadata, permute</span></div></foreignobject></g></g><g transform="translate(138.90625, 138.78125)" data-id="td" data-node="true" id="flowchart-td-30" class="node default default flowchart-label"><rect height="59.1875" width="188.671875" y="-29.59375" x="-94.3359375" ry="0" rx="0" style="fill:#161b22;stroke:#f0883e;stroke-width:2px;" class="basic label-container"></rect><g transform="translate(-86.8359375, -22.09375)" style="color:#f0883e;" class="label"><rect></rect><foreignobject height="44.1875" width="173.671875"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(240, 136, 62); display: inline-block; white-space: nowrap;"><span style="color:#f0883e;" class="nodeLabel">token_dispatch<br>通信: All-to-All EP 发送 token</span></div></foreignobject></g></g><g transform="translate(138.90625, 247.96875)" data-id="dpost" data-node="true" id="flowchart-dpost-31" class="node default default flowchart-label"><rect height="59.1875" width="215.140625" y="-29.59375" x="-107.5703125" ry="0" rx="0" style="fill:#161b22;stroke:#3fb950;stroke-width:2px;" class="basic label-container"></rect><g transform="translate(-100.0703125, -22.09375)" style="color:#3fb950;" class="label"><rect></rect><foreignobject height="44.1875" width="200.140625"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(63, 185, 80); display: inline-block; white-space: nowrap;"><span style="color:#3fb950;" class="nodeLabel">dispatch_postprocess<br>本地: AllGather TP, sort by expert</span></div></foreignobject></g></g><g transform="translate(138.90625, 357.15625)" data-id="ec" data-node="true" id="flowchart-ec-32" class="node default default flowchart-label"><rect height="59.1875" width="113.1875" y="-29.59375" x="-56.59375" ry="0" rx="0" style="fill:#161b22;stroke:#d2a8ff;stroke-width:2px;" class="basic label-container"></rect><g transform="translate(-49.09375, -22.09375)" style="color:#d2a8ff;" class="label"><rect></rect><foreignobject height="44.1875" width="98.1875"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(210, 168, 255); display: inline-block; white-space: nowrap;"><span style="color:#d2a8ff;" class="nodeLabel">Expert Compute<br>GroupedGEMM</span></div></foreignobject></g></g><g transform="translate(138.90625, 466.34375)" data-id="cp" data-node="true" id="flowchart-cp-33" class="node default default flowchart-label"><rect height="59.1875" width="204.125" y="-29.59375" x="-102.0625" ry="0" rx="0" style="fill:#161b22;stroke:#3fb950;stroke-width:2px;" class="basic label-container"></rect><g transform="translate(-94.5625, -22.09375)" style="color:#3fb950;" class="label"><rect></rect><foreignobject height="44.1875" width="189.125"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(63, 185, 80); display: inline-block; white-space: nowrap;"><span style="color:#3fb950;" class="nodeLabel">combine_preprocess<br>本地: unsort, ReduceScatter TP</span></div></foreignobject></g></g><g transform="translate(138.90625, 575.53125)" data-id="tc" data-node="true" id="flowchart-tc-34" class="node default default flowchart-label"><rect height="59.1875" width="177.4140625" y="-29.59375" x="-88.70703125" ry="0" rx="0" style="fill:#161b22;stroke:#f0883e;stroke-width:2px;" class="basic label-container"></rect><g transform="translate(-81.20703125, -22.09375)" style="color:#f0883e;" class="label"><rect></rect><foreignobject height="44.1875" width="162.4140625"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(240, 136, 62); display: inline-block; white-space: nowrap;"><span style="color:#f0883e;" class="nodeLabel">token_combine<br>通信: All-to-All EP 收集结果</span></div></foreignobject></g></g><g transform="translate(138.90625, 684.71875)" data-id="cpost" data-node="true" id="flowchart-cpost-35" class="node default default flowchart-label"><rect height="59.1875" width="277.8125" y="-29.59375" x="-138.90625" ry="0" rx="0" style="fill:#161b22;stroke:#3fb950;stroke-width:2px;" class="basic label-container"></rect><g transform="translate(-131.40625, -22.09375)" style="color:#3fb950;" class="label"><rect></rect><foreignobject height="44.1875" width="262.8125"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(63, 185, 80); display: inline-block; white-space: nowrap;"><span style="color:#3fb950;" class="nodeLabel">combine_postprocess<br>本地: unpermute, reshape, 加 shared expert</span></div></foreignobject></g></g></g></g></g></svg></div>
+
+  <h3 style="font-size: 1.15rem; margin: 36px 0 16px; padding-bottom: 10px; border-bottom: 1px dashed var(--border); color: var(--accent);">AlltoAll Dispatcher 详解</h3>
+
+  <div class="prose">
+    <p><code>MoEAlltoAllTokenDispatcher</code> 是最常用的实现。它的核心思路是：</p>
+    <ol>
+      <li><strong>Permute 1</strong>：将 token 按照 routing_map 重排，使发往同一 EP rank 的 token 排列在一起（为 All-to-All 准备）</li>
+      <li><strong>All-to-All (EP)</strong>：各 EP rank 交换 token。Rank i 发送 <code>input_splits[j]</code> 个 token 给 Rank j，接收 <code>output_splits[j]</code> 个 token</li>
+      <li><strong>AllGather (TP)</strong>：如果使用了 Expert TP，需要在 TP 组内 AllGather 以获取完整的 token</li>
+      <li><strong>Sort by Expert</strong>：将接收到的 token 按 local expert 排序（expert 0 的 token 排在前面，expert 1 的排在后面...），生成 <code>tokens_per_expert</code> 告知 GroupedGEMM 每个 expert 处理多少 token</li>
+    </ol>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>token_dispatcher.py — MoEAlltoAllTokenDispatcher.token_dispatch()</span>
+      <span class="lines">L648-674</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">def</span> <span class="hljs-title function_">token_dispatch</span>(<span class="hljs-params">self, permutated_local_input_tokens, permuted_probs</span>):
+    <span class="hljs-string">"""All-to-All 通信：在 EP group 内交换 token"""</span>
+    <span class="hljs-comment"># input_splits: [ep_size] 本 rank 发给各 EP rank 的 token 数</span>
+    <span class="hljs-comment"># output_splits: [ep_size] 本 rank 从各 EP rank 接收的 token 数</span>
+    global_input_tokens = all_to_all(
+        self.ep_group,
+        permutated_local_input_tokens,
+        self.output_splits,    <span class="hljs-comment"># 接收 split</span>
+        self.input_splits      <span class="hljs-comment"># 发送 split</span>
+    )
+    global_probs = all_to_all(
+        self.ep_group,
+        permuted_probs,
+        self.output_splits,
+        self.input_splits
+    )
+    <span class="hljs-keyword">return</span> global_input_tokens, global_probs</code></pre>
+  </div>
+
+  <div class="op-vis">
+    <div class="op-title">AlltoAll Dispatcher 数据流 — EP=2, 每 rank 4 个 token, 2 个 local expert</div>
+
+    <table class="op-table">
+      <thead><tr><th>EP Rank 0</th><th></th><th>EP Rank 1</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="rank-card hl-blue">
+            <span class="rank-id">初始 tokens + 路由</span>
+            <span class="val">[A,B,C,D]</span><br>
+            <span style="font-size:0.7rem;color:var(--text-muted)">A→E0 B→E2 C→E1 D→E0</span>
+          </td>
+          <td class="arrow-col"></td>
+          <td class="rank-card src">
+            <span class="rank-id">初始 tokens + 路由</span>
+            <span class="val">[E,F,G,H]</span><br>
+            <span style="font-size:0.7rem;color:var(--text-muted)">E→E1 F→E0 G→E3 H→E2</span>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div style="text-align:center;color:var(--accent);margin:10px 0;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;font-size:0.8rem">▼ Permute 1 (按目标 EP rank 分组) ▼</div>
+
+    <table class="op-table">
+      <thead><tr><th>EP Rank 0</th><th></th><th>EP Rank 1</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="rank-card hl-blue">
+            <span class="rank-id">→EP0 | →EP1</span>
+            <span class="val">[A,D | B,C]</span>
+          </td>
+          <td class="arrow-col"></td>
+          <td class="rank-card src">
+            <span class="rank-id">→EP0 | →EP1</span>
+            <span class="val">[F | E,G,H]</span>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div style="text-align:center;color:var(--accent4);margin:10px 0;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;font-size:0.8rem">▼ All-to-All 交换 ▼</div>
+
+    <table class="op-table">
+      <thead><tr><th>EP Rank 0</th><th></th><th>EP Rank 1</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="rank-card out">
+            <span class="rank-id">收到 (→ E0, E1)</span>
+            <span class="val">[A,D] + [F] = [A,D,F]</span>
+          </td>
+          <td class="arrow-col">⇄</td>
+          <td class="rank-card out">
+            <span class="rank-id">收到 (→ E2, E3)</span>
+            <span class="val">[B,C] + [E,G,H] = [B,C,E,G,H]</span>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div style="text-align:center;color:var(--accent2);margin:10px 0;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;font-size:0.8rem">▼ Sort by Expert ▼</div>
+
+    <table class="op-table">
+      <thead><tr><th>EP Rank 0</th><th></th><th>EP Rank 1</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="rank-card out">
+            <span class="rank-id">E0=[A,D,F]  E1=[]</span>
+            <span class="val">tokens_per_expert=[3, 0]</span>
+          </td>
+          <td class="arrow-col"></td>
+          <td class="rank-card out">
+            <span class="rank-id">E2=[B,H]  E3=[G]</span>
+            <span class="val">tokens_per_expert=[2, 1]</span>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout callout-info">
+    <div class="callout-title">DtoH 同步优化</div>
+    AlltoAll Dispatcher 的一个关键优化是延迟 GPU-CPU 数据传输。<code>input_splits</code> 和 <code>output_splits</code> 等元信息需要从 GPU 拷贝到 CPU（因为 NCCL All-to-All API 需要 CPU 上的 split sizes），但这个 DtoH 拷贝会触发 GPU-CPU 同步。Dispatcher 通过 <code>cuda_dtoh_point</code> 和 <code>cuda_sync_point</code> 机制，将 DtoH 操作放到独立的 CUDA stream 上执行，并尽可能延迟同步点，以最大化 GPU 利用率。
+  </div>
+</section>
+
+<!-- ==================== 06. Expert 计算 ==================== -->
+<section id="sec06">
+  <div class="section-header">
+    <span class="section-num">06</span>
+    <h2>Expert 计算</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">experts.py</span>
+    <span class="tag tag-green">GroupedMLP</span>
+    <span class="tag tag-purple">TEGroupedMLP</span>
+    <span class="tag tag-orange">SequentialMLP</span>
+  </div>
+
+  <div class="prose">
+    <p>Expert 计算是 MoE 层中实际处理 token 的部分。每个 expert 本质上是一个标准 MLP（fc1 + activation + fc2），但由于单个 rank 上有多个 local expert，如何高效地执行它们是一个关键问题。</p>
+    <p>Megatron 提供三种 expert 实现：</p>
+  </div>
+
+  <table class="data-table">
+    <thead>
+      <tr><th>实现</th><th>计算方式</th><th>优势</th><th>限制</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>GroupedMLP</strong></td>
+        <td>使用 <code>grouped_gemm</code> 库，将所有 local expert 的矩阵乘法打包成一个调用</td>
+        <td>GPU 利用率最高，减少 kernel launch 开销</td>
+        <td>不支持 bias；需要安装 grouped_gemm 库</td>
+      </tr>
+      <tr>
+        <td><strong>TEGroupedMLP</strong></td>
+        <td>使用 TransformerEngine 的 <code>GroupedLinear</code></td>
+        <td>支持 FP8/FP4 训练、融合 kernel、bias</td>
+        <td>需要 TransformerEngine ≥ 2.x</td>
+      </tr>
+      <tr>
+        <td><strong>SequentialMLP</strong></td>
+        <td>创建 <code>num_local_experts</code> 个独立 MLP 实例，顺序执行</td>
+        <td>实现简单，兼容性好</td>
+        <td>GPU 利用率低（多次小 kernel 调用）</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="prose">
+    <p>三种实现的输入输出接口完全相同：</p>
+    <ul>
+      <li><strong>输入</strong>：<code>permuted_local_hidden_states [total_tokens, H]</code>（所有 local expert 的 token 拼接在一起），<code>tokens_per_expert [num_local_experts]</code>（每个 expert 分到的 token 数），<code>permuted_probs [total_tokens]</code>（路由权重）</li>
+      <li><strong>输出</strong>：<code>fc2_output [total_tokens, H]</code>（expert 计算结果，已乘以路由权重）</li>
+    </ul>
+  </div>
+
+  <h3 style="font-size: 1.15rem; margin: 36px 0 16px; padding-bottom: 10px; border-bottom: 1px dashed var(--border); color: var(--accent);">GroupedGEMM 原理</h3>
+
+  <div class="prose">
+    <p><code>GroupedMLP</code> 的核心是 <strong>Grouped GEMM</strong>（Grouped General Matrix Multiplication）。传统方式下，N 个 expert 需要 N 次独立的矩阵乘法调用，每次处理不同数量的 token。Grouped GEMM 将这 N 个矩阵乘法打包成<strong>一次 GPU kernel 调用</strong>，极大提升了 GPU 的 SM 利用率。</p>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:20px 0">
+    <div class="op-vis">
+      <div class="op-title" style="color:var(--accent4)">Sequential (SequentialMLP)</div>
+      <table class="op-table" style="margin:0">
+        <tbody>
+          <tr><td class="rank-card"><span class="rank-id">Expert 0</span><span class="val" style="color:var(--accent4)">[t0,t1,t2] @ W0</span></td><td class="arrow-col" style="font-size:0.7rem;color:var(--text-muted)">kernel</td></tr>
+          <tr><td class="rank-card"><span class="rank-id">Expert 1</span><span class="val" style="color:var(--accent4)">[t3] @ W1</span></td><td class="arrow-col" style="font-size:0.7rem;color:var(--text-muted)">kernel</td></tr>
+          <tr><td class="rank-card"><span class="rank-id">Expert 2</span><span class="val" style="color:var(--accent4)">[t4,t5] @ W2</span></td><td class="arrow-col" style="font-size:0.7rem;color:var(--text-muted)">kernel</td></tr>
+          <tr><td class="rank-card"><span class="rank-id">Expert 3</span><span class="val" style="color:var(--accent4)">[t6,t7,t8] @ W3</span></td><td class="arrow-col" style="font-size:0.7rem;color:var(--text-muted)">kernel</td></tr>
+        </tbody>
+      </table>
+      <div class="op-note" style="color:var(--accent4)">4 次 kernel launch · GPU 利用率低</div>
+    </div>
+    <div class="op-vis">
+      <div class="op-title" style="color:var(--accent2)">Grouped (GroupedMLP)</div>
+      <table class="op-table" style="margin:0">
+        <tbody>
+          <tr><td class="rank-card out" style="border-color:rgba(63,185,80,0.4)">
+            <span class="rank-id">gmm 单次调用</span>
+            <span class="val">gmm([t0..t8],</span><br>
+            <span class="val">&nbsp;&nbsp;&nbsp;&nbsp;[W0,W1,W2,W3],</span><br>
+            <span class="val">&nbsp;&nbsp;&nbsp;&nbsp;tpe=[3,1,2,3])</span>
+          </td><td class="arrow-col" style="font-size:0.7rem;color:var(--accent2)">kernel</td></tr>
+        </tbody>
+      </table>
+      <div class="op-note" style="color:var(--accent2)">1 次 kernel launch · GPU 利用率高<br>CUTLASS grouped GEMM 实现</div>
+    </div>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>experts.py — GroupedMLP.forward() 核心逻辑</span>
+      <span class="lines">L234-293</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">def</span> <span class="hljs-title function_">forward</span>(<span class="hljs-params">self, permuted_local_hidden_states, tokens_per_expert, permuted_probs</span>):
+    <span class="hljs-comment"># 将权重 reshape 为 [num_local_experts, H, ffn_hidden]</span>
+    w1 = self.weight1.view(self.num_local_experts, self.config.hidden_size, -<span class="hljs-number">1</span>)
+    w2 = self.weight2.view(self.num_local_experts, -<span class="hljs-number">1</span>, self.config.hidden_size)
+
+    <span class="hljs-comment"># GroupedGEMM: fc1</span>
+    <span class="hljs-comment"># input: [total_tokens, H], w1: [num_experts, H, ffn_hidden*2]</span>
+    fc1_output = gg.ops.gmm(
+        permuted_local_hidden_states, w1, tokens_per_expert, trans_b=<span class="hljs-literal">False</span>
+    )
+
+    <span class="hljs-comment"># SwiGLU activation + 路由权重</span>
+    intermediate = self.activation_func_with_probs(
+        fc1_output, permuted_probs.unsqueeze(-<span class="hljs-number">1</span>)
+    )
+
+    <span class="hljs-comment"># GroupedGEMM: fc2</span>
+    <span class="hljs-comment"># input: [total_tokens, ffn_hidden], w2: [num_experts, ffn_hidden, H]</span>
+    fc2_output = gg.ops.gmm(
+        intermediate, w2, tokens_per_expert, trans_b=<span class="hljs-literal">False</span>
+    )
+    <span class="hljs-keyword">return</span> fc2_output, <span class="hljs-literal">None</span></code></pre>
+  </div>
+
+  <div class="callout callout-key">
+    <div class="callout-title">权重组织方式</div>
+    <code>GroupedMLP</code> 将所有 local expert 的权重存储在两个大矩阵中：<code>weight1 [H, num_local_experts * ffn_hidden * 2]</code>（fc1，包含 SwiGLU 的 gate 和 value）和 <code>weight2 [num_local_experts * ffn_hidden, H]</code>（fc2）。在前向时通过 <code>view</code> 操作将其 reshape 为 <code>[num_local_experts, ...]</code> 的形状供 Grouped GEMM 使用。这种<strong>紧凑存储</strong>避免了为每个 expert 创建独立 Parameter 的开销。
+  </div>
+</section>
+
+<!-- ==================== 07. Shared Experts ==================== -->
+<section id="sec07">
+  <div class="section-header">
+    <span class="section-num">07</span>
+    <h2>Shared Experts</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">shared_experts.py</span>
+    <span class="tag tag-green">SharedExpertMLP</span>
+    <span class="tag tag-pink">DeepSeek-V3</span>
+  </div>
+
+  <div class="prose">
+    <p><strong>Shared Expert</strong> 是一种所有 token 都会经过的"常驻 expert"，与 routed expert（只处理被路由到的 token）互补。Shared expert 的输出直接加到 routed expert 的输出上，确保每个 token 至少获得一些"通用知识"的处理。这一设计来自 DeepSeek-MoE / DeepSeek-V3 架构。</p>
+    <p><code>SharedExpertMLP</code> 继承自标准 <code>MLP</code>，额外支持：</p>
+    <ul>
+      <li><strong>Gate Mechanism</strong>：可选的 sigmoid 门控，学习一个标量系数来调节 shared expert 的输出贡献。<code>gate_score = sigmoid(hidden_states @ gate_weight.T)</code>，然后 <code>output = output * gate_score</code>。</li>
+      <li><strong>独立的 FFN 大小</strong>：通过 <code>moe_shared_expert_intermediate_size</code> 控制，通常比 routed expert 的 FFN 更大。</li>
+      <li><strong>Overlap 模式</strong>：可与 Token Dispatcher 的通信操作重叠执行（详见下节）。</li>
+    </ul>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>shared_experts.py — SharedExpertMLP.forward()</span>
+      <span class="lines">L208-220</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">class</span> <span class="hljs-title class_">SharedExpertMLP</span>(<span class="hljs-title class_ inherited__">MLP</span>):
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">forward</span>(<span class="hljs-params">self, hidden_states</span>):
+        <span class="hljs-comment"># 标准 MLP 前向：fc1 -&gt; activation -&gt; fc2</span>
+        <span class="hljs-keyword">if</span> self.activation_recompute:
+            output, _ = self._forward_with_activation_recompute(hidden_states)
+        <span class="hljs-keyword">else</span>:
+            output, _ = <span class="hljs-built_in">super</span>().forward(hidden_states)
+
+        <span class="hljs-comment"># 可选：sigmoid gate 调节输出</span>
+        <span class="hljs-keyword">if</span> self.use_shared_expert_gate:
+            logits = F.linear(hidden_states, self.gate_weight)
+            gate_score = torch.sigmoid(logits)
+            output = output * gate_score
+
+        <span class="hljs-keyword">return</span> output</code></pre>
+  </div>
+
+  <div class="mermaid" data-processed="true"><svg aria-roledescription="flowchart-v2" role="graphics-document document" viewBox="-8 -8 401.35546875 431.6796875" style="max-width: 401.35546875px;" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="100%" id="mermaid-1783856836219"><style>#mermaid-1783856836219{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;fill:#e6edf3;}#mermaid-1783856836219 .error-icon{fill:#0d1117;}#mermaid-1783856836219 .error-text{fill:#f2eee8;stroke:#f2eee8;}#mermaid-1783856836219 .edge-thickness-normal{stroke-width:2px;}#mermaid-1783856836219 .edge-thickness-thick{stroke-width:3.5px;}#mermaid-1783856836219 .edge-pattern-solid{stroke-dasharray:0;}#mermaid-1783856836219 .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-1783856836219 .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-1783856836219 .marker{fill:#58a6ff;stroke:#58a6ff;}#mermaid-1783856836219 .marker.cross{stroke:#58a6ff;}#mermaid-1783856836219 svg{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;}#mermaid-1783856836219 .label{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:#e6edf3;}#mermaid-1783856836219 .cluster-label text{fill:#e6edf3;}#mermaid-1783856836219 .cluster-label span,#mermaid-1783856836219 p{color:#e6edf3;}#mermaid-1783856836219 .label text,#mermaid-1783856836219 span,#mermaid-1783856836219 p{fill:#e6edf3;color:#e6edf3;}#mermaid-1783856836219 .node rect,#mermaid-1783856836219 .node circle,#mermaid-1783856836219 .node ellipse,#mermaid-1783856836219 .node polygon,#mermaid-1783856836219 .node path{fill:#161b22;stroke:#30363d;stroke-width:1px;}#mermaid-1783856836219 .flowchart-label text{text-anchor:middle;}#mermaid-1783856836219 .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#mermaid-1783856836219 .node .label{text-align:center;}#mermaid-1783856836219 .node.clickable{cursor:pointer;}#mermaid-1783856836219 .arrowheadPath{fill:#e3ded6;}#mermaid-1783856836219 .edgePath .path{stroke:#58a6ff;stroke-width:2.0px;}#mermaid-1783856836219 .flowchart-link{stroke:#58a6ff;fill:none;}#mermaid-1783856836219 .edgeLabel{background-color:#1c2129;text-align:center;}#mermaid-1783856836219 .edgeLabel rect{opacity:0.5;background-color:#1c2129;fill:#1c2129;}#mermaid-1783856836219 .labelBkg{background-color:rgba(28, 33, 41, 0.5);}#mermaid-1783856836219 .cluster rect{fill:rgba(88,166,255,0.05);stroke:#30363d;stroke-width:1px;}#mermaid-1783856836219 .cluster text{fill:#e6edf3;}#mermaid-1783856836219 .cluster span,#mermaid-1783856836219 p{color:#e6edf3;}#mermaid-1783856836219 div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:12px;background:#0d1117;border:1px solid hsl(216, 0%, 17.0588235294%);border-radius:2px;pointer-events:none;z-index:100;}#mermaid-1783856836219 .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#e6edf3;}#mermaid-1783856836219 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="6" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783856836219_flowchart-pointEnd"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 0 L 10 5 L 0 10 z"></path></marker><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="4.5" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783856836219_flowchart-pointStart"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 5 L 10 10 L 10 0 z"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="11" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783856836219_flowchart-circleEnd"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="-1" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783856836219_flowchart-circleStart"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="12" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783856836219_flowchart-crossEnd"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="-1" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783856836219_flowchart-crossStart"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><g class="root"><g class="clusters"></g><g class="edgePaths"><path marker-end="url(#mermaid-1783856836219_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-input LE-shared" id="L-input-shared-0" d="M144.073,37.094L134.208,41.26C124.343,45.427,104.613,53.76,94.748,63.052C84.883,72.343,84.883,82.592,84.883,87.716L84.883,92.841"></path><path marker-end="url(#mermaid-1783856836219_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-input LE-routed" id="L-input-routed-0" d="M231.896,37.094L241.761,41.26C251.626,45.427,271.356,53.76,281.221,61.21C291.086,68.66,291.086,75.227,291.086,78.51L291.086,81.794"></path><path marker-end="url(#mermaid-1783856836219_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-shared LE-shared_out" id="L-shared-shared_out-0" d="M84.883,135.234L84.883,143.083C84.883,150.932,84.883,166.63,84.883,179.604C84.883,192.577,84.883,202.826,84.883,207.951L84.883,213.075"></path><path marker-end="url(#mermaid-1783856836219_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-routed LE-routed_out" id="L-routed-routed_out-0" d="M291.086,146.281L291.086,152.289C291.086,158.297,291.086,170.313,291.086,181.445C291.086,192.577,291.086,202.826,291.086,207.951L291.086,213.075"></path><path marker-end="url(#mermaid-1783856836219_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-shared_out LE-add" id="L-shared_out-add-0" d="M84.883,255.469L84.883,259.635C84.883,263.802,84.883,272.135,99.418,281.456C113.954,290.777,143.024,301.085,157.56,306.239L172.095,311.393"></path><path marker-end="url(#mermaid-1783856836219_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-routed_out LE-add" id="L-routed_out-add-0" d="M291.086,255.469L291.086,259.635C291.086,263.802,291.086,272.135,276.551,281.456C262.015,290.777,232.944,301.085,218.409,306.239L203.874,311.393"></path><path marker-end="url(#mermaid-1783856836219_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-add LE-output" id="L-add-output-0" d="M187.984,328.586L187.984,332.753C187.984,336.919,187.984,345.253,187.984,352.703C187.984,360.153,187.984,366.719,187.984,370.003L187.984,373.286"></path></g><g class="edgeLabels"><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g transform="translate(84.8828125, 182.328125)" class="edgeLabel"><g transform="translate(-84.8828125, -11.046875)" class="label"><foreignobject height="22.09375" width="169.765625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel">× gate_score (可选 sigmoid)</span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g></g><g class="nodes"><g transform="translate(187.984375, 18.546875)" data-id="input" data-node="true" id="flowchart-input-50" class="node default default flowchart-label"><rect height="37.09375" width="100.8125" y="-18.546875" x="-50.40625" ry="0" rx="0" style="fill:#161b22;stroke:#58a6ff;stroke-width:2px;" class="basic label-container"></rect><g transform="translate(-42.90625, -11.046875)" style="color:#58a6ff;" class="label"><rect></rect><foreignobject height="22.09375" width="85.8125"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(88, 166, 255); display: inline-block; white-space: nowrap;"><span style="color:#58a6ff;" class="nodeLabel">hidden_states</span></div></foreignobject></g></g><g transform="translate(84.8828125, 116.6875)" data-id="shared" data-node="true" id="flowchart-shared-52" class="node default default flowchart-label"><rect height="37.09375" width="123.8671875" y="-18.546875" x="-61.93359375" ry="0" rx="0" style="fill:#161b22;stroke:#d2a8ff;stroke-width:2px;" class="basic label-container"></rect><g transform="translate(-54.43359375, -11.046875)" style="color:#d2a8ff;" class="label"><rect></rect><foreignobject height="22.09375" width="108.8671875"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(210, 168, 255); display: inline-block; white-space: nowrap;"><span style="color:#d2a8ff;" class="nodeLabel">SharedExpertMLP</span></div></foreignobject></g></g><g transform="translate(291.0859375, 116.6875)" data-id="routed" data-node="true" id="flowchart-routed-54" class="node default default flowchart-label"><rect height="59.1875" width="188.5390625" y="-29.59375" x="-94.26953125" ry="0" rx="0" style="fill:#161b22;stroke:#3fb950;stroke-width:2px;" class="basic label-container"></rect><g transform="translate(-86.76953125, -22.09375)" style="color:#3fb950;" class="label"><rect></rect><foreignobject height="44.1875" width="173.5390625"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(63, 185, 80); display: inline-block; white-space: nowrap;"><span style="color:#3fb950;" class="nodeLabel">TopKRouter + Dispatch<br>+ Routed Experts + Combine</span></div></foreignobject></g></g><g transform="translate(84.8828125, 236.921875)" data-id="shared_out" data-node="true" id="flowchart-shared_out-56" class="node default default flowchart-label"><rect height="37.09375" width="103.25" y="-18.546875" x="-51.625" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-44.125, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="88.25"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">shared_output</span></div></foreignobject></g></g><g transform="translate(291.0859375, 236.921875)" data-id="routed_out" data-node="true" id="flowchart-routed_out-58" class="node default default flowchart-label"><rect height="37.09375" width="101.515625" y="-18.546875" x="-50.7578125" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-43.2578125, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="86.515625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">routed_output</span></div></foreignobject></g></g><g transform="translate(187.984375, 317.02734375)" data-id="add" data-node="true" id="flowchart-add-60" class="node default default flowchart-label"><circle height="37.09375" width="23.1171875" r="11.55859375" ry="0" rx="0" style="fill:#0d1117;stroke:#58a6ff;"></circle><g transform="translate(-4.05859375, -11.046875)" style="color:#58a6ff;" class="label"><rect></rect><foreignobject height="22.09375" width="8.1171875"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(88, 166, 255); display: inline-block; white-space: nowrap;"><span style="color:#58a6ff;" class="nodeLabel">+</span></div></foreignobject></g></g><g transform="translate(187.984375, 397.1328125)" data-id="output" data-node="true" id="flowchart-output-64" class="node default default flowchart-label"><rect height="37.09375" width="83.9375" y="-18.546875" x="-41.96875" ry="0" rx="0" style="fill:#161b22;stroke:#58a6ff;stroke-width:2px;" class="basic label-container"></rect><g transform="translate(-34.46875, -11.046875)" style="color:#58a6ff;" class="label"><rect></rect><foreignobject height="22.09375" width="68.9375"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(88, 166, 255); display: inline-block; white-space: nowrap;"><span style="color:#58a6ff;" class="nodeLabel">final output</span></div></foreignobject></g></g></g></g></g></svg></div>
+
+  <div class="callout callout-info">
+    <div class="callout-title">Shared Expert 的 TP</div>
+    Shared expert 使用 Attention 层的 TP 组（<code>pg_collection.tp</code>），而非 Expert TP 组。这是因为 shared expert 处理所有 token，其并行方式与普通 MLP 相同。Routed expert 则使用 Expert TP 组（<code>pg_collection.expt_tp</code>），后者可以与 Attention TP 有不同的大小。
+  </div>
+</section>
+
+<!-- ==================== 08. 通信-计算 Overlap ==================== -->
+<section id="sec08">
+  <div class="section-header">
+    <span class="section-num">08</span>
+    <h2>通信-计算 Overlap</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">Overlap</span>
+    <span class="tag tag-orange">SharedExpert + Dispatcher</span>
+    <span class="tag tag-purple">CUDA Stream</span>
+  </div>
+
+  <div class="prose">
+    <p>MoE 层的主要性能瓶颈是 <strong>All-to-All 通信</strong>。当 EP 较大时，跨节点的 All-to-All 延迟可能显著影响训练吞吐。Megatron 通过将 <strong>Shared Expert 计算与 Token Dispatcher 通信重叠</strong>来隐藏通信延迟。</p>
+    <p>当 <code>moe_shared_expert_overlap=True</code> 时，SharedExpertMLP 的前向被拆分为多个细粒度函数，穿插在 AlltoAll Dispatcher 的各阶段之间，在独立的 CUDA stream 上执行：</p>
+  </div>
+
+  <div class="diagram"><span class="hl">Shared Expert Overlap 时序图</span>
+
+<span class="hl2">Main Stream (Routed Expert Path)</span>          <span class="hl3">Side Stream (Shared Expert)</span>
+───────────────────────────────        ─────────────────────────────
+dispatch_preprocess()
+  └─&gt; shared_experts.<span class="hl3">pre_forward_comm</span>() ──&gt; AllGather (SP) + gate_score
+      (在 side stream 启动)                    |
+                                               v
+token_dispatch() [A2A EP]                 <span class="hl3">linear_fc1_forward_and_act</span>()
+  └─&gt; 等待 A2A 完成                        fc1 -&gt; SwiGLU activation
+                                               |
+dispatch_postprocess()                         v
+  └─&gt; AllGather (TP)                      (等待 main stream A2A 完成)
+  └─&gt; shared_experts.<span class="hl3">linear_fc1_forward</span>()
+                                               |
+Expert Compute (GroupedGEMM)                   |
+                                               v
+combine_preprocess()                           |
+  └─&gt; ReduceScatter (TP)                      |
+  └─&gt; shared_experts.<span class="hl3">linear_fc2_forward</span>() ──&gt; fc2 计算
+                                               |
+token_combine() [A2A EP]                       v
+  └─&gt; 等待 A2A 完成                   <span class="hl3">post_forward_comm</span>()
+                                        ReduceScatter (SP)
+combine_postprocess()                          |
+  └─&gt; unpermute                                v
+  └─&gt; shared_experts.<span class="hl3">get_output</span>() ──────&gt; 同步 side stream
+  └─&gt; output += shared_expert_output</div>
+
+  <div class="prose">
+    <p>关键实现细节：</p>
+    <ul>
+      <li>Shared expert 的 <code>linear_fc1</code> 和 <code>linear_fc2</code> 的 TP 通信（AllGather/ReduceScatter）被拆出来由 <code>pre_forward_comm</code> 和 <code>post_forward_comm</code> 显式执行。Linear 模块内部的 TP 通信被禁用（<code>linear.parallel_mode = None</code>）。</li>
+      <li>所有 shared expert 操作都在 <code>SharedExpertMLP.stream</code>（一个独立的 CUDA stream）上执行。最终通过 <code>torch.cuda.current_stream().wait_stream(self.stream)</code> 同步。</li>
+      <li>使用 <code>_set_sequence_nr()</code> 控制反向传播的调度顺序，确保 shared expert 的反向在正确的时机执行。</li>
+    </ul>
+  </div>
+
+  <div class="callout callout-key">
+    <div class="callout-title">Overlap 的收益</div>
+    Shared expert 的计算量通常与一个 routed expert 相当（甚至更大，因为它处理所有 token）。通过将其与 All-to-All 通信重叠，可以几乎完全隐藏 shared expert 的计算时间，前提是 All-to-All 的延迟足够长（即 EP 足够大或跨节点通信）。在小 EP 或节点内通信的场景下，overlap 的收益较小。
+  </div>
+</section>
+
+<!-- ==================== 09. 配置参数速查表 ==================== -->
+<section id="sec09">
+  <div class="section-header">
+    <span class="section-num">09</span>
+    <h2>配置参数速查表</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">TransformerConfig</span>
+    <span class="tag tag-green">速查</span>
+  </div>
+
+  <h3 style="font-size: 1.15rem; margin: 24px 0 16px; padding-bottom: 10px; border-bottom: 1px dashed var(--border); color: var(--accent);">基础配置</h3>
+
+  <table class="data-table">
+    <thead>
+      <tr><th>参数</th><th>默认值</th><th>说明</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>num_moe_experts</code></td><td>-</td><td>Expert 总数（如 64、128、256）</td></tr>
+      <tr><td><code>moe_router_topk</code></td><td>-</td><td>每个 token 路由到的 expert 数量（如 1、2、8）</td></tr>
+      <tr><td><code>moe_ffn_hidden_size</code></td><td>=<code>ffn_hidden_size</code></td><td>每个 routed expert 的 FFN 隐藏层维度</td></tr>
+      <tr><td><code>expert_model_parallel_size</code></td><td>1</td><td>Expert Parallelism 大小（EP size），num_moe_experts 必须能被整除</td></tr>
+      <tr><td><code>expert_tensor_parallel_size</code></td><td>1</td><td>Expert 内部的 Tensor Parallelism 大小</td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="font-size: 1.15rem; margin: 24px 0 16px; padding-bottom: 10px; border-bottom: 1px dashed var(--border); color: var(--accent);">路由配置</h3>
+
+  <table class="data-table">
+    <thead>
+      <tr><th>参数</th><th>默认值</th><th>说明</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>moe_router_load_balancing_type</code></td><td><code>"aux_loss"</code></td><td>负载均衡策略：<code>aux_loss</code> / <code>seq_aux_loss</code> / <code>global_aux_loss</code> / <code>sinkhorn</code> / <code>none</code>，可用列表组合多种</td></tr>
+      <tr><td><code>moe_aux_loss_coeff</code></td><td>0.0</td><td>Aux loss 系数，配合 load_balancing_type 使用</td></tr>
+      <tr><td><code>moe_z_loss_coeff</code></td><td>None</td><td>Z-loss 系数，鼓励 logits 保持小值</td></tr>
+      <tr><td><code>moe_router_score_function</code></td><td><code>"softmax"</code></td><td>打分函数：<code>softmax</code> 或 <code>sigmoid</code></td></tr>
+      <tr><td><code>moe_router_pre_softmax</code></td><td>False</td><td>是否在 top-k 之前做 softmax（仅 softmax 模式）</td></tr>
+      <tr><td><code>moe_router_enable_expert_bias</code></td><td>False</td><td>启用 expert bias（DeepSeek-V3 风格动态负载均衡）</td></tr>
+      <tr><td><code>moe_router_num_groups</code></td><td>None</td><td>分组路由的组数（DeepSeek-V3 风格）</td></tr>
+      <tr><td><code>moe_router_group_topk</code></td><td>None</td><td>分组路由中每个 token 选择的组数</td></tr>
+      <tr><td><code>moe_router_topk_scaling_factor</code></td><td>None</td><td>路由概率的缩放因子</td></tr>
+      <tr><td><code>moe_input_jitter_eps</code></td><td>None</td><td>输入 jitter 噪声幅度</td></tr>
+      <tr><td><code>moe_router_dtype</code></td><td>None</td><td>路由计算的精度：<code>fp32</code> / <code>fp64</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="font-size: 1.15rem; margin: 24px 0 16px; padding-bottom: 10px; border-bottom: 1px dashed var(--border); color: var(--accent);">Token Dispatcher 配置</h3>
+
+  <table class="data-table">
+    <thead>
+      <tr><th>参数</th><th>默认值</th><th>说明</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>moe_token_dispatcher_type</code></td><td><code>"allgather"</code></td><td>Dispatcher 类型：<code>alltoall</code> / <code>allgather</code> / <code>flex</code></td></tr>
+      <tr><td><code>moe_expert_capacity_factor</code></td><td>None</td><td>Expert 容量因子，设置后启用 token dropping</td></tr>
+      <tr><td><code>moe_pad_expert_input_to_capacity</code></td><td>False</td><td>是否 pad 输入到固定容量（drop and pad 模式）</td></tr>
+      <tr><td><code>moe_token_drop_policy</code></td><td><code>"probs"</code></td><td>Token dropping 策略：<code>probs</code>（丢低概率）或 <code>position"</code>（丢后面的）</td></tr>
+      <tr><td><code>moe_permute_fusion</code></td><td>False</td><td>使用融合 permute kernel</td></tr>
+      <tr><td><code>moe_flex_dispatcher_backend</code></td><td>-</td><td>Flex dispatcher 后端：<code>deepep</code> / <code>hybridep</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="font-size: 1.15rem; margin: 24px 0 16px; padding-bottom: 10px; border-bottom: 1px dashed var(--border); color: var(--accent);">Expert 与 Shared Expert 配置</h3>
+
+  <table class="data-table">
+    <thead>
+      <tr><th>参数</th><th>默认值</th><th>说明</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>moe_grouped_gemm</code></td><td>False</td><td>使用 GroupedMLP（grouped_gemm 库）替代 SequentialMLP</td></tr>
+      <tr><td><code>moe_apply_probs_on_input</code></td><td>False</td><td>将路由权重乘到输入（而非输出），仅 topk=1 时可用</td></tr>
+      <tr><td><code>moe_shared_expert_intermediate_size</code></td><td>None</td><td>Shared expert 的 FFN 隐藏层维度，设置后启用 shared expert</td></tr>
+      <tr><td><code>moe_shared_expert_gate</code></td><td>False</td><td>是否为 shared expert 添加 sigmoid gate</td></tr>
+      <tr><td><code>moe_shared_expert_overlap</code></td><td>False</td><td>将 shared expert 计算与 dispatcher 通信重叠</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-key" style="margin-top:24px">
+    <div class="callout-title">相关文档</div>
+    <ul style="margin-top:8px">
+      <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/transformer_architecture.html" style="color:var(--accent)">GPT 模型架构</a> — TransformerLayer 与 MLP 的位置关系</li>
+      <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/rank_and_parallel_groups.html" style="color:var(--accent)">Rank 与并行组</a> — EP/TP/DP 组的划分方式</li>
+      <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/collective_operations.html" style="color:var(--accent)">集合通信操作</a> — All-to-All 通信原理</li>
+      <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/tensor_parallel.html" style="color:var(--accent)">Tensor Parallelism</a> — ColumnParallelLinear / RowParallelLinear 切分</li>
+    </ul>
+  </div>
+</section>
+
+</div><!-- /main-content -->
+</div><!-- /page-body -->
+
+<footer><p>Megatron-LM 源码精读 · 基于 NVIDIA Megatron-LM 代码库</p></footer>
+<script>hljs.highlightAll();</script>
+<script src="./MoE 层与 Expert Parallelism · Megatron-LM 源码精读_files/update-checker.js"></script>
+
+
+<div class="mermaidTooltip" style="opacity: 0;"></div></body></html>

@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<!-- saved from url=(0078)https://xiaolong-li1.github.io/Blogs/megatron-docs/data/vpp_data_iterator.html -->
+<html lang="zh-CN"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VPP 数据迭代器构建全流程 · Megatron-LM 源码精读</title>
+<link rel="stylesheet" href="./VPP 数据迭代器构建全流程 · Megatron-LM 源码精读_files/github-dark.min.css">
+<script src="./VPP 数据迭代器构建全流程 · Megatron-LM 源码精读_files/highlight.min.js"></script>
+<script src="./VPP 数据迭代器构建全流程 · Megatron-LM 源码精读_files/highlight-python.min.js"></script>
+<script src="./VPP 数据迭代器构建全流程 · Megatron-LM 源码精读_files/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      darkMode: true,
+      background: '#1c2129',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
+      fontSize: '13px',
+      primaryColor: '#1f2937',
+      primaryTextColor: '#e6edf3',
+      primaryBorderColor: '#30363d',
+      lineColor: '#58a6ff',
+      secondaryColor: '#161b22',
+      tertiaryColor: '#0d1117',
+      mainBkg: '#161b22',
+      nodeBorder: '#30363d',
+      clusterBkg: 'rgba(88,166,255,0.05)',
+      clusterBorder: '#30363d',
+      titleColor: '#e6edf3',
+      edgeLabelBackground: '#1c2129',
+      nodeTextColor: '#e6edf3'
+    }
+  });
+</script>
+<link rel="stylesheet" href="./VPP 数据迭代器构建全流程 · Megatron-LM 源码精读_files/style.css">
+</head>
+<body>
+
+<!-- ==================== HERO ==================== -->
+<div class="hero">
+  <div class="container">
+    <h1>VPP <span class="file">数据迭代器</span>构建全流程</h1>
+    <p class="subtitle">从 Dataset 到 Pipeline Schedule 消费：逐层拆解 Megatron-LM 如何为 Virtual Pipeline Parallelism 构建和使用数据迭代器</p>
+    <div class="meta">
+      <span>training.py</span>
+      <span>schedules.py</span>
+      <span>data_samplers.py</span>
+      <span>Virtual Pipeline Parallel</span>
+    </div>
+  </div>
+</div>
+
+<div class="page-body">
+
+<!-- ==================== TOC ==================== -->
+<aside class="toc-sidebar">
+<nav class="toc">
+  <div id="global-nav"><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/index.html" class="toc-home">← 文档目录</a>
+<div class="toc-group">入口</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/entry/pretrain_gpt.html" class="toc-doc">pretrain_gpt.py</a>
+<div class="toc-group">基础设施</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/pretrain_and_setup.html" class="toc-doc">初始化篇</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/training_loop.html" class="toc-doc">训练循环篇</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/memory_calculator.html" class="toc-doc">GPU 显存计算</a>
+<div class="toc-group">并行策略</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/rank_and_parallel_groups.html" class="toc-doc">Rank 与并行组</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/collective_operations.html" class="toc-doc">集合通信操作</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/tensor_parallel.html" class="toc-doc">Tensor Parallelism</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/pipeline_parallel.html" class="toc-doc">Pipeline Parallelism</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/schedules_deep_dive.html" class="toc-doc">Schedule 深度精读</a>
+<div class="toc-group">模型架构</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/transformer_architecture.html" class="toc-doc">GPT 模型架构</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/moe_layer.html" class="toc-doc">MoE 层与 EP</a>
+<div class="toc-group">数据</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/data/vpp_data_iterator.html" class="toc-doc active">VPP 数据迭代器</a>
+<div class="toc-group">优化器</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/optimizer/distrib_optimizer.html" class="toc-doc">分布式优化器</a>
+</div>
+  <script src="./VPP 数据迭代器构建全流程 · Megatron-LM 源码精读_files/nav.js"></script>
+  <div class="toc-divider"></div>
+  <h2>本文目录</h2>
+  <ol>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/data/vpp_data_iterator.html#s1">全景总览</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/data/vpp_data_iterator.html#s2">VPP vs 非 VPP 对比</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/data/vpp_data_iterator.html#s3">构建链路：五层调用栈</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/data/vpp_data_iterator.html#s4">Sampler 如何按 DP 分片</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/data/vpp_data_iterator.html#s5">Iterator 三层包装</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/data/vpp_data_iterator.html#s6">消费链路：Schedule 如何取数据</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/data/vpp_data_iterator.html#s7">Schedule Table 调度表</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/data/vpp_data_iterator.html#s8">TP/CP 内的数据分发</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/data/vpp_data_iterator.html#s9">交互式示例</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/data/vpp_data_iterator.html#s10">关键文件速查</a></li>
+  </ol>
+</nav>
+</aside>
+
+<!-- ==================== MAIN ==================== -->
+<main class="main-content">
+
+<!-- ========== Section 1 ========== -->
+<section id="s1">
+<div class="section-header">
+  <span class="section-num">01</span>
+  <h2>全景总览</h2>
+</div>
+<div class="tags">
+  <span class="tag tag-blue">VPP</span>
+  <span class="tag tag-green">Data Pipeline</span>
+  <span class="tag tag-purple">Architecture</span>
+</div>
+
+<div class="prose">
+<p>在 Megatron-LM 中，数据从磁盘上的 tokenized 文件到被模型实际消费，要经过 <strong>5 层转换</strong>。当开启 Virtual Pipeline Parallelism (VPP) 时，最显著的变化是：<code>train_data_iterator</code> 从一个单一对象变成一个 <strong>List</strong>，每个 virtual pipeline stage 拥有自己独立的迭代器。</p>
+</div>
+
+<div class="diagram"><span class="hl">Dataset</span> (tokenized data on disk)
+   │
+   ▼
+<span class="hl3">MegatronPretrainingSampler</span>  ── 按 DP rank 切分样本索引
+   │
+   ▼
+<span class="hl2">torch.utils.data.DataLoader</span>  ── 用 sampler 从 dataset 取 micro-batch
+   │
+   ▼
+<span class="hl4">RerunDataIterator</span>  ── 包装 iter(DataLoader)，支持 replay
+   │
+   ├── <span class="hl">非 VPP</span>: train_data_iterator = <span class="hl">单个 RerunDataIterator</span>
+   │
+   └── <span class="hl5">VPP</span>:    train_data_iterator = <span class="hl5">[iter_vp0, iter_vp1, ..., iter_vpN]</span>
+                                       每个 vp_stage 一个独立 iterator
+</div>
+
+</section>
+
+<!-- ========== Section 2 ========== -->
+<section id="s2">
+<div class="section-header">
+  <span class="section-num">02</span>
+  <h2>VPP vs 非 VPP 对比</h2>
+</div>
+<div class="tags">
+  <span class="tag tag-orange">对比</span>
+</div>
+
+<div class="prose">
+<p>理解 VPP 数据迭代器的最快方式是与非 VPP 模式做对比：</p>
+</div>
+
+<table class="data-table">
+<thead>
+<tr>
+  <th>维度</th>
+  <th>非 VPP (PP ≥ 1)</th>
+  <th>VPP (PP &gt; 1, VP &gt; 1)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td><code>train_data_iterator</code> 类型</td>
+  <td>单个 <code>RerunDataIterator</code></td>
+  <td><code>List[RerunDataIterator]</code>，长度 = VP size</td>
+</tr>
+<tr>
+  <td>构建入口</td>
+  <td>调用 1 次 <code>build_train_valid_test_data_iterators()</code></td>
+  <td>循环调用 VP 次，每次 bind 不同的 <code>vp_stage</code></td>
+</tr>
+<tr>
+  <td>forward_backward 函数</td>
+  <td><code>forward_backward_no_pipelining</code> 或<br><code>..._without_interleaving</code></td>
+  <td><code>forward_backward_pipelining_with_interleaving</code></td>
+</tr>
+<tr>
+  <td>数据取用方式</td>
+  <td><code>next(data_iterator)</code></td>
+  <td><code>next(data_iterator[model_chunk_id])</code></td>
+</tr>
+<tr>
+  <td>model 对象</td>
+  <td><code>[model]</code> (长度 1 的 list)</td>
+  <td><code>[chunk_0, chunk_1, ..., chunk_N]</code></td>
+</tr>
+<tr>
+  <td>每 iteration 的 forward 操作次数</td>
+  <td><code>num_microbatches</code></td>
+  <td><code>num_microbatches × num_model_chunks</code></td>
+</tr>
+<tr>
+  <td>每 iteration 消耗的唯一 micro-batch 数</td>
+  <td><code>num_microbatches</code></td>
+  <td><code>num_microbatches</code>（与非 VPP 相同）</td>
+</tr>
+</tbody>
+</table>
+
+<div class="callout callout-key">
+<div class="callout-title">关键区别</div>
+非 VPP 模式下每个 iteration 做 M 次 forward（M 个 micro-batch）。VPP 模式下要做 M × VP 次 forward，因为每个 micro-batch 要经过 VP 个 model chunk。但<strong>消耗的唯一数据量不变</strong>，仍为 M 个 micro-batch — <code>get_batch()</code> 通过 <code>is_first_or_last_pipeline_stage(vp_stage)</code> 判断当前是否为真正的首/末 virtual stage，只有 PP rank 0 + vp_stage 0（入口）和 PP rank 末 + vp_stage 末（出口）才调用 <code>next(data_iterator)</code>，其他 chunk 的 <code>get_batch()</code> 直接返回 None。
+</div>
+
+</section>
+
+<!-- ========== Section 3 ========== -->
+<section id="s3">
+<div class="section-header">
+  <span class="section-num">03</span>
+  <h2>构建链路：五层调用栈</h2>
+</div>
+<div class="tags">
+  <span class="tag tag-blue">training.py</span>
+  <span class="tag tag-green">data_samplers.py</span>
+</div>
+
+<div class="prose">
+<p>下面按调用顺序，逐层展示 VPP 模式下数据迭代器是如何被构建出来的。</p>
+</div>
+
+<h3>Layer 1: <code>pretrain()</code> — VPP 分支入口</h3>
+
+<div class="code-block">
+<div class="code-title">megatron/training/training.py <span class="lines">L924-948</span></div>
+<pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># VPP 模式：为每个 virtual pipeline stage 分别构建 iterator</span>
+<span class="hljs-keyword">if</span> args.virtual_pipeline_model_parallel_size <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span>:
+    train_data_iterator = []    <span class="hljs-comment"># ← 变成 list！</span>
+    valid_data_iterator = []
+    test_data_iterator = []
+
+    <span class="hljs-keyword">for</span> vp_stage <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(<span class="hljs-built_in">len</span>(model)):  <span class="hljs-comment"># len(model) = VP size</span>
+        <span class="hljs-comment"># 用 functools.partial 把 vp_stage 绑定到 dataset_provider</span>
+        vp_stage_provider = functools.partial(
+            train_valid_test_dataset_provider, vp_stage=vp_stage
+        )
+
+        <span class="hljs-comment"># 为这个 vp_stage 构建完整的 train/valid/test iterator</span>
+        iterators = build_train_valid_test_data_iterators(
+            vp_stage_provider
+        )
+        train_data_iterator.append(iterators[<span class="hljs-number">0</span>])   <span class="hljs-comment"># 追加到 list</span>
+        valid_data_iterator.append(iterators[<span class="hljs-number">1</span>])
+        test_data_iterator.append(iterators[<span class="hljs-number">2</span>])
+
+<span class="hljs-comment"># 非 VPP 模式：直接构建单个 iterator</span>
+<span class="hljs-keyword">else</span>:
+    train_data_iterator, valid_data_iterator, test_data_iterator = (
+        build_train_valid_test_data_iterators(train_valid_test_dataset_provider)
+    )</code></pre>
+</div>
+
+<div class="callout callout-info">
+<div class="callout-title">functools.partial 的作用</div>
+<code>functools.partial(provider, vp_stage=0)</code> 创建了一个新函数，调用它等价于 <code>provider(…, vp_stage=0)</code>。这样每个 vp_stage 的 dataset provider 就被"烙印"上了自己的 stage 编号，后续调用无需再传 <code>vp_stage</code> 参数。
+</div>
+
+<h3>Layer 2: <code>build_train_valid_test_data_iterators()</code></h3>
+
+<div class="code-block">
+<div class="code-title">megatron/training/training.py <span class="lines">L4076-4107</span></div>
+<pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">def</span> <span class="hljs-title function_">build_train_valid_test_data_iterators</span>(<span class="hljs-params">
+    build_train_valid_test_datasets_provider, vp_stage=<span class="hljs-literal">None</span>
+</span>):
+    <span class="hljs-comment"># Step 1: 构建 DataLoader</span>
+    train_dataloader, valid_dataloaders, test_dataloader = \
+        build_train_valid_test_data_loaders(
+            build_train_valid_test_datasets_provider, vp_stage=vp_stage
+        )
+
+    <span class="hljs-comment"># Step 2: 将 DataLoader 包装为 Iterator</span>
+    dl_type = args.dataloader_type   <span class="hljs-comment"># 'single' | 'cyclic' | 'external'</span>
+
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">_get_iterator</span>(<span class="hljs-params">dataloader_type, dataloader</span>):
+        <span class="hljs-keyword">if</span> dataloader_type == <span class="hljs-string">"single"</span>:
+            <span class="hljs-keyword">return</span> RerunDataIterator(<span class="hljs-built_in">iter</span>(dataloader))
+        <span class="hljs-keyword">elif</span> dataloader_type == <span class="hljs-string">"cyclic"</span>:
+            <span class="hljs-keyword">return</span> RerunDataIterator(<span class="hljs-built_in">iter</span>(cyclic_iter(dataloader)))
+        <span class="hljs-keyword">elif</span> dataloader_type == <span class="hljs-string">"external"</span>:
+            <span class="hljs-keyword">return</span> RerunDataIterator(dataloader)
+
+    train_data_iterator = _get_iterator(dl_type, train_dataloader)
+    <span class="hljs-comment"># ... valid, test 同理 ...</span>
+
+    <span class="hljs-keyword">return</span> train_data_iterator, valid_data_iterators, test_data_iterator</code></pre>
+</div>
+
+<h3>Layer 3: <code>build_train_valid_test_data_loaders()</code></h3>
+
+<div class="code-block">
+<div class="code-title">megatron/training/training.py <span class="lines">L4003-4053</span></div>
+<pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">def</span> <span class="hljs-title function_">build_train_valid_test_data_loaders</span>(<span class="hljs-params">
+    build_train_valid_test_datasets_provider, vp_stage=<span class="hljs-literal">None</span>
+</span>):
+    <span class="hljs-comment"># 只有 TP rank 0 构建 dataset（后续通过 broadcast 分发数据）</span>
+    <span class="hljs-keyword">if</span> is_distributed <span class="hljs-keyword">or</span> mpu.get_tensor_model_parallel_rank() == <span class="hljs-number">0</span>:
+
+        <span class="hljs-comment"># 构建 Dataset 对象</span>
+        train_ds, valid_ds, test_ds = build_train_valid_test_datasets(
+            build_train_valid_test_datasets_provider, vp_stage=vp_stage
+        )
+
+        <span class="hljs-comment"># 将 Dataset 包装为 DataLoader</span>
+        train_dataloader = build_pretraining_data_loader(
+            train_ds, args.consumed_train_samples
+        )
+        <span class="hljs-comment"># ... valid, test 同理 ...</span>
+
+    <span class="hljs-comment"># 将 do_train / do_valid / do_test 标志广播到所有 rank</span>
+    torch.distributed.broadcast(flags, <span class="hljs-number">0</span>)
+
+    <span class="hljs-keyword">return</span> train_dataloader, valid_dataloaders, test_dataloader</code></pre>
+</div>
+
+<h3>Layer 4: <code>build_train_valid_test_datasets()</code></h3>
+
+<div class="code-block">
+<div class="code-title">megatron/training/training.py <span class="lines">L3990-4000</span></div>
+<pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">def</span> <span class="hljs-title function_">build_train_valid_test_datasets</span>(<span class="hljs-params">
+    build_train_valid_test_datasets_provider,
+    train_valid_test_num_samples=<span class="hljs-literal">None</span>, vp_stage=<span class="hljs-literal">None</span>
+</span>):
+    <span class="hljs-keyword">if</span> train_valid_test_num_samples <span class="hljs-keyword">is</span> <span class="hljs-literal">None</span>:
+        train_valid_test_num_samples = get_train_valid_test_num_samples()
+
+    <span class="hljs-comment"># 如果是 VPP 模式，把 vp_stage 传给用户的 dataset provider</span>
+    <span class="hljs-keyword">if</span> vp_stage <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span>:
+        <span class="hljs-keyword">return</span> build_train_valid_test_datasets_provider(
+            train_valid_test_num_samples, vp_stage=vp_stage
+        )
+    <span class="hljs-keyword">else</span>:
+        <span class="hljs-keyword">return</span> build_train_valid_test_datasets_provider(
+            train_valid_test_num_samples
+        )</code></pre>
+</div>
+
+<div class="callout callout-warn">
+<div class="callout-title">注意：双重传递 vp_stage</div>
+<code>vp_stage</code> 通过两条路径到达用户的 dataset provider：(1) 通过 <code>functools.partial</code> 在 Layer 1 绑定；(2) 通过函数参数逐层传递。在 VPP 场景下，Layer 1 的 partial 已经绑定了 <code>vp_stage</code>，所以 Layer 4 的显式传递实际上是冗余的（partial 优先）。这是为了兼容不使用 partial 的直接调用场景。
+</div>
+
+<h3>Layer 5: <code>build_pretraining_data_loader()</code> — Sampler + DataLoader</h3>
+
+<div class="code-block">
+<div class="code-title">megatron/legacy/data/data_samplers.py <span class="lines">L15-81</span></div>
+<pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">def</span> <span class="hljs-title function_">build_pretraining_data_loader</span>(<span class="hljs-params">dataset, consumed_samples</span>):
+    <span class="hljs-keyword">if</span> dataset <span class="hljs-keyword">is</span> <span class="hljs-literal">None</span>:
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">None</span>
+    args = get_args()
+
+    <span class="hljs-comment"># 构建 Sampler —— 按 DP rank 切分样本</span>
+    batch_sampler = MegatronPretrainingSampler(
+        total_samples=<span class="hljs-built_in">len</span>(dataset),
+        consumed_samples=consumed_samples,
+        micro_batch_size=args.micro_batch_size,
+        data_parallel_rank=mpu.get_data_parallel_rank(),
+        data_parallel_size=mpu.get_data_parallel_world_size(),
+    )
+
+    <span class="hljs-comment"># 构建标准 PyTorch DataLoader</span>
+    <span class="hljs-keyword">return</span> torch.utils.data.DataLoader(
+        dataset,
+        batch_sampler=batch_sampler,
+        num_workers=args.num_workers,
+        pin_memory=<span class="hljs-literal">True</span>,
+        persistent_workers=<span class="hljs-literal">True</span> <span class="hljs-keyword">if</span> args.num_workers &gt; <span class="hljs-number">0</span> <span class="hljs-keyword">else</span> <span class="hljs-literal">False</span>,
+    )</code></pre>
+</div>
+
+<div class="prose">
+<p>至此，五层调用栈完整走完。对于 VPP 模式，这整个链路被执行 <strong>VP 次</strong>（每个 vp_stage 一次），最终产出一个长度为 VP 的 iterator list。</p>
+</div>
+
+</section>
+
+<!-- ========== Section 4 ========== -->
+<section id="s4">
+<div class="section-header">
+  <span class="section-num">04</span>
+  <h2>Sampler 如何按 DP 分片</h2>
+</div>
+<div class="tags">
+  <span class="tag tag-green">MegatronPretrainingSampler</span>
+  <span class="tag tag-blue">Data Parallel</span>
+</div>
+
+<div class="prose">
+<p><code>MegatronPretrainingSampler</code> 是整个数据管线的"水龙头"——它决定每个 DP rank 在每次迭代中拿到哪些样本。</p>
+</div>
+
+<div class="code-block">
+<div class="code-title">MegatronPretrainingSampler.__iter__ <span class="lines">L116-129</span></div>
+<pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">def</span> <span class="hljs-title function_">__iter__</span>(<span class="hljs-params">self</span>):
+    batch = []
+    <span class="hljs-keyword">for</span> idx <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(self.consumed_samples, self.total_samples):
+        batch.append(idx)
+        <span class="hljs-keyword">if</span> <span class="hljs-built_in">len</span>(batch) == self.micro_batch_size * data_parallel_size:
+            <span class="hljs-comment"># 攒够一个"全局 micro-batch"后，按 DP rank 切分</span>
+            start_idx = self.data_parallel_rank * self.micro_batch_size
+            end_idx = start_idx + self.micro_batch_size
+            <span class="hljs-keyword">yield</span> batch[start_idx:end_idx]   <span class="hljs-comment"># 只产出属于本 rank 的部分</span>
+            batch = []</code></pre>
+</div>
+
+<div class="diagram">假设 micro_batch_size=2, DP_size=4, 样本索引从 0 开始：
+
+<span class="hl">第一次 yield</span>:  batch = [0, 1, 2, 3, 4, 5, 6, 7]  （攒够 2×4=8 个）
+  DP rank 0 → yield [<span class="hl">0, 1</span>]
+  DP rank 1 → yield [<span class="hl3">2, 3</span>]
+  DP rank 2 → yield [<span class="hl2">4, 5</span>]
+  DP rank 3 → yield [<span class="hl4">6, 7</span>]
+
+<span class="hl">第二次 yield</span>:  batch = [8, 9, 10, 11, 12, 13, 14, 15]
+  DP rank 0 → yield [<span class="hl">8, 9</span>]
+  DP rank 1 → yield [<span class="hl3">10, 11</span>]
+  DP rank 2 → yield [<span class="hl2">12, 13</span>]
+  DP rank 3 → yield [<span class="hl4">14, 15</span>]
+</div>
+
+<div class="callout callout-key">
+<div class="callout-title">Sampler 与 VPP 无关</div>
+<code>MegatronPretrainingSampler</code> 没有任何 VPP 特殊逻辑。每个 vp_stage 的 iterator 都有自己独立的 Sampler 实例，它们各自独立地从（通常是同一个）Dataset 中按 DP rank 分片取数据。
+</div>
+
+</section>
+
+<!-- ========== Section 5 ========== -->
+<section id="s5">
+<div class="section-header">
+  <span class="section-num">05</span>
+  <h2>Iterator 三层包装</h2>
+</div>
+<div class="tags">
+  <span class="tag tag-orange">RerunDataIterator</span>
+  <span class="tag tag-purple">cyclic_iter</span>
+</div>
+
+<div class="prose">
+<p>从 DataLoader 到最终被 pipeline schedule 消费的 iterator，经过三层包装：</p>
+</div>
+
+<div class="diagram"><span class="hl4">DataLoader</span>                      ← 标准 PyTorch DataLoader，每次 next() 产出一个 micro-batch dict
+   │
+   ▼
+<span class="hl2">iter(DataLoader)</span>                  ← 调用 __iter__()，得到 Python iterator
+   │
+   ├── dataloader_type="single" → <span class="hl2">直接使用</span>
+   │
+   └── dataloader_type="cyclic" → <span class="hl3">cyclic_iter(DataLoader)</span>  ← 无限循环包装
+                                        │
+                                        ▼
+                                   def cyclic_iter(iter):
+                                       while True:
+                                           for x in iter:
+                                               yield x
+   │
+   ▼
+<span class="hl4">RerunDataIterator</span>( 上面的 iterator )  ← 最外层包装，支持 replay
+</div>
+
+<h3>RerunDataIterator 的核心机制</h3>
+
+<div class="prose">
+<p><code>RerunDataIterator</code> 是一个透明代理，在 <code>RerunMode.DISABLED</code>（默认）下零开销。它提供的 replay 能力用于容错场景（NaN 检测后重跑同样的数据）。</p>
+</div>
+
+<div class="code-block">
+<div class="code-title">megatron/core/rerun_state_machine.py <span class="lines">L1027-1077</span></div>
+<pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">class</span> <span class="hljs-title class_">RerunDataIterator</span>:
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">__init__</span>(<span class="hljs-params">self, iterable</span>):
+        self.iterable = iterable         <span class="hljs-comment"># 底层真正的 iterator</span>
+        self.saved_microbatches = []     <span class="hljs-comment"># 缓存区</span>
+        self.replaying = <span class="hljs-literal">False</span>           <span class="hljs-comment"># 是否在重放模式</span>
+        self.replay_pos = <span class="hljs-number">0</span>
+
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">__next__</span>(<span class="hljs-params">self</span>):
+        <span class="hljs-keyword">if</span> self.replaying:
+            <span class="hljs-comment"># 重放模式：从缓存取旧数据</span>
+            n = self.saved_microbatches[self.replay_pos]
+            self.replay_pos += <span class="hljs-number">1</span>
+            <span class="hljs-keyword">return</span> n
+
+        <span class="hljs-comment"># 正常模式：从底层取新数据</span>
+        n = <span class="hljs-built_in">next</span>(self.iterable)
+        <span class="hljs-keyword">if</span> rerun_mode != DISABLED:
+            self.saved_microbatches.append(n)  <span class="hljs-comment"># 缓存一份</span>
+        <span class="hljs-keyword">return</span> n
+
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">rewind</span>(<span class="hljs-params">self</span>):    <span class="hljs-comment"># 倒带到开头（重放用）</span>
+        self.replaying = <span class="hljs-literal">True</span>
+        self.replay_pos = <span class="hljs-number">0</span>
+
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">advance</span>(<span class="hljs-params">self</span>):   <span class="hljs-comment"># 前进到下一个 iteration（清空缓存）</span>
+        self.replaying = <span class="hljs-literal">False</span>
+        self.saved_microbatches = []</code></pre>
+</div>
+
+<div class="callout callout-info">
+<div class="callout-title">VPP 模式下的 RerunDataIterator</div>
+VPP 模式下有多个 <code>RerunDataIterator</code> 实例（每个 vp_stage 一个）。<code>RerunStateMachine.should_run_forward_backward()</code> 会接收整个 list，在 rewind 时对每一个 iterator 都调用 <code>rewind()</code>，确保所有 stage 的数据都能回退。
+</div>
+
+</section>
+
+<!-- ========== Section 6 ========== -->
+<section id="s6">
+<div class="section-header">
+  <span class="section-num">06</span>
+  <h2>消费链路：Schedule 如何取数据</h2>
+</div>
+<div class="tags">
+  <span class="tag tag-blue">schedules.py</span>
+  <span class="tag tag-pink">forward_backward_pipelining_with_interleaving</span>
+</div>
+
+<div class="prose">
+<p>构建完成后，<code>train_data_iterator</code>（一个 list）被传入 <code>train_step()</code>，最终到达 pipeline schedule 函数。下面是消费链路：</p>
+</div>
+
+<div class="step-flow">
+  <div class="step-item">
+    <div class="step-dot">1</div>
+    <div class="step-content">
+      <h4>train_step() 透传 data_iterator</h4>
+      <div class="step-file">training.py:1661</div>
+      <p><code>forward_backward_func(data_iterator=data_iterator, model=model, ...)</code><br>
+      VPP 模式下 <code>data_iterator</code> 是 list，<code>model</code> 也是 list。</p>
+    </div>
+  </div>
+
+  <div class="step-item">
+    <div class="step-dot">2</div>
+    <div class="step-content">
+      <h4>get_forward_backward_func() 选择 schedule</h4>
+      <div class="step-file">schedules.py:46-146</div>
+      <p>PP &gt; 1 且 VP ≠ None 时，返回 <code>forward_backward_pipelining_with_interleaving</code>。</p>
+    </div>
+  </div>
+
+  <div class="step-item">
+    <div class="step-dot">3</div>
+    <div class="step-content">
+      <h4>forward_step_helper() 按 model_chunk_id 索引</h4>
+      <div class="step-file">schedules.py:1301-1333</div>
+      <p>根据 schedule table 查出当前 virtual_microbatch_id 对应的 <code>model_chunk_id</code>，然后用它索引 iterator 和 model：</p>
+    </div>
+  </div>
+
+  <div class="step-item">
+    <div class="step-dot">4</div>
+    <div class="step-content">
+      <h4>内部 forward_step() 调用用户的 forward_step_func</h4>
+      <div class="step-file">schedules.py:306+</div>
+      <p><code>forward_step_func(data_iterator, model)</code> — 此处 <code>data_iterator</code> 已经是单个 iterator（通过 <code>data_iterator[model_chunk_id]</code> 索引后）。</p>
+    </div>
+  </div>
+
+  <div class="step-item">
+    <div class="step-dot">5</div>
+    <div class="step-content">
+      <h4>用户的 get_batch() → get_batch_on_this_tp_rank()</h4>
+      <div class="step-file">pretrain_gpt.py:42+ → utils.py:539+</div>
+      <p>TP rank 0 调用 <code>next(data_iterator)</code> 取一个 micro-batch，然后 broadcast 到同 TP group 的其他 rank。</p>
+    </div>
+  </div>
+</div>
+
+<div class="code-block">
+<div class="code-title">schedules.py — forward_step_helper() 核心逻辑 <span class="lines">L1301-1333</span></div>
+<pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">def</span> <span class="hljs-title function_">forward_step_helper</span>(<span class="hljs-params">virtual_microbatch_id, ...</span>):
+    <span class="hljs-comment"># 从 schedule table 查出 model chunk 和 microbatch 编号</span>
+    model_chunk_id = get_model_chunk_id(virtual_microbatch_id, forward=<span class="hljs-literal">True</span>)
+    microbatch_id = get_microbatch_id_in_model_chunk(virtual_microbatch_id, forward=<span class="hljs-literal">True</span>)
+
+    <span class="hljs-comment"># 用 model_chunk_id 索引 iterator 和 model</span>
+    output_tensor, num_tokens = forward_step(
+        forward_step_func,
+        data_iterator[model_chunk_id],    <span class="hljs-comment"># ← 关键！按 chunk 索引</span>
+        model[model_chunk_id],             <span class="hljs-comment"># ← 对应的 model chunk</span>
+        num_microbatches,
+        input_tensor,
+        forward_data_store,
+        config,
+        vp_stage=model_chunk_id,           <span class="hljs-comment"># ← 传递给用户函数</span>
+        ...
+    )</code></pre>
+</div>
+
+</section>
+
+<!-- ========== Section 7 ========== -->
+<section id="s7">
+<div class="section-header">
+  <span class="section-num">07</span>
+  <h2>Schedule Table 调度表</h2>
+</div>
+<div class="tags">
+  <span class="tag tag-purple">get_schedule_table</span>
+  <span class="tag tag-orange">1F1B Interleaved</span>
+</div>
+
+<div class="prose">
+<p>VPP schedule 的核心数据结构是 <strong>schedule table</strong>——一个从 <code>virtual_microbatch_id</code> 到 <code>(microbatch_id, model_chunk_id)</code> 的映射表。它决定了每个时间步执行哪个 model chunk 的哪个 microbatch。</p>
+</div>
+
+<div class="code-block">
+<div class="code-title">get_schedule_table() 逻辑 <span class="lines">schedules.py:811-838</span></div>
+<pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># 假设 num_microbatches=5, num_model_chunks=2, group_size=1</span>
+<span class="hljs-comment"># 生成的 schedule table:</span>
+<span class="hljs-comment"># virtual_mb_id  | 0  1  2  3  4  5  6  7  8  9</span>
+<span class="hljs-comment"># microbatch_id  | 0  0  1  1  2  2  3  3  4  4</span>
+<span class="hljs-comment"># model_chunk_id | 0  1  0  1  0  1  0  1  0  1</span>
+<span class="hljs-comment">#</span>
+<span class="hljs-comment"># 即：mb0→chunk0, mb0→chunk1, mb1→chunk0, mb1→chunk1, ...</span>
+<span class="hljs-comment"># 每个 microbatch 先过 chunk0 再过 chunk1</span></code></pre>
+</div>
+
+<div class="prose">
+<p>以 <strong>PP=2, VP=2, M=4 (4 microbatches)</strong> 为例，schedule table 的构建结果是：</p>
+</div>
+
+<table class="data-table">
+<thead>
+<tr>
+  <th>virtual_mb_id</th>
+  <th>0</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td><strong>microbatch_id</strong></td>
+  <td>0</td><td>0</td><td>1</td><td>1</td><td>2</td><td>2</td><td>3</td><td>3</td>
+</tr>
+<tr>
+  <td><strong>model_chunk_id</strong></td>
+  <td><code>0</code></td><td><code>1</code></td><td><code>0</code></td><td><code>1</code></td>
+  <td><code>0</code></td><td><code>1</code></td><td><code>0</code></td><td><code>1</code></td>
+</tr>
+</tbody>
+</table>
+
+<div class="prose">
+<p>total_num_microbatches = M × VP = 4 × 2 = 8。整个 schedule 分为 <strong>Warmup → 1F1B Steady → Cooldown</strong> 三个阶段：</p>
+</div>
+
+<div class="diagram"><span class="hl">Warmup 阶段</span>: 连续做若干个 Forward（填充 pipeline）
+
+    PP rank 0:  <span class="hl">F0:C0</span>  <span class="hl3">F0:C1</span>  <span class="hl">F1:C0</span>  <span class="hl3">F1:C1</span>
+    PP rank 1:          <span class="hl">F0:C0</span>  <span class="hl3">F0:C1</span>
+                                        ↓ pipeline 填满
+
+<span class="hl2">1F1B 稳态阶段</span>: 每做一个 Forward 就做一个 Backward
+
+    PP rank 0:  <span class="hl">F2:C0</span> <span class="hl4">B0:C1</span>  <span class="hl3">F2:C1</span> <span class="hl4">B0:C0</span>  <span class="hl">F3:C0</span> <span class="hl4">B1:C1</span>  <span class="hl3">F3:C1</span> <span class="hl4">B1:C0</span>
+    PP rank 1:  <span class="hl">F1:C0</span> <span class="hl4">B0:C1</span>  <span class="hl3">F1:C1</span> <span class="hl4">B0:C0</span>  ...
+
+<span class="hl4">Cooldown 阶段</span>: 排空剩余的 Backward
+
+    PP rank 0:  <span class="hl4">B2:C1</span> <span class="hl4">B2:C0</span> <span class="hl4">B3:C1</span> <span class="hl4">B3:C0</span>
+    PP rank 1:  ...
+
+<span class="hl">F</span> = Forward    <span class="hl4">B</span> = Backward    数字 = microbatch_id    <span class="hl">C0</span>/<span class="hl3">C1</span> = model_chunk_id
+
+注意 Backward 的 chunk 顺序是<span class="hl4">反转的</span>: Forward 是 C0→C1, Backward 是 C1→C0
+</div>
+
+<div class="callout callout-info">
+<div class="callout-title">Backward 反转 chunk 顺序</div>
+<code>get_model_chunk_id(k, forward=False)</code> 对 chunk_id 做了反转：<code>model_chunk_id = num_model_chunks - model_chunk_id - 1</code>。这确保梯度按正确的反向顺序流过 model chunks（先算 C1 的梯度，再算 C0 的梯度）。
+</div>
+
+<h3>每个 Iterator 被 next() 调用的次数</h3>
+
+<div class="prose">
+<p>虽然 schedule 把 <code>data_iterator[model_chunk_id]</code> 传给每次 <code>forward_step()</code>，但 <strong>并不是每次都会真正调用 <code>next()</code></strong>。用户的 <code>get_batch()</code> 会先检查 <code>is_first_or_last_pipeline_stage(vp_stage)</code>：</p>
+<ul>
+<li><strong>PP rank 0 + vp_stage 0</strong>（真正的入口）：调用 <code>next(data_iterator[0])</code>，读取 input tokens。每 iteration 读 M 次。</li>
+<li><strong>PP rank 末 + vp_stage 末</strong>（真正的出口）：调用 <code>next(data_iterator[VP-1])</code>，读取 labels/loss_mask。每 iteration 读 M 次。</li>
+<li><strong>其他所有 PP rank × vp_stage 组合</strong>：<code>get_batch()</code> 直接返回 None，<strong>不消耗 iterator</strong>。</li>
+</ul>
+<p>对于上面的例子（M=4, VP=2, PP=2）：PP rank 0 上 <code>data_iterator[0]</code> 被读 4 次，<code>data_iterator[1]</code> 从未被读取；PP rank 1 上 <code>data_iterator[1]</code> 被读 4 次，<code>data_iterator[0]</code> 从未被读取。每个 DP rank 每 iteration 消耗的唯一数据量 = <strong>M 个 micro-batch</strong>（与非 VPP 相同）。</p>
+</div>
+
+</section>
+
+<!-- ========== Section 8 ========== -->
+<section id="s8">
+<div class="section-header">
+  <span class="section-num">08</span>
+  <h2>TP/CP 内的数据分发</h2>
+</div>
+<div class="tags">
+  <span class="tag tag-blue">get_batch_on_this_tp_rank</span>
+  <span class="tag tag-green">get_batch_on_this_cp_rank</span>
+</div>
+
+<div class="prose">
+<p>当 <code>next(data_iterator)</code> 被调用后，拿到的 raw batch 还需要在 TP 和 CP 维度上进一步分发。</p>
+</div>
+
+<h3>TP 分发：只有 rank 0 取数据</h3>
+
+<div class="diagram">                     ┌─────────────────┐
+                     │ <span class="hl">data_iterator</span>    │
+                     │ next()           │
+                     └────────┬────────┘
+                              │ 只有 TP rank 0 调用
+                              ▼
+                     ┌─────────────────┐
+                     │ <span class="hl">TP rank 0</span>       │
+                     │ 取 raw batch     │
+                     │ → .cuda()       │
+                     └────────┬────────┘
+                              │ <span class="hl3">broadcast</span>
+                 ┌────────────┼────────────┐
+                 ▼            ▼            ▼
+             TP rank 0    TP rank 1    TP rank 2
+</div>
+
+<div class="prose">
+<p>而且<strong>不同 PP stage 广播的字段不同</strong>：</p>
+</div>
+
+<table class="data-table">
+<thead>
+<tr>
+  <th>PP Stage 位置</th>
+  <th>广播字段</th>
+  <th>原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>Pipeline <strong>首</strong> Stage</td>
+  <td><code>tokens</code>, <code>attention_mask</code>, <code>position_ids</code></td>
+  <td>首 stage 需要 embedding 的输入</td>
+</tr>
+<tr>
+  <td>Pipeline <strong>末</strong> Stage</td>
+  <td><code>labels</code>, <code>loss_mask</code></td>
+  <td>末 stage 需要计算 loss</td>
+</tr>
+<tr>
+  <td>PP = 1 (首尾同一个)</td>
+  <td>全部字段</td>
+  <td>同时需要输入和标签</td>
+</tr>
+<tr>
+  <td>PP <strong>中间</strong> Stage</td>
+  <td>什么都不广播</td>
+  <td>输入来自上一个 stage 的 activation</td>
+</tr>
+</tbody>
+</table>
+
+<h3>CP 分发：序列维度折叠切分</h3>
+
+<div class="prose">
+<p>Context Parallel 将序列维度切到多个 rank 上。为了 causal attention 负载均衡，采用"折叠"策略：</p>
+</div>
+
+<div class="diagram">原始序列 (seq_len=8192, CP_size=2):
+
+  ┌──────┬──────┬──────┬──────┐
+  │ seg0 │ seg1 │ seg2 │ seg3 │    切成 2×CP_size = 4 段
+  └──────┴──────┴──────┴──────┘
+
+  CP rank 0 拿: seg<span class="hl">0</span> + seg<span class="hl">3</span>  →  [<span class="hl">前 2048</span>] + [<span class="hl">后 2048</span>]  (长度 4096)
+  CP rank 1 拿: seg<span class="hl3">1</span> + seg<span class="hl3">2</span>  →  [<span class="hl3">中前 2048</span>] + [<span class="hl3">中后 2048</span>]  (长度 4096)
+
+  <span class="hl4">为什么这样切？</span>
+  Causal attention 中，前面的 token attention 计算量 <span class="hl2">小</span>（mask 掉了后面）
+  后面的 token attention 计算量 <span class="hl2">大</span>（能看到所有前面的 token）
+  "折叠"让每个 rank 同时拿到前段（计算量小）和后段（计算量大），实现负载均衡</div>
+
+</section>
+
+<!-- ========== Section 9 ========== -->
+<section id="s9">
+<div class="section-header">
+  <span class="section-num">09</span>
+  <h2>交互式示例：PP=2, VP=2, M=4, DP=2</h2>
+</div>
+<div class="tags">
+  <span class="tag tag-pink">完整示例</span>
+  <span class="tag tag-purple">端到端</span>
+</div>
+
+<div class="prose">
+<p>用一个具体配置来走完全流程：<strong>2 个 PP stage, 2 个 VP stage, 4 个 microbatch, 2 路 DP</strong>。假设 <code>micro_batch_size=2</code>。</p>
+</div>
+
+<h3>Step 1: 构建阶段 — 产出 iterator list</h3>
+
+<div class="diagram"><span class="hl">pretrain()</span> 循环 vp_stage = 0, 1:
+
+  <span class="hl3">vp_stage=0:</span>
+    Dataset_0 → Sampler_0(dp_rank=0) → DataLoader_0 → iter() → <span class="hl4">RerunDataIterator_0</span>
+    Dataset_0 → Sampler_0(dp_rank=1) → DataLoader_0 → iter() → <span class="hl4">RerunDataIterator_0</span>  (另一个 DP rank)
+
+  <span class="hl3">vp_stage=1:</span>
+    Dataset_1 → Sampler_1(dp_rank=0) → DataLoader_1 → iter() → <span class="hl4">RerunDataIterator_1</span>
+    Dataset_1 → Sampler_1(dp_rank=1) → DataLoader_1 → iter() → <span class="hl4">RerunDataIterator_1</span>
+
+  最终:
+    train_data_iterator = [<span class="hl4">RerunDataIterator_0</span>, <span class="hl4">RerunDataIterator_1</span>]</div>
+
+<h3>Step 2: 一个 iteration 的数据消费</h3>
+
+<div class="prose">
+<p><code>global_batch_size = micro_batch_size × num_microbatches × DP_size = 2 × 4 × 2 = 16</code> 个样本。每个 DP rank 消费 <strong>4 个 micro-batch = 8 个样本</strong>（与非 VPP 相同）。VPP 只是增加了 forward 操作次数（M × VP = 8），但唯一数据消耗量不变。</p>
+</div>
+
+<div class="diagram"><span class="hl">PP rank 0, DP rank 0</span> 的视角（pipeline 首 stage）:
+
+Schedule table: total = M × VP = 4 × 2 = 8 个 virtual microbatch
+  virtual_mb  | 0    1    2    3    4    5    6    7
+  mb_id       | 0    0    1    1    2    2    3    3
+  chunk_id    | 0    1    0    1    0    1    0    1
+
+Forward 阶段 get_batch() 的实际行为:
+  <span class="hl">F(v=0)</span>: chunk_id=0, vp_stage=0 → is_first_stage=<span class="hl2">True</span>  → next(<span class="hl4">iter[0]</span>) → 读 micro-batch #0
+  <span class="hl3">F(v=1)</span>: chunk_id=1, vp_stage=1 → is_first_stage=<span class="hl4">False</span> → get_batch() 返回 None（不消耗 iter[1]）
+  <span class="hl">F(v=2)</span>: chunk_id=0, vp_stage=0 → is_first_stage=<span class="hl2">True</span>  → next(<span class="hl4">iter[0]</span>) → 读 micro-batch #1
+  <span class="hl3">F(v=3)</span>: chunk_id=1, vp_stage=1 → is_first_stage=<span class="hl4">False</span> → get_batch() 返回 None
+  ...
+  <span class="hl">F(v=6)</span>: chunk_id=0, vp_stage=0 → is_first_stage=<span class="hl2">True</span>  → next(<span class="hl4">iter[0]</span>) → 读 micro-batch #3
+  <span class="hl3">F(v=7)</span>: chunk_id=1, vp_stage=1 → is_first_stage=<span class="hl4">False</span> → get_batch() 返回 None
+
+总计: iter[0] 被 next() <span class="hl">4 次</span>, iter[1] 被 next() <span class="hl3">0 次</span>
+
+<span class="hl">PP rank 1, DP rank 0</span> 的视角（pipeline 末 stage）:
+
+  <span class="hl">F(v=0)</span>: chunk_id=0, vp_stage=0 → is_last_stage=<span class="hl4">False</span> → get_batch() 返回 None
+  <span class="hl3">F(v=1)</span>: chunk_id=1, vp_stage=1 → is_last_stage=<span class="hl2">True</span>  → next(<span class="hl4">iter[1]</span>) → 读 labels #0
+  ...
+
+总计: iter[0] 被 next() <span class="hl3">0 次</span>, iter[1] 被 next() <span class="hl">4 次</span></div>
+
+<h3>Step 3: 数据在各并行维度的分布</h3>
+
+<div class="diagram">假设 total_samples = 10000, micro_batch_size = 2
+
+<span class="hl">DP 维度</span> (Sampler 负责):
+  DP rank 0:  样本 [0,1], [4,5], [8,9], [12,13], ...
+  DP rank 1:  样本 [2,3], [6,7], [10,11], [14,15], ...
+
+<span class="hl3">TP 维度</span> (get_batch_on_this_tp_rank 负责):
+  TP rank 0:  调用 next(iterator) 取 raw batch  →  broadcast 到其他 TP rank
+  TP rank 1:  不调用 next()，从 broadcast 接收数据
+  TP rank 2:  不调用 next()，从 broadcast 接收数据
+
+<span class="hl2">CP 维度</span> (get_batch_on_this_cp_rank 负责):
+  CP rank 0:  序列的 [seg0 + seg3]  (折叠切分)
+  CP rank 1:  序列的 [seg1 + seg2]
+
+<span class="hl4">PP × VP 维度</span> (pipeline schedule + get_batch + is_first_or_last_pipeline_stage 负责):
+  PP 首 stage + vp_stage 0:  调用 next()，拿 tokens/attention_mask/position_ids
+  PP 末 stage + vp_stage 末: 调用 next()，拿 labels/loss_mask
+  其他 PP×VP 组合:           get_batch() 返回 None，不消耗 iterator
+</div>
+
+</section>
+
+<!-- ========== Section 10 ========== -->
+<section id="s10">
+<div class="section-header">
+  <span class="section-num">10</span>
+  <h2>关键文件速查</h2>
+</div>
+<div class="tags">
+  <span class="tag tag-green">参考</span>
+</div>
+
+<table class="data-table">
+<thead>
+<tr>
+  <th>组件</th>
+  <th>文件路径</th>
+  <th>关键行号</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>pretrain() VPP 分支</td>
+  <td><code>megatron/training/training.py</code></td>
+  <td>L924-948</td>
+</tr>
+<tr>
+  <td>build_train_valid_test_data_iterators()</td>
+  <td><code>megatron/training/training.py</code></td>
+  <td>L4076-4148</td>
+</tr>
+<tr>
+  <td>build_train_valid_test_data_loaders()</td>
+  <td><code>megatron/training/training.py</code></td>
+  <td>L4003-4073</td>
+</tr>
+<tr>
+  <td>build_pretraining_data_loader()</td>
+  <td><code>megatron/legacy/data/data_samplers.py</code></td>
+  <td>L15-81</td>
+</tr>
+<tr>
+  <td>MegatronPretrainingSampler</td>
+  <td><code>megatron/legacy/data/data_samplers.py</code></td>
+  <td>L83-129</td>
+</tr>
+<tr>
+  <td>RerunDataIterator</td>
+  <td><code>megatron/core/rerun_state_machine.py</code></td>
+  <td>L1027-1093</td>
+</tr>
+<tr>
+  <td>cyclic_iter()</td>
+  <td><code>megatron/training/training.py</code></td>
+  <td>L3964-3967</td>
+</tr>
+<tr>
+  <td>get_forward_backward_func()</td>
+  <td><code>megatron/core/pipeline_parallel/schedules.py</code></td>
+  <td>L46-146</td>
+</tr>
+<tr>
+  <td>forward_backward_pipelining_with_interleaving()</td>
+  <td><code>megatron/core/pipeline_parallel/schedules.py</code></td>
+  <td>L867+</td>
+</tr>
+<tr>
+  <td>forward_step_helper() (VPP)</td>
+  <td><code>megatron/core/pipeline_parallel/schedules.py</code></td>
+  <td>L1301-1333</td>
+</tr>
+<tr>
+  <td>get_schedule_table()</td>
+  <td><code>megatron/core/pipeline_parallel/schedules.py</code></td>
+  <td>L811-838</td>
+</tr>
+<tr>
+  <td>用户 forward_step (GPT)</td>
+  <td><code>pretrain_gpt.py</code></td>
+  <td>L169-207</td>
+</tr>
+<tr>
+  <td>get_batch() (GPT)</td>
+  <td><code>pretrain_gpt.py</code></td>
+  <td>L42-100</td>
+</tr>
+<tr>
+  <td>get_batch_on_this_tp_rank()</td>
+  <td><code>megatron/training/utils.py</code></td>
+  <td>L539-734</td>
+</tr>
+<tr>
+  <td>get_batch_on_this_cp_rank()</td>
+  <td><code>megatron/core/utils.py</code></td>
+  <td>L1958-2002</td>
+</tr>
+</tbody>
+</table>
+
+<div class="callout callout-key">
+<div class="callout-title">一句话总结</div>
+VPP 模式下，<code>pretrain()</code> 循环 VP 次构建 iterator list，每个 iterator 走完全相同的 Dataset→Sampler→DataLoader→RerunDataIterator 链路；pipeline schedule 通过 schedule table 查出 <code>model_chunk_id</code>，用 <code>data_iterator[model_chunk_id]</code> 从对应 iterator 取数据，最终经 TP broadcast + CP 序列切分后送入模型。
+</div>
+
+</section>
+
+</main>
+</div>
+
+<footer>
+  Megatron-LM 源码精读 · VPP 数据迭代器构建全流程
+</footer>
+
+<script>hljs.highlightAll();</script>
+<script src="./VPP 数据迭代器构建全流程 · Megatron-LM 源码精读_files/update-checker.js"></script>
+
+
+</body></html>

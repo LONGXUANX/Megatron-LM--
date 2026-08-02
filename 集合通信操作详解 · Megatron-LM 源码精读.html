@@ -1,0 +1,2135 @@
+<!DOCTYPE html>
+<!-- saved from url=(0086)https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/collective_operations.html -->
+<html lang="zh-CN"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>集合通信操作详解 · Megatron-LM 源码精读</title>
+<link rel="stylesheet" href="./集合通信操作详解 · Megatron-LM 源码精读_files/github-dark.min.css">
+<script src="./集合通信操作详解 · Megatron-LM 源码精读_files/highlight.min.js"></script>
+<script src="./集合通信操作详解 · Megatron-LM 源码精读_files/highlight-python.min.js"></script>
+<script>
+MathJax = {
+  tex: { inlineMath: [['\\(','\\)']], displayMath: [['$$','$$']] },
+  svg: { fontCache: 'global' }
+};
+</script>
+<script src="./集合通信操作详解 · Megatron-LM 源码精读_files/tex-chtml.js" async="" defer=""></script>
+<script src="./集合通信操作详解 · Megatron-LM 源码精读_files/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      darkMode: true,
+      background: '#1c2129',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
+      fontSize: '13px',
+      primaryColor: '#1f2937',
+      primaryTextColor: '#e6edf3',
+      primaryBorderColor: '#30363d',
+      lineColor: '#58a6ff',
+      secondaryColor: '#161b22',
+      tertiaryColor: '#0d1117',
+      mainBkg: '#161b22',
+      nodeBorder: '#30363d',
+      clusterBkg: 'rgba(88,166,255,0.05)',
+      clusterBorder: '#30363d',
+      titleColor: '#e6edf3',
+      edgeLabelBackground: '#1c2129',
+      nodeTextColor: '#e6edf3'
+    }
+  });
+</script>
+<link rel="stylesheet" href="./集合通信操作详解 · Megatron-LM 源码精读_files/style.css">
+<style type="text/css">.CtxtMenu_InfoClose {  top:.2em; right:.2em;}
+.CtxtMenu_InfoContent {  overflow:auto; text-align:left; font-size:80%;  padding:.4em .6em; border:1px inset; margin:1em 0px;  max-height:20em; max-width:30em; background-color:#EEEEEE;  white-space:normal;}
+.CtxtMenu_Info.CtxtMenu_MousePost {outline:none;}
+.CtxtMenu_Info {  position:fixed; left:50%; width:auto; text-align:center;  border:3px outset; padding:1em 2em; background-color:#DDDDDD;  color:black;  cursor:default; font-family:message-box; font-size:120%;  font-style:normal; text-indent:0; text-transform:none;  line-height:normal; letter-spacing:normal; word-spacing:normal;  word-wrap:normal; white-space:nowrap; float:none; z-index:201;  border-radius: 15px;                     /* Opera 10.5 and IE9 */  -webkit-border-radius:15px;               /* Safari and Chrome */  -moz-border-radius:15px;                  /* Firefox */  -khtml-border-radius:15px;                /* Konqueror */  box-shadow:0px 10px 20px #808080;         /* Opera 10.5 and IE9 */  -webkit-box-shadow:0px 10px 20px #808080; /* Safari 3 & Chrome */  -moz-box-shadow:0px 10px 20px #808080;    /* Forefox 3.5 */  -khtml-box-shadow:0px 10px 20px #808080;  /* Konqueror */  filter:progid:DXImageTransform.Microsoft.dropshadow(OffX=2, OffY=2, Color="gray", Positive="true"); /* IE */}
+</style><style type="text/css">.CtxtMenu_MenuClose {  position:absolute;  cursor:pointer;  display:inline-block;  border:2px solid #AAA;  border-radius:18px;  -webkit-border-radius: 18px;             /* Safari and Chrome */  -moz-border-radius: 18px;                /* Firefox */  -khtml-border-radius: 18px;              /* Konqueror */  font-family: "Courier New", Courier;  font-size:24px;  color:#F0F0F0}
+.CtxtMenu_MenuClose span {  display:block; background-color:#AAA; border:1.5px solid;  border-radius:18px;  -webkit-border-radius: 18px;             /* Safari and Chrome */  -moz-border-radius: 18px;                /* Firefox */  -khtml-border-radius: 18px;              /* Konqueror */  line-height:0;  padding:8px 0 6px     /* may need to be browser-specific */}
+.CtxtMenu_MenuClose:hover {  color:white!important;  border:2px solid #CCC!important}
+.CtxtMenu_MenuClose:hover span {  background-color:#CCC!important}
+.CtxtMenu_MenuClose:hover:focus {  outline:none}
+</style><style type="text/css">.CtxtMenu_Menu {  position:absolute;  background-color:white;  color:black;  width:auto; padding:5px 0px;  border:1px solid #CCCCCC; margin:0; cursor:default;  font: menu; text-align:left; text-indent:0; text-transform:none;  line-height:normal; letter-spacing:normal; word-spacing:normal;  word-wrap:normal; white-space:nowrap; float:none; z-index:201;  border-radius: 5px;                     /* Opera 10.5 and IE9 */  -webkit-border-radius: 5px;             /* Safari and Chrome */  -moz-border-radius: 5px;                /* Firefox */  -khtml-border-radius: 5px;              /* Konqueror */  box-shadow:0px 10px 20px #808080;         /* Opera 10.5 and IE9 */  -webkit-box-shadow:0px 10px 20px #808080; /* Safari 3 & Chrome */  -moz-box-shadow:0px 10px 20px #808080;    /* Forefox 3.5 */  -khtml-box-shadow:0px 10px 20px #808080;  /* Konqueror */}
+.CtxtMenu_MenuItem {  padding: 1px 2em;  background:transparent;}
+.CtxtMenu_MenuArrow {  position:absolute; right:.5em; padding-top:.25em; color:#666666;  font-family: null; font-size: .75em}
+.CtxtMenu_MenuActive .CtxtMenu_MenuArrow {color:white}
+.CtxtMenu_MenuArrow.CtxtMenu_RTL {left:.5em; right:auto}
+.CtxtMenu_MenuCheck {  position:absolute; left:.7em;  font-family: null}
+.CtxtMenu_MenuCheck.CtxtMenu_RTL { right:.7em; left:auto }
+.CtxtMenu_MenuRadioCheck {  position:absolute; left: .7em;}
+.CtxtMenu_MenuRadioCheck.CtxtMenu_RTL {  right: .7em; left:auto}
+.CtxtMenu_MenuInputBox {  padding-left: 1em; right:.5em; color:#666666;  font-family: null;}
+.CtxtMenu_MenuInputBox.CtxtMenu_RTL {  left: .1em;}
+.CtxtMenu_MenuComboBox {  left:.1em; padding-bottom:.5em;}
+.CtxtMenu_MenuSlider {  left: .1em;}
+.CtxtMenu_SliderValue {  position:absolute; right:.1em; padding-top:.25em; color:#333333;  font-size: .75em}
+.CtxtMenu_SliderBar {  outline: none; background: #d3d3d3}
+.CtxtMenu_MenuLabel {  padding: 1px 2em 3px 1.33em;  font-style:italic}
+.CtxtMenu_MenuRule {  border-top: 1px solid #DDDDDD;  margin: 4px 3px;}
+.CtxtMenu_MenuDisabled {  color:GrayText}
+.CtxtMenu_MenuActive {  background-color: #606872;  color: white;}
+.CtxtMenu_MenuDisabled:focus {  background-color: #E8E8E8}
+.CtxtMenu_MenuLabel:focus {  background-color: #E8E8E8}
+.CtxtMenu_ContextMenu:focus {  outline:none}
+.CtxtMenu_ContextMenu .CtxtMenu_MenuItem:focus {  outline:none}
+.CtxtMenu_SelectionMenu {  position:relative; float:left;  border-bottom: none; -webkit-box-shadow:none; -webkit-border-radius:0px; }
+.CtxtMenu_SelectionItem {  padding-right: 1em;}
+.CtxtMenu_Selection {  right: 40%; width:50%; }
+.CtxtMenu_SelectionBox {  padding: 0em; max-height:20em; max-width: none;  background-color:#FFFFFF;}
+.CtxtMenu_SelectionDivider {  clear: both; border-top: 2px solid #000000;}
+.CtxtMenu_Menu .CtxtMenu_MenuClose {  top:-10px; left:-10px}
+</style><style id="MJX-CHTML-styles">
+mjx-container[jax="CHTML"] {
+  line-height: 0;
+}
+
+mjx-container [space="1"] {
+  margin-left: .111em;
+}
+
+mjx-container [space="2"] {
+  margin-left: .167em;
+}
+
+mjx-container [space="3"] {
+  margin-left: .222em;
+}
+
+mjx-container [space="4"] {
+  margin-left: .278em;
+}
+
+mjx-container [space="5"] {
+  margin-left: .333em;
+}
+
+mjx-container [rspace="1"] {
+  margin-right: .111em;
+}
+
+mjx-container [rspace="2"] {
+  margin-right: .167em;
+}
+
+mjx-container [rspace="3"] {
+  margin-right: .222em;
+}
+
+mjx-container [rspace="4"] {
+  margin-right: .278em;
+}
+
+mjx-container [rspace="5"] {
+  margin-right: .333em;
+}
+
+mjx-container [size="s"] {
+  font-size: 70.7%;
+}
+
+mjx-container [size="ss"] {
+  font-size: 50%;
+}
+
+mjx-container [size="Tn"] {
+  font-size: 60%;
+}
+
+mjx-container [size="sm"] {
+  font-size: 85%;
+}
+
+mjx-container [size="lg"] {
+  font-size: 120%;
+}
+
+mjx-container [size="Lg"] {
+  font-size: 144%;
+}
+
+mjx-container [size="LG"] {
+  font-size: 173%;
+}
+
+mjx-container [size="hg"] {
+  font-size: 207%;
+}
+
+mjx-container [size="HG"] {
+  font-size: 249%;
+}
+
+mjx-container [width="full"] {
+  width: 100%;
+}
+
+mjx-box {
+  display: inline-block;
+}
+
+mjx-block {
+  display: block;
+}
+
+mjx-itable {
+  display: inline-table;
+}
+
+mjx-row {
+  display: table-row;
+}
+
+mjx-row > * {
+  display: table-cell;
+}
+
+mjx-mtext {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-mstyle {
+  display: inline-block;
+}
+
+mjx-merror {
+  display: inline-block;
+  color: red;
+  background-color: yellow;
+}
+
+mjx-mphantom {
+  visibility: hidden;
+}
+
+_::-webkit-full-page-media, _:future, :root mjx-container {
+  will-change: opacity;
+}
+
+mjx-assistive-mml {
+  position: absolute !important;
+  top: 0px;
+  left: 0px;
+  clip: rect(1px, 1px, 1px, 1px);
+  padding: 1px 0px 0px 0px !important;
+  border: 0px !important;
+  display: block !important;
+  width: auto !important;
+  overflow: hidden !important;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+mjx-assistive-mml[display="block"] {
+  width: 100% !important;
+}
+
+mjx-math {
+  display: inline-block;
+  text-align: left;
+  line-height: 0;
+  text-indent: 0;
+  font-style: normal;
+  font-weight: normal;
+  font-size: 100%;
+  font-size-adjust: none;
+  letter-spacing: normal;
+  border-collapse: collapse;
+  word-wrap: normal;
+  word-spacing: normal;
+  white-space: nowrap;
+  direction: ltr;
+  padding: 1px 0;
+}
+
+mjx-container[jax="CHTML"][display="true"] {
+  display: block;
+  text-align: center;
+  margin: 1em 0;
+}
+
+mjx-container[jax="CHTML"][display="true"][width="full"] {
+  display: flex;
+}
+
+mjx-container[jax="CHTML"][display="true"] mjx-math {
+  padding: 0;
+}
+
+mjx-container[jax="CHTML"][justify="left"] {
+  text-align: left;
+}
+
+mjx-container[jax="CHTML"][justify="right"] {
+  text-align: right;
+}
+
+mjx-mfrac {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-frac {
+  display: inline-block;
+  vertical-align: 0.17em;
+  padding: 0 .22em;
+}
+
+mjx-frac[type="d"] {
+  vertical-align: .04em;
+}
+
+mjx-frac[delims] {
+  padding: 0 .1em;
+}
+
+mjx-frac[atop] {
+  padding: 0 .12em;
+}
+
+mjx-frac[atop][delims] {
+  padding: 0;
+}
+
+mjx-dtable {
+  display: inline-table;
+  width: 100%;
+}
+
+mjx-dtable > * {
+  font-size: 2000%;
+}
+
+mjx-dbox {
+  display: block;
+  font-size: 5%;
+}
+
+mjx-num {
+  display: block;
+  text-align: center;
+}
+
+mjx-den {
+  display: block;
+  text-align: center;
+}
+
+mjx-mfrac[bevelled] > mjx-num {
+  display: inline-block;
+}
+
+mjx-mfrac[bevelled] > mjx-den {
+  display: inline-block;
+}
+
+mjx-den[align="right"], mjx-num[align="right"] {
+  text-align: right;
+}
+
+mjx-den[align="left"], mjx-num[align="left"] {
+  text-align: left;
+}
+
+mjx-nstrut {
+  display: inline-block;
+  height: .054em;
+  width: 0;
+  vertical-align: -.054em;
+}
+
+mjx-nstrut[type="d"] {
+  height: .217em;
+  vertical-align: -.217em;
+}
+
+mjx-dstrut {
+  display: inline-block;
+  height: .505em;
+  width: 0;
+}
+
+mjx-dstrut[type="d"] {
+  height: .726em;
+}
+
+mjx-line {
+  display: block;
+  box-sizing: border-box;
+  min-height: 1px;
+  height: .06em;
+  border-top: .06em solid;
+  margin: .06em -.1em;
+  overflow: hidden;
+}
+
+mjx-line[type="d"] {
+  margin: .18em -.1em;
+}
+
+mjx-mrow {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-mi {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-c {
+  display: inline-block;
+}
+
+mjx-utext {
+  display: inline-block;
+  padding: .75em 0 .2em 0;
+}
+
+mjx-mo {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-stretchy-h {
+  display: inline-table;
+  width: 100%;
+}
+
+mjx-stretchy-h > * {
+  display: table-cell;
+  width: 0;
+}
+
+mjx-stretchy-h > * > mjx-c {
+  display: inline-block;
+  transform: scalex(1.0000001);
+}
+
+mjx-stretchy-h > * > mjx-c::before {
+  display: inline-block;
+  width: initial;
+}
+
+mjx-stretchy-h > mjx-ext {
+  /* IE */ overflow: hidden;
+  /* others */ overflow: clip visible;
+  width: 100%;
+}
+
+mjx-stretchy-h > mjx-ext > mjx-c::before {
+  transform: scalex(500);
+}
+
+mjx-stretchy-h > mjx-ext > mjx-c {
+  width: 0;
+}
+
+mjx-stretchy-h > mjx-beg > mjx-c {
+  margin-right: -.1em;
+}
+
+mjx-stretchy-h > mjx-end > mjx-c {
+  margin-left: -.1em;
+}
+
+mjx-stretchy-v {
+  display: inline-block;
+}
+
+mjx-stretchy-v > * {
+  display: block;
+}
+
+mjx-stretchy-v > mjx-beg {
+  height: 0;
+}
+
+mjx-stretchy-v > mjx-end > mjx-c {
+  display: block;
+}
+
+mjx-stretchy-v > * > mjx-c {
+  transform: scaley(1.0000001);
+  transform-origin: left center;
+  overflow: hidden;
+}
+
+mjx-stretchy-v > mjx-ext {
+  display: block;
+  height: 100%;
+  box-sizing: border-box;
+  border: 0px solid transparent;
+  /* IE */ overflow: hidden;
+  /* others */ overflow: visible clip;
+}
+
+mjx-stretchy-v > mjx-ext > mjx-c::before {
+  width: initial;
+  box-sizing: border-box;
+}
+
+mjx-stretchy-v > mjx-ext > mjx-c {
+  transform: scaleY(500) translateY(.075em);
+  overflow: visible;
+}
+
+mjx-mark {
+  display: inline-block;
+  height: 0px;
+}
+
+mjx-mn {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-mspace {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-TeXAtom {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-msub {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-msubsup {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-script {
+  display: inline-block;
+  padding-right: .05em;
+  padding-left: .033em;
+}
+
+mjx-script > mjx-spacer {
+  display: block;
+}
+
+mjx-c::before {
+  display: block;
+  width: 0;
+}
+
+.MJX-TEX {
+  font-family: MJXZERO, MJXTEX;
+}
+
+.TEX-B {
+  font-family: MJXZERO, MJXTEX-B;
+}
+
+.TEX-I {
+  font-family: MJXZERO, MJXTEX-I;
+}
+
+.TEX-MI {
+  font-family: MJXZERO, MJXTEX-MI;
+}
+
+.TEX-BI {
+  font-family: MJXZERO, MJXTEX-BI;
+}
+
+.TEX-S1 {
+  font-family: MJXZERO, MJXTEX-S1;
+}
+
+.TEX-S2 {
+  font-family: MJXZERO, MJXTEX-S2;
+}
+
+.TEX-S3 {
+  font-family: MJXZERO, MJXTEX-S3;
+}
+
+.TEX-S4 {
+  font-family: MJXZERO, MJXTEX-S4;
+}
+
+.TEX-A {
+  font-family: MJXZERO, MJXTEX-A;
+}
+
+.TEX-C {
+  font-family: MJXZERO, MJXTEX-C;
+}
+
+.TEX-CB {
+  font-family: MJXZERO, MJXTEX-CB;
+}
+
+.TEX-FR {
+  font-family: MJXZERO, MJXTEX-FR;
+}
+
+.TEX-FRB {
+  font-family: MJXZERO, MJXTEX-FRB;
+}
+
+.TEX-SS {
+  font-family: MJXZERO, MJXTEX-SS;
+}
+
+.TEX-SSB {
+  font-family: MJXZERO, MJXTEX-SSB;
+}
+
+.TEX-SSI {
+  font-family: MJXZERO, MJXTEX-SSI;
+}
+
+.TEX-SC {
+  font-family: MJXZERO, MJXTEX-SC;
+}
+
+.TEX-T {
+  font-family: MJXZERO, MJXTEX-T;
+}
+
+.TEX-V {
+  font-family: MJXZERO, MJXTEX-V;
+}
+
+.TEX-VB {
+  font-family: MJXZERO, MJXTEX-VB;
+}
+
+mjx-stretchy-v mjx-c, mjx-stretchy-h mjx-c {
+  font-family: MJXZERO, MJXTEX-S1, MJXTEX-S4, MJXTEX, MJXTEX-A ! important;
+}
+
+@font-face /* 0 */ {
+  font-family: MJXZERO;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Zero.woff") format("woff");
+}
+
+@font-face /* 1 */ {
+  font-family: MJXTEX;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Main-Regular.woff") format("woff");
+}
+
+@font-face /* 2 */ {
+  font-family: MJXTEX-B;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Main-Bold.woff") format("woff");
+}
+
+@font-face /* 3 */ {
+  font-family: MJXTEX-I;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Math-Italic.woff") format("woff");
+}
+
+@font-face /* 4 */ {
+  font-family: MJXTEX-MI;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Main-Italic.woff") format("woff");
+}
+
+@font-face /* 5 */ {
+  font-family: MJXTEX-BI;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Math-BoldItalic.woff") format("woff");
+}
+
+@font-face /* 6 */ {
+  font-family: MJXTEX-S1;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Size1-Regular.woff") format("woff");
+}
+
+@font-face /* 7 */ {
+  font-family: MJXTEX-S2;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Size2-Regular.woff") format("woff");
+}
+
+@font-face /* 8 */ {
+  font-family: MJXTEX-S3;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Size3-Regular.woff") format("woff");
+}
+
+@font-face /* 9 */ {
+  font-family: MJXTEX-S4;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Size4-Regular.woff") format("woff");
+}
+
+@font-face /* 10 */ {
+  font-family: MJXTEX-A;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_AMS-Regular.woff") format("woff");
+}
+
+@font-face /* 11 */ {
+  font-family: MJXTEX-C;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Calligraphic-Regular.woff") format("woff");
+}
+
+@font-face /* 12 */ {
+  font-family: MJXTEX-CB;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Calligraphic-Bold.woff") format("woff");
+}
+
+@font-face /* 13 */ {
+  font-family: MJXTEX-FR;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Fraktur-Regular.woff") format("woff");
+}
+
+@font-face /* 14 */ {
+  font-family: MJXTEX-FRB;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Fraktur-Bold.woff") format("woff");
+}
+
+@font-face /* 15 */ {
+  font-family: MJXTEX-SS;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_SansSerif-Regular.woff") format("woff");
+}
+
+@font-face /* 16 */ {
+  font-family: MJXTEX-SSB;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_SansSerif-Bold.woff") format("woff");
+}
+
+@font-face /* 17 */ {
+  font-family: MJXTEX-SSI;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_SansSerif-Italic.woff") format("woff");
+}
+
+@font-face /* 18 */ {
+  font-family: MJXTEX-SC;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Script-Regular.woff") format("woff");
+}
+
+@font-face /* 19 */ {
+  font-family: MJXTEX-T;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Typewriter-Regular.woff") format("woff");
+}
+
+@font-face /* 20 */ {
+  font-family: MJXTEX-V;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Vector-Regular.woff") format("woff");
+}
+
+@font-face /* 21 */ {
+  font-family: MJXTEX-VB;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Vector-Bold.woff") format("woff");
+}
+
+mjx-c.mjx-c1D441.TEX-I::before {
+  padding: 0.683em 0.888em 0 0;
+  content: "N";
+}
+
+mjx-c.mjx-c2212::before {
+  padding: 0.583em 0.778em 0.082em 0;
+  content: "\2212";
+}
+
+mjx-c.mjx-c31::before {
+  padding: 0.666em 0.5em 0 0;
+  content: "1";
+}
+
+mjx-c.mjx-c22C5::before {
+  padding: 0.31em 0.278em 0 0;
+  content: "\22C5";
+}
+
+mjx-c.mjx-c1D437.TEX-I::before {
+  padding: 0.683em 0.828em 0 0;
+  content: "D";
+}
+
+mjx-c.mjx-c32::before {
+  padding: 0.666em 0.5em 0 0;
+  content: "2";
+}
+
+mjx-c.mjx-c28::before {
+  padding: 0.75em 0.389em 0.25em 0;
+  content: "(";
+}
+
+mjx-c.mjx-c29::before {
+  padding: 0.75em 0.389em 0.25em 0;
+  content: ")";
+}
+
+mjx-c.mjx-c2192::before {
+  padding: 0.511em 1em 0.011em 0;
+  content: "\2192";
+}
+
+mjx-c.mjx-c2248::before {
+  padding: 0.483em 0.778em 0 0;
+  content: "\2248";
+}
+
+mjx-c.mjx-c1D715::before {
+  padding: 0.715em 0.566em 0.022em 0;
+  content: "\2202";
+}
+
+mjx-c.mjx-c4C.TEX-C::before {
+  padding: 0.705em 0.69em 0.022em 0;
+  content: "L";
+}
+
+mjx-c.mjx-c1D44A.TEX-I::before {
+  padding: 0.683em 1.048em 0.022em 0;
+  content: "W";
+}
+
+mjx-c.mjx-c1D458.TEX-I::before {
+  padding: 0.694em 0.521em 0.011em 0;
+  content: "k";
+}
+
+mjx-c.mjx-c3D::before {
+  padding: 0.583em 0.778em 0.082em 0;
+  content: "=";
+}
+
+mjx-c.mjx-c1D44E.TEX-I::before {
+  padding: 0.441em 0.529em 0.01em 0;
+  content: "a";
+}
+
+mjx-c.mjx-c22A4::before {
+  padding: 0.668em 0.778em 0 0;
+  content: "\22A4";
+}
+
+mjx-c.mjx-c7C::before {
+  padding: 0.75em 0.278em 0.249em 0;
+  content: "|";
+}
+
+mjx-c.mjx-c1D43A.TEX-I::before {
+  padding: 0.705em 0.786em 0.022em 0;
+  content: "G";
+}
+
+mjx-c.mjx-c30::before {
+  padding: 0.666em 0.5em 0.022em 0;
+  content: "0";
+}
+
+mjx-c.mjx-c6D::before {
+  padding: 0.442em 0.833em 0 0;
+  content: "m";
+}
+
+mjx-c.mjx-c61::before {
+  padding: 0.448em 0.5em 0.011em 0;
+  content: "a";
+}
+
+mjx-c.mjx-c78::before {
+  padding: 0.431em 0.528em 0 0;
+  content: "x";
+}
+
+mjx-c.mjx-c2C::before {
+  padding: 0.121em 0.278em 0.194em 0;
+  content: ",";
+}
+
+mjx-c.mjx-c1D447.TEX-I::before {
+  padding: 0.677em 0.704em 0 0;
+  content: "T";
+}
+
+mjx-c.mjx-c62::before {
+  padding: 0.694em 0.556em 0.011em 0;
+  content: "b";
+}
+
+mjx-c.mjx-c77::before {
+  padding: 0.431em 0.722em 0.011em 0;
+  content: "w";
+}
+
+mjx-c.mjx-c64::before {
+  padding: 0.694em 0.556em 0.011em 0;
+  content: "d";
+}
+
+mjx-c.mjx-c2B::before {
+  padding: 0.583em 0.778em 0.082em 0;
+  content: "+";
+}
+
+mjx-c.mjx-c66::before {
+  padding: 0.705em 0.372em 0 0;
+  content: "f";
+}
+
+mjx-c.mjx-c3E::before {
+  padding: 0.54em 0.778em 0.04em 0;
+  content: ">";
+}
+</style></head>
+<body>
+
+<!-- ==================== HERO ==================== -->
+<div class="hero">
+  <div class="container">
+    <h1><span class="file">集合通信</span>操作详解</h1>
+    <p class="subtitle">AllReduce / AllGather / ReduceScatter / Broadcast / P2P — 分布式训练的通信原语</p>
+    <div class="meta">
+      <span>教学文档</span>
+      <span>torch.distributed</span>
+      <span>前置知识：<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/rank_and_parallel_groups.html" style="color:var(--accent);text-decoration:none">Rank 与并行组</a></span>
+    </div>
+  </div>
+</div>
+
+<div class="page-body">
+
+<!-- ==================== TOC ==================== -->
+<aside class="toc-sidebar">
+<nav class="toc">
+  <div id="global-nav"><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/index.html" class="toc-home">← 文档目录</a>
+<div class="toc-group">入口</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/entry/pretrain_gpt.html" class="toc-doc">pretrain_gpt.py</a>
+<div class="toc-group">基础设施</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/pretrain_and_setup.html" class="toc-doc">初始化篇</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/training_loop.html" class="toc-doc">训练循环篇</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/memory_calculator.html" class="toc-doc">GPU 显存计算</a>
+<div class="toc-group">并行策略</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/rank_and_parallel_groups.html" class="toc-doc">Rank 与并行组</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/collective_operations.html" class="toc-doc active">集合通信操作</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/tensor_parallel.html" class="toc-doc">Tensor Parallelism</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/pipeline_parallel.html" class="toc-doc">Pipeline Parallelism</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/schedules_deep_dive.html" class="toc-doc">Schedule 深度精读</a>
+<div class="toc-group">模型架构</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/transformer_architecture.html" class="toc-doc">GPT 模型架构</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/moe_layer.html" class="toc-doc">MoE 层与 EP</a>
+<div class="toc-group">数据</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/data/vpp_data_iterator.html" class="toc-doc">VPP 数据迭代器</a>
+<div class="toc-group">优化器</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/optimizer/distrib_optimizer.html" class="toc-doc">分布式优化器</a>
+</div>
+  <script src="./集合通信操作详解 · Megatron-LM 源码精读_files/nav.js"></script>
+      <div class="toc-divider"></div>
+    <h2>本文目录</h2>
+  <ol>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/collective_operations.html#overview">总览：六种操作</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/collective_operations.html#broadcast">Broadcast</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/collective_operations.html#all-reduce">AllReduce</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/collective_operations.html#all-gather">AllGather</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/collective_operations.html#reduce-scatter">ReduceScatter</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/collective_operations.html#distributed-optimizer-comm">分布式优化器通信策略</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/collective_operations.html#p2p">P2P Send / Recv</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/collective_operations.html#all-to-all">AllToAll</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/collective_operations.html#megatron-mapping">Megatron 中的映射</a></li>
+  </ol>
+</nav>
+</aside>
+
+<!-- ==================== Main Content ==================== -->
+<div class="main-content">
+
+<!-- ==================== 1. Overview ==================== -->
+<section id="overview">
+  <div class="section-header">
+    <span class="section-num">01</span>
+    <h2>总览：六种通信原语</h2>
+  </div>
+
+  <div class="prose">
+    <p>分布式训练中，GPU 之间的数据交换全部依赖 <strong>NCCL 集合通信</strong>。理解这六种操作是读懂所有并行策略代码的基础。</p>
+  </div>
+
+  <table class="data-table">
+    <thead>
+      <tr><th>操作</th><th>数据流向</th><th>每 GPU 发送量 (Ring)</th><th>Megatron 中的典型用途</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Broadcast</strong></td><td>一对多</td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="0" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="3"><mjx-c class="mjx-c1D437 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mi>N</mi><mo>−</mo><mn>1</mn></mrow><mi>N</mi></mfrac><mo>⋅</mo><mi>D</mi></math></mjx-assistive-mml></mjx-container></td><td>TP rank 0 广播数据给组内其他 rank</td></tr>
+      <tr><td><strong>AllReduce</strong></td><td>多对多（归约）</td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="1" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mn class="mjx-n"><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="3"><mjx-c class="mjx-c1D437 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mn>2</mn><mo stretchy="false">(</mo><mi>N</mi><mo>−</mo><mn>1</mn><mo stretchy="false">)</mo></mrow><mi>N</mi></mfrac><mo>⋅</mo><mi>D</mi></math></mjx-assistive-mml></mjx-container></td><td>TP 前向/反向的梯度聚合、DP 梯度同步</td></tr>
+      <tr><td><strong>AllGather</strong></td><td>多对多（拼接）</td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="2" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="3"><mjx-c class="mjx-c1D437 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mi>N</mi><mo>−</mo><mn>1</mn></mrow><mi>N</mi></mfrac><mo>⋅</mo><mi>D</mi></math></mjx-assistive-mml></mjx-container></td><td>SP 还原完整序列、分布式优化器参数收集</td></tr>
+      <tr><td><strong>ReduceScatter</strong></td><td>多对多（归约+切分）</td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="3" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="3"><mjx-c class="mjx-c1D437 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mi>N</mi><mo>−</mo><mn>1</mn></mrow><mi>N</mi></mfrac><mo>⋅</mo><mi>D</mi></math></mjx-assistive-mml></mjx-container></td><td>SP 反向梯度分发、分布式优化器梯度切片</td></tr>
+      <tr><td><strong>P2P Send/Recv</strong></td><td>点对点</td><td><code>D</code>（仅两端）</td><td>PP 流水线相邻 stage 间传递激活值/梯度</td></tr>
+      <tr><td><strong>AllToAll</strong></td><td>多对多（交换）</td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="4" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="3"><mjx-c class="mjx-c1D437 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mi>N</mi><mo>−</mo><mn>1</mn></mrow><mi>N</mi></mfrac><mo>⋅</mo><mi>D</mi></math></mjx-assistive-mml></mjx-container></td><td>MoE token 路由、Context Parallel 切换</td></tr>
+    </tbody>
+  </table>
+
+  <div class="prose">
+    <p><code>N</code> = 组内 GPU 数，<code>D</code> = 每个 GPU 上参与通信的数据量。当 N 较大时 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="5" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c2192"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="4"><mjx-c class="mjx-c31"></mjx-c></mjx-mn></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mi>N</mi><mo>−</mo><mn>1</mn></mrow><mi>N</mi></mfrac><mo accent="false" stretchy="false">→</mo><mn>1</mn></math></mjx-assistive-mml></mjx-container>，可近似为 D。注意 AllReduce = ReduceScatter + AllGather，所以通信量是其他操作的 2 倍。</p>
+  </div>
+
+  <div class="callout callout-info">
+    <div class="callout-title">通信组 = 参与通信的 GPU 子集</div>
+    每种操作都在一个<strong>通信组 (process group)</strong> 内进行。通信组就是 <a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/rank_and_parallel_groups.html" style="color:var(--accent)">Rank 与并行组</a> 文档中讲的 TP 组、PP 组、DP 组等。组内所有 rank 必须同时调用同一个集合操作，否则会死锁。
+  </div>
+</section>
+
+<!-- ==================== 2. Broadcast ==================== -->
+<section id="broadcast">
+  <div class="section-header">
+    <span class="section-num">02</span>
+    <h2>Broadcast：一对多广播</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">tensor_parallel/data.py</span>
+    <span class="tag tag-green">TP 数据分发</span>
+  </div>
+
+  <div class="op-vis">
+    <div class="op-title">Broadcast：rank 0 把数据复制给组内所有 rank</div>
+    <table class="op-table">
+      <thead><tr><th>操作前</th><th></th><th>操作后</th></tr></thead>
+      <tbody>
+        <tr><td class="rank-card src"><span class="rank-id">rank 0 (src)</span><span class="val">[A B]</span></td><td class="arrow-col">→</td><td class="rank-card out"><span class="rank-id">rank 0</span><span class="val">[A B]</span></td></tr>
+        <tr><td class="rank-card dim"><span class="rank-id">rank 1</span><span class="val">空</span></td><td class="arrow-col">→</td><td class="rank-card out"><span class="rank-id">rank 1</span><span class="val">[A B]</span></td></tr>
+        <tr><td class="rank-card dim"><span class="rank-id">rank 2</span><span class="val">空</span></td><td class="arrow-col">→</td><td class="rank-card out"><span class="rank-id">rank 2</span><span class="val">[A B]</span></td></tr>
+        <tr><td class="rank-card dim"><span class="rank-id">rank 3</span><span class="val">空</span></td><td class="arrow-col">→</td><td class="rank-card out"><span class="rank-id">rank 3</span><span class="val">[A B]</span></td></tr>
+      </tbody>
+    </table>
+    <div class="op-note">输入: 1 份数据 → 输出: N 份相同数据</div>
+  </div>
+
+  <div class="prose">
+    <p><strong>语义</strong>：一个 rank 持有数据（大小 D），复制给组内所有其他 rank。</p>
+    <p><strong>通信量</strong>：源 rank 发送 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="6" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="3"><mjx-c class="mjx-c1D437 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mi>N</mi><mo>−</mo><mn>1</mn></mrow><mi>N</mi></mfrac><mo>⋅</mo><mi>D</mi></math></mjx-assistive-mml></mjx-container>（ring），其他 rank 各接收 D。虽然只有一个 rank 产生数据，但 ring 实现让中转负载均摊到每个 rank。</p>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>tensor_parallel/data.py — TP rank 0 广播 batch 数据</span>
+      <span class="lines">L38-90</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># ① 先广播 tensor 的 shape 信息</span>
+sizes_cuda = torch.tensor(sizes, dtype=torch.long, device=<span class="hljs-string">'cuda'</span>)
+torch.distributed.broadcast(sizes_cuda, group_ranks[<span class="hljs-number">0</span>], group=tp_group)
+
+<span class="hljs-comment"># ② 把所有 tensor 拼成一维，一次性广播（减少通信次数）</span>
+flatten_data = torch.cat(
+    [data[key].cuda().contiguous().view(-<span class="hljs-number">1</span>) <span class="hljs-keyword">for</span> key <span class="hljs-keyword">in</span> keys], dim=<span class="hljs-number">0</span>
+)
+torch.distributed.broadcast(flatten_data, group_ranks[<span class="hljs-number">0</span>], group=tp_group)</code></pre>
+  </div>
+
+  <div class="callout callout-key">
+    <div class="callout-title">为什么 TP 组要 Broadcast</div>
+    同一 TP 组内的 GPU 各自持有模型参数的<strong>不同切片</strong>，但处理的是<strong>相同的输入数据</strong>。所以只需要 TP rank 0 从 dataloader 读取数据，然后 broadcast 给组内其他 rank，避免重复读取。
+  </div>
+</section>
+
+<!-- ==================== 3. AllReduce ==================== -->
+<section id="all-reduce">
+  <div class="section-header">
+    <span class="section-num">03</span>
+    <h2>AllReduce：全局归约</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">tensor_parallel/mappings.py</span>
+    <span class="tag tag-purple">param_and_grad_buffer.py</span>
+    <span class="tag tag-green">TP + DP</span>
+  </div>
+
+  <div class="op-vis">
+    <div class="op-title">AllReduce (op=SUM)：每个 rank 贡献自己的数据，所有 rank 得到相同的归约结果</div>
+    <table class="op-table">
+      <thead><tr><th>操作前</th><th></th><th>操作后</th></tr></thead>
+      <tbody>
+        <tr><td class="rank-card hl-blue"><span class="rank-id">rank 0</span><span class="val">[1, 2]</span></td><td class="arrow-col">→</td><td class="rank-card out"><span class="rank-id">rank 0</span><span class="val">[10, 20]</span></td></tr>
+        <tr><td class="rank-card hl-blue"><span class="rank-id">rank 1</span><span class="val">[2, 3]</span></td><td class="arrow-col">→</td><td class="rank-card out"><span class="rank-id">rank 1</span><span class="val">[10, 20]</span></td></tr>
+        <tr><td class="rank-card hl-blue"><span class="rank-id">rank 2</span><span class="val">[3, 5]</span></td><td class="arrow-col">→</td><td class="rank-card out"><span class="rank-id">rank 2</span><span class="val">[10, 20]</span></td></tr>
+        <tr><td class="rank-card hl-blue"><span class="rank-id">rank 3</span><span class="val">[4, 10]</span></td><td class="arrow-col">→</td><td class="rank-card out"><span class="rank-id">rank 3</span><span class="val">[10, 20]</span></td></tr>
+      </tbody>
+    </table>
+    <div class="op-note">每个位置做 SUM: 1+2+3+4=10, 2+3+5+10=20 → 所有 rank 得到相同结果</div>
+  </div>
+
+  <div class="prose">
+    <p><strong>语义</strong>：每个 rank 持有大小为 D 的数据，对所有 rank 的数据做逐元素归约（通常是 SUM），结果<strong>每个 rank 都有一份完整拷贝</strong>。</p>
+    <p><strong>通信量</strong>：每 GPU 发送 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="7" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mn class="mjx-n"><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="3"><mjx-c class="mjx-c1D437 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c2248"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="4"><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D437 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mn>2</mn><mo stretchy="false">(</mo><mi>N</mi><mo>−</mo><mn>1</mn><mo stretchy="false">)</mo></mrow><mi>N</mi></mfrac><mo>⋅</mo><mi>D</mi><mo>≈</mo><mn>2</mn><mi>D</mi></math></mjx-assistive-mml></mjx-container>。是所有集合操作中最贵的，因为它等价于 ReduceScatter + AllGather，通信量是单个操作的 2 倍。</p>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>tensor_parallel/mappings.py — TP 前向的 AllReduce</span>
+      <span class="lines">L31</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># Row Parallel Linear 的前向输出需要 AllReduce</span>
+<span class="hljs-comment"># 每个 TP rank 算出部分结果 (Y_i = X * W_i)，求和得到完整输出 (Y = ΣY_i)</span>
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">_reduce</span>(<span class="hljs-params">input_</span>):
+    group = get_tensor_model_parallel_group()
+    torch.distributed.all_reduce(input_.contiguous(), group=group)</code></pre>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>param_and_grad_buffer.py — DP 梯度同步（非分布式优化器）</span>
+      <span class="lines">L422-424</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># 同一 DP 组内的 rank 持有相同模型，处理不同数据</span>
+<span class="hljs-comment"># 反向后各自的梯度不同，AllReduce 求平均</span>
+torch.distributed.all_reduce(
+    bucket.grad_data, op=reduce_op, group=communication_group, async_op=async_op
+)</code></pre>
+  </div>
+
+  <div class="callout callout-warn">
+    <div class="callout-title">AllReduce 的通信量：<mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="8" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mn class="mjx-n"><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="3"><mjx-c class="mjx-c1D437 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mn>2</mn><mo stretchy="false">(</mo><mi>N</mi><mo>−</mo><mn>1</mn><mo stretchy="false">)</mo></mrow><mi>N</mi></mfrac><mo>⋅</mo><mi>D</mi></math></mjx-assistive-mml></mjx-container></div>
+    NCCL 用 <strong>Ring 算法</strong>实现 AllReduce，本质是把它拆成 ReduceScatter + AllGather 两个阶段。每个 GPU 的发送量恒为 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="9" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mn class="mjx-n"><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="3"><mjx-c class="mjx-c1D437 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mn>2</mn><mo stretchy="false">(</mo><mi>N</mi><mo>−</mo><mn>1</mn><mo stretchy="false">)</mo></mrow><mi>N</mi></mfrac><mo>⋅</mo><mi>D</mi></math></mjx-assistive-mml></mjx-container>，不随 GPU 数量增长。
+  </div>
+
+  <details class="collapsible">
+    <summary>Ring AllReduce 算法推导 <span class="badge">可选</span></summary>
+    <div class="collapsible-body">
+
+  <div class="diagram"><span class="hl">Ring AllReduce 算法：以 4 GPU 为例</span>
+
+<span class="hl3">准备</span>：将每个 GPU 的数据（大小 D）切成 N=4 份，GPU 排成环 0→1→2→3→0
+
+GPU 0:  [a0  a1  a2  a3]     每份大小 = D/4
+GPU 1:  [b0  b1  b2  b3]
+GPU 2:  [c0  c1  c2  c3]
+GPU 3:  [d0  d1  d2  d3]
+
+────────────────────────────────────────────────────────────
+<span class="hl2">阶段一: Reduce-Scatter（N-1 = 3 步）</span>
+
+每步：每个 GPU 沿环发送一个 chunk（D/N），接收方与本地对应 chunk <span class="hl2">求和</span>
+
+第 1 步:  GPU 0─→1: a3    GPU 1─→2: b0    GPU 2─→3: c1    GPU 3─→0: d2
+          GPU 1 得到 a3+b3     GPU 2 得到 b0+c0    ...
+
+第 2 步:  传递上一步刚累加过的 chunk，继续求和
+
+第 3 步:  同理
+
+结果：每个 GPU 恰好有<span class="hl2">一个 chunk 被完全归约</span>
+GPU 0: [<span class="hl2">Σx0</span>  a1   a2   a3 ]     ← Σx0 = a0+b0+c0+d0
+GPU 1: [ b0   b1  <span class="hl2">Σx2</span>  b3 ]
+GPU 2: [ c0   c1   c2  <span class="hl2">Σx3</span>]
+GPU 3: [ d0  <span class="hl2">Σx1</span>  d2   d3 ]
+
+通信量 = (N-1) × D/N  （每步发 D/N，共 N-1 步）
+
+────────────────────────────────────────────────────────────
+<span class="hl3">阶段二: AllGather（N-1 = 3 步）</span>
+
+每步：每个 GPU 把自己的完整 chunk 沿环<span class="hl3">转发</span>（不再求和，只是复制）
+
+第 1 步:  GPU 0─→1: Σx0    GPU 1─→2: Σx2    ...
+第 2 步:  转发刚收到的 chunk
+第 3 步:  同理
+
+结果：每个 GPU 都有所有 N 个完整 chunk → <span class="hl2">AllReduce 完成</span>
+GPU 0: [<span class="hl2">Σx0</span>  <span class="hl2">Σx1</span>  <span class="hl2">Σx2</span>  <span class="hl2">Σx3</span>]
+GPU 1: [<span class="hl2">Σx0</span>  <span class="hl2">Σx1</span>  <span class="hl2">Σx2</span>  <span class="hl2">Σx3</span>]
+GPU 2: [<span class="hl2">Σx0</span>  <span class="hl2">Σx1</span>  <span class="hl2">Σx2</span>  <span class="hl2">Σx3</span>]
+GPU 3: [<span class="hl2">Σx0</span>  <span class="hl2">Σx1</span>  <span class="hl2">Σx2</span>  <span class="hl2">Σx3</span>]
+
+通信量 = (N-1) × D/N
+
+────────────────────────────────────────────────────────────
+<span class="hl4">总通信量（每 GPU 发送量）</span>
+
+AllReduce = ReduceScatter    + AllGather
+         = (N-1)/N × D      + (N-1)/N × D
+         = <span class="hl4">2(N-1)/N × D</span>
+
+N 较大时 (N-1)/N → 1，所以 ≈ 2D
+
+对比只用 ReduceScatter:  (N-1)/N × D ≈ D  → <span class="hl2">省一半通信量</span></div>
+
+  <div class="callout callout-key">
+    <div class="callout-title">Ring 算法的优势</div>
+    无论 GPU 数量 N 多大，每个 GPU 的通信量始终是 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="10" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mn class="mjx-n"><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="3"><mjx-c class="mjx-c1D437 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mn>2</mn><mo stretchy="false">(</mo><mi>N</mi><mo>−</mo><mn>1</mn><mo stretchy="false">)</mo></mrow><mi>N</mi></mfrac><mo>⋅</mo><mi>D</mi></math></mjx-assistive-mml></mjx-container>，不会随 N 增长。这是因为每步只传 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="11" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D437 TEX-I"></mjx-c></mjx-mi></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mi>D</mi><mi>N</mi></mfrac></math></mjx-assistive-mml></mjx-container> 的数据，步数是 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="12" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mstyle style="width: 0px; margin-right: -0.167em;"><mjx-mspace style="margin-right: -0.167em;"></mjx-mspace></mjx-mstyle><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mstyle style="width: 0px; margin-right: -0.167em;"><mjx-mspace style="margin-right: -0.167em;"></mjx-mspace></mjx-mstyle><mjx-mn class="mjx-n" space="3"><mjx-c class="mjx-c31"></mjx-c></mjx-mn></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>N</mi><mstyle scriptlevel="0"><mspace width="-0.167em"></mspace></mstyle><mo>−</mo><mstyle scriptlevel="0"><mspace width="-0.167em"></mspace></mstyle><mn>1</mn></math></mjx-assistive-mml></mjx-container>，二者相乘把 N 消掉了。相比之下，朴素算法（所有 GPU 发给一个 GPU 汇总再广播）通信量随 N 线性增长。
+  </div>
+
+    </div>
+  </details>
+</section>
+
+<!-- ==================== 4. AllGather ==================== -->
+<section id="all-gather">
+  <div class="section-header">
+    <span class="section-num">04</span>
+    <h2>AllGather：全局收集</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">tensor_parallel/mappings.py</span>
+    <span class="tag tag-green">SP / 分布式优化器</span>
+  </div>
+
+  <div class="op-vis">
+    <div class="op-title">AllGather：每个 rank 贡献自己的分片，所有 rank 得到完整拼接</div>
+    <table class="op-table">
+      <thead><tr><th>操作前</th><th></th><th>操作后</th></tr></thead>
+      <tbody>
+        <tr><td class="rank-card hl-blue"><span class="rank-id">rank 0</span><span class="val">[A]</span></td><td class="arrow-col">→</td><td class="rank-card out"><span class="rank-id">rank 0</span><span class="val">[A B C D]</span></td></tr>
+        <tr><td class="rank-card hl-blue"><span class="rank-id">rank 1</span><span class="val">[B]</span></td><td class="arrow-col">→</td><td class="rank-card out"><span class="rank-id">rank 1</span><span class="val">[A B C D]</span></td></tr>
+        <tr><td class="rank-card hl-blue"><span class="rank-id">rank 2</span><span class="val">[C]</span></td><td class="arrow-col">→</td><td class="rank-card out"><span class="rank-id">rank 2</span><span class="val">[A B C D]</span></td></tr>
+        <tr><td class="rank-card hl-blue"><span class="rank-id">rank 3</span><span class="val">[D]</span></td><td class="arrow-col">→</td><td class="rank-card out"><span class="rank-id">rank 3</span><span class="val">[A B C D]</span></td></tr>
+      </tbody>
+    </table>
+    <div class="op-note">输入: 每个 rank 有 1/N → 输出: 每个 rank 有完整 N/N</div>
+  </div>
+
+  <div class="prose">
+    <p><strong>语义</strong>：每个 rank 持有数据的一个分片（大小 D/N），AllGather 后每个 rank 都得到所有分片的<strong>拼接</strong>（大小 D）。</p>
+    <p><strong>通信量</strong>：每 GPU 发送 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="13" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="3"><mjx-c class="mjx-c1D437 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c2248"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="4"><mjx-c class="mjx-c1D437 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mi>N</mi><mo>−</mo><mn>1</mn></mrow><mi>N</mi></mfrac><mo>⋅</mo><mi>D</mi><mo>≈</mo><mi>D</mi></math></mjx-assistive-mml></mjx-container>。每步沿 ring 传 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="14" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D437 TEX-I"></mjx-c></mjx-mi></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mi>D</mi><mi>N</mi></mfrac></math></mjx-assistive-mml></mjx-container>，共 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="15" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mstyle style="width: 0px; margin-right: -0.167em;"><mjx-mspace style="margin-right: -0.167em;"></mjx-mspace></mjx-mstyle><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mstyle style="width: 0px; margin-right: -0.167em;"><mjx-mspace style="margin-right: -0.167em;"></mjx-mspace></mjx-mstyle><mjx-mn class="mjx-n" space="3"><mjx-c class="mjx-c31"></mjx-c></mjx-mn></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>N</mi><mstyle scriptlevel="0"><mspace width="-0.167em"></mspace></mstyle><mo>−</mo><mstyle scriptlevel="0"><mspace width="-0.167em"></mspace></mstyle><mn>1</mn></math></mjx-assistive-mml></mjx-container> 步。注意输入是 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="16" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D437 TEX-I"></mjx-c></mjx-mi></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mi>D</mi><mi>N</mi></mfrac></math></mjx-assistive-mml></mjx-container> 但通信量按总数据 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="17" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D437 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>D</mi></math></mjx-assistive-mml></mjx-container> 算，因为自己的那份不用传。</p>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>tensor_parallel/mappings.py — Sequence Parallel 还原完整序列</span>
+      <span class="lines">L142-150</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># SP 下，每个 TP rank 只持有序列的 1/tp_size 片段</span>
+<span class="hljs-comment"># 进入 Attention/MLP 前，需要 AllGather 还原完整序列</span>
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">_gather_along_first_dim</span>(<span class="hljs-params">input_, group</span>):
+    world_size = torch.distributed.get_world_size(group=group)
+    output = torch.empty(
+        [input_.shape[<span class="hljs-number">0</span>] * world_size] + <span class="hljs-built_in">list</span>(input_.shape[<span class="hljs-number">1</span>:]),
+        dtype=input_.dtype, device=input_.device,
+    )
+    torch.distributed.all_gather_into_tensor(
+        output, input_.contiguous(), group=group
+    )
+    <span class="hljs-keyword">return</span> output</code></pre>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>Context Parallel — 异步收集 KV</span>
+      <span class="lines">dot_product_attention_context_parallel.py L121-124</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># CP 下，每个 rank 只有部分序列的 KV</span>
+<span class="hljs-comment"># 做 Attention 前，需要异步 AllGather 收集完整 KV</span>
+handle = torch.distributed.all_gather_into_tensor(
+    output_tensor, input_tensor, group=self.group, async_op=<span class="hljs-literal">True</span>  <span class="hljs-comment"># 异步！</span>
+)
+self.handles.append(handle)
+<span class="hljs-comment"># 计算和通信重叠：当前层计算时，下一层的 KV 已在后台收集</span></code></pre>
+  </div>
+
+  <div class="callout callout-key">
+    <div class="callout-title">AllGather vs AllReduce</div>
+    <ul style="margin-top:8px">
+      <li><strong>AllReduce</strong>：输入输出<strong>大小相同</strong>，做逐元素求和。适合梯度聚合</li>
+      <li><strong>AllGather</strong>：输出是输入的<strong>N 倍</strong>，做拼接。适合从分片还原完整数据</li>
+    </ul>
+  </div>
+
+  <details class="collapsible">
+    <summary>Autograd 互逆配对机制 <span class="badge">源码</span></summary>
+    <div class="collapsible-body">
+
+  <div class="prose">
+    <p>Megatron 通过 <code>torch.autograd.Function</code> 实现前向/反向的通信自动配对。<strong>前向 AllGather → 反向自动 ReduceScatter</strong>，反之亦然。这不是人为约定，而是<strong>链式法则的数学必然</strong>：AllGather 把 N 份 D/N 拼成 D，其反向操作就是把 D 的梯度归约后切回 D/N。</p>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>tensor_parallel/mappings.py — 前向 AllGather ↔ 反向 ReduceScatter</span>
+      <span class="lines">L296-348</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># Sequence Parallel: 进入 Attention/MLP 前需要完整序列</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">_GatherFromSequenceParallelRegion</span>(torch.autograd.Function):
+
+<span class="hljs-meta">    @staticmethod</span>
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">forward</span>(<span class="hljs-params">ctx, input_, group, ...</span>):
+        <span class="hljs-comment"># 前向: AllGather — 每个 TP rank 持有 S/tp_size，拼出完整 S</span>
+        <span class="hljs-keyword">return</span> _gather_along_first_dim(input_, group, ...)
+
+<span class="hljs-meta">    @staticmethod</span>
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">backward</span>(<span class="hljs-params">ctx, grad_output</span>):
+        <span class="hljs-comment"># 反向: ReduceScatter — 完整梯度归约后切回 S/tp_size</span>
+        <span class="hljs-keyword">return</span> _reduce_scatter_along_first_dim(grad_output, ctx.group, ...)</code></pre>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>tensor_parallel/mappings.py — 前向 ReduceScatter ↔ 反向 AllGather</span>
+      <span class="lines">L351-377</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># Sequence Parallel: 离开 Attention/MLP 后需要切回分片</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">_ReduceScatterToSequenceParallelRegion</span>(torch.autograd.Function):
+
+<span class="hljs-meta">    @staticmethod</span>
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">forward</span>(<span class="hljs-params">ctx, input_, group, ...</span>):
+        <span class="hljs-comment"># 前向: ReduceScatter — 各 rank 的部分输出归约后切片</span>
+        <span class="hljs-keyword">return</span> _reduce_scatter_along_first_dim(input_, group, ...)
+
+<span class="hljs-meta">    @staticmethod</span>
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">backward</span>(<span class="hljs-params">ctx, grad_output</span>):
+        <span class="hljs-comment"># 反向: AllGather — 梯度分片拼回完整梯度</span>
+        <span class="hljs-keyword">return</span> _gather_along_first_dim(grad_output, ctx.group, ...)</code></pre>
+  </div>
+
+  <div class="diagram"><span class="hl">Autograd 配对总结：前向和反向始终互为逆操作</span>
+
+前向操作                         反向自动调用
+──────────────────              ──────────────────
+AllGather（拼接）        ←→     ReduceScatter（归约+切分）
+ReduceScatter（归约+切分）←→     AllGather（拼接）
+AllReduce（归约）        ←→     Identity（恒等，直接透传）
+Identity（恒等）         ←→     AllReduce（归约）
+
+每一对都满足：forward(backward(x)) ≈ x（在数学上互为伴随）</div>
+
+  <div class="callout callout-info">
+    <div class="callout-title">为什么是 ReduceScatter 而不是 Split？</div>
+    前向 AllGather 的反向为什么不是简单的 Split（只切不归约）？因为 AllGather 前向时<strong>复制了数据给所有 rank</strong>，每个 rank 都在用这份数据做计算并产生梯度。反向时，所有 rank 对同一位置的梯度贡献需要<strong>先求和再切分</strong>，这正是 ReduceScatter。只有当下游计算是完全独立（不需要归约）时，才会退化为纯 Split。Megatron 代码中用 <code>tensor_parallel_output_grad</code> 参数控制这个选择（<code>mappings.py</code> L336）。
+  </div>
+
+    </div>
+  </details>
+</section>
+
+<!-- ==================== 5. ReduceScatter ==================== -->
+<section id="reduce-scatter">
+  <div class="section-header">
+    <span class="section-num">05</span>
+    <h2>ReduceScatter：归约 + 分发</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">param_and_grad_buffer.py</span>
+    <span class="tag tag-purple">tensor_parallel/mappings.py</span>
+    <span class="tag tag-orange">分布式优化器</span>
+  </div>
+
+  <div class="op-vis">
+    <div class="op-title">ReduceScatter (op=SUM)：先归约，再把结果切片分给各 rank</div>
+    <table class="op-table">
+      <thead><tr><th>操作前</th><th></th><th>操作后</th></tr></thead>
+      <tbody>
+        <tr><td class="rank-card hl-blue"><span class="rank-id">rank 0</span><span class="val">[a0 a1 a2 a3]</span></td><td class="arrow-col">→</td><td class="rank-card out"><span class="rank-id">rank 0</span><span class="val">[Σx0]</span></td></tr>
+        <tr><td class="rank-card hl-blue"><span class="rank-id">rank 1</span><span class="val">[b0 b1 b2 b3]</span></td><td class="arrow-col">→</td><td class="rank-card out"><span class="rank-id">rank 1</span><span class="val">[Σx1]</span></td></tr>
+        <tr><td class="rank-card hl-blue"><span class="rank-id">rank 2</span><span class="val">[c0 c1 c2 c3]</span></td><td class="arrow-col">→</td><td class="rank-card out"><span class="rank-id">rank 2</span><span class="val">[Σx2]</span></td></tr>
+        <tr><td class="rank-card hl-blue"><span class="rank-id">rank 3</span><span class="val">[d0 d1 d2 d3]</span></td><td class="arrow-col">→</td><td class="rank-card out"><span class="rank-id">rank 3</span><span class="val">[Σx3]</span></td></tr>
+      </tbody>
+    </table>
+    <div class="op-note">Σx0 = a0+b0+c0+d0 · 输入: 每个 rank 有完整 N/N → 输出: 每个 rank 只有归约后的 1/N<br>是 AllGather 的逆操作，也是 AllReduce 的"省内存版"</div>
+  </div>
+
+  <div class="prose">
+    <p><strong>语义</strong>：每个 rank 持有大小为 D 的数据，先对所有 rank 的数据做逐元素归约（如 SUM），然后把结果<strong>均匀切分</strong>，每个 rank 只拿到属于自己的 D/N。</p>
+    <p><strong>通信量</strong>：每 GPU 发送 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="18" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="3"><mjx-c class="mjx-c1D437 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c2248"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="4"><mjx-c class="mjx-c1D437 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mi>N</mi><mo>−</mo><mn>1</mn></mrow><mi>N</mi></mfrac><mo>⋅</mo><mi>D</mi><mo>≈</mo><mi>D</mi></math></mjx-assistive-mml></mjx-container>。和 AllGather 相同，是 AllReduce 的一半。但如果后续还需要 AllGather 拿回完整数据，总量就和 AllReduce 一样了。</p>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>param_and_grad_buffer.py — 分布式优化器用 ReduceScatter 替代 AllReduce</span>
+      <span class="lines">L414-420</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># 分布式优化器：每个 DP rank 只负责更新 1/N 的参数</span>
+<span class="hljs-comment"># 所以反向后不需要完整梯度（AllReduce），只需要自己负责那部分的梯度</span>
+grad_reduce_handle = dist_reduce_scatter_func(
+    local_data_view,               <span class="hljs-comment"># 输出: 只有本 rank 负责的梯度切片</span>
+    bucket.grad_data,              <span class="hljs-comment"># 输入: 完整梯度</span>
+    op=reduce_op,
+    group=communication_group,     <span class="hljs-comment"># DP 通信组</span>
+    async_op=async_op,
+)</code></pre>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>tensor_parallel/mappings.py — Sequence Parallel 反向梯度分发</span>
+      <span class="lines">L182-193</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># SP 前向: AllGather（分片 → 完整序列）</span>
+<span class="hljs-comment"># SP 反向: ReduceScatter（完整梯度 → 分片梯度）— 刚好是 AllGather 的逆操作</span>
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">_reduce_scatter_along_first_dim</span>(<span class="hljs-params">input_, group</span>):
+    world_size = torch.distributed.get_world_size(group=group)
+    output = torch.empty(
+        [input_.shape[<span class="hljs-number">0</span>] // world_size] + <span class="hljs-built_in">list</span>(input_.shape[<span class="hljs-number">1</span>:]),
+        dtype=input_.dtype, device=input_.device,
+    )
+    torch.distributed.reduce_scatter_tensor(
+        output, input_.contiguous(), group=group
+    )
+    <span class="hljs-keyword">return</span> output</code></pre>
+  </div>
+
+  <div class="callout callout-key">
+    <div class="callout-title">AllGather 和 ReduceScatter 是一对互逆操作</div>
+    <ul style="margin-top:8px">
+      <li>前向用 <strong>AllGather</strong>（分片 → 完整）→ 反向就用 <strong>ReduceScatter</strong>（完整 → 分片）</li>
+      <li>前向用 <strong>ReduceScatter</strong> → 反向就用 <strong>AllGather</strong></li>
+    </ul>
+    这对关系贯穿 Sequence Parallel 和分布式优化器的所有代码。
+  </div>
+
+  <details class="collapsible">
+    <summary>ColumnParallelLinear 反向中的层内通信-计算重叠 <span class="badge">源码</span></summary>
+    <div class="collapsible-body">
+
+  <div class="prose">
+    <p>除了 <strong>DP 跨层</strong>的重叠（layer k 的 RS 和 layer k-1 的计算重叠，详见下方"分布式优化器的通信策略"一节），在<strong>同一层内部</strong>，TP 的 ReduceScatter 也和 weight gradient 的计算重叠。这是 <code>layers.py</code> 中 <code>LinearWithGradAccumulationAndAsyncCommunication</code> 的核心技巧。</p>
+  </div>
+
+  <div class="diagram"><span class="hl">ColumnParallelLinear 反向：层内的通信-计算重叠</span>
+
+<span class="hl4">前向</span>（已完成）:
+  AllGather 得到完整 input[S, H]  →  output = input × W.T
+
+<span class="hl2">反向</span>（当前）:
+  ① grad_input = grad_output × W              ← input 梯度（<span class="hl4">完整 [S, H]</span>）
+  ② <span class="hl3">异步 ReduceScatter</span>(grad_input)              ← 把完整梯度归约+切回 [S/tp, H]
+  ③ grad_weight = grad_output.T × total_input  ← weight 梯度（<span class="hl2">GPU 计算密集</span>）
+  ④ handle.wait()                              ← 等 ② 完成（通常 ③ 算完前就完成了）
+
+  步骤 ② 和 ③ <span class="hl2">并行执行</span>：网卡做 RS，GPU 做矩阵乘法，互不干扰</div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>tensor_parallel/layers.py — ColumnParallelLinear 反向中的异步 RS</span>
+      <span class="lines">L507-573</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">def</span> <span class="hljs-title function_">backward</span>(<span class="hljs-params">ctx, grad_output</span>):
+    <span class="hljs-built_in">input</span>, weight = ctx.saved_tensors
+    tp_group = ctx.tp_group
+
+    <span class="hljs-comment"># ① 计算 input 梯度（完整大小）</span>
+    grad_input = grad_output.matmul(weight)            <span class="hljs-comment"># [S, H]</span>
+
+    <span class="hljs-keyword">if</span> ctx.sequence_parallel:
+        <span class="hljs-comment"># ② 异步 ReduceScatter：把 [S, H] 归约+切分为 [S/tp, H]</span>
+        sub_grad_input = torch.empty(dim_size, ...)
+        handle = dist_reduce_scatter_func(
+            sub_grad_input, grad_input,
+            group=tp_group, async_op=<span class="hljs-literal">True</span>              <span class="hljs-comment"># ← 异步！不阻塞 GPU</span>
+        )
+        <span class="hljs-comment"># 依赖 CUDA_DEVICE_MAX_CONNECTIONS=1 确保 RS 先于 wgrad 入队</span>
+
+    <span class="hljs-comment"># ③ GPU 继续计算 weight 梯度（计算密集，耗时长）</span>
+    <span class="hljs-comment"># RS 在网卡上传输的同时，GPU 在做这个矩阵乘法</span>
+    <span class="hljs-keyword">if</span> ctx.gradient_accumulation_fusion:
+        fused_weight_gradient_mlp_cuda.wgrad_gemm_accum_fp32(
+            total_input, grad_output, weight.main_grad  <span class="hljs-comment"># 融合 wgrad</span>
+        )
+    <span class="hljs-keyword">else</span>:
+        grad_weight = grad_output.t().matmul(total_input)
+
+    <span class="hljs-comment"># ④ RS 在 ③ 执行期间大概率已完成，此时 wait 几乎不阻塞</span>
+    <span class="hljs-keyword">if</span> handle <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span>:
+        handle.wait()
+
+    <span class="hljs-keyword">return</span> sub_grad_input, grad_weight, ...            <span class="hljs-comment"># RS 后的分片梯度</span></code></pre>
+  </div>
+
+  <div class="callout callout-info">
+    <div class="callout-title">CUDA_DEVICE_MAX_CONNECTIONS=1 的作用</div>
+    Megatron 要求设置 <code>CUDA_DEVICE_MAX_CONNECTIONS=1</code>，确保 CUDA kernel 的调度顺序和代码顺序一致。这样 ReduceScatter 的 kernel 一定<strong>先于</strong> weight gradient 的 kernel 入队到 GPU，保证通信能和计算真正并行。如果不设这个环境变量，CUDA 可能重排 kernel 顺序，导致通信和计算串行化。
+  </div>
+
+    </div>
+  </details>
+</section>
+
+<!-- ==================== 6. Distributed Optimizer Communication ==================== -->
+<section id="distributed-optimizer-comm">
+  <div class="section-header">
+    <span class="section-num">06</span>
+    <h2>分布式优化器的通信策略</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">param_and_grad_buffer.py</span>
+    <span class="tag tag-purple">distributed_data_parallel.py</span>
+    <span class="tag tag-green">ReduceScatter + AllGather</span>
+  </div>
+
+  <div class="prose">
+    <p>分布式优化器将 AllReduce 拆成 <strong>ReduceScatter + AllGather</strong> 两个半量操作。通信总量不变，但获得了<strong>内存节省</strong>和<strong>更好的通信-计算重叠</strong>两大优势。</p>
+  </div>
+
+  <div class="diagram"><span class="hl">AllReduce vs ReduceScatter + AllGather：分布式优化器的真正优势</span>
+
+<span class="hl4">传统 DP（AllReduce）</span>:
+  每个 rank 有完整梯度 G    ──AllReduce──→  每个 rank 有完整 ΣG
+  每个 rank 用完整 ΣG 更新完整参数
+  通信量: <span class="hl4">2 × |G|</span>
+  内存:   每个 rank 存<span class="hl4">完整</span>参数 + <span class="hl4">完整</span>优化器状态（master weights + momentum + variance）
+
+<span class="hl2">分布式优化器（ReduceScatter + AllGather）</span>:
+  每个 rank 有完整梯度 G    ──ReduceScatter──→  每个 rank 只有 ΣG 的 <span class="hl2">1/N</span>
+  每个 rank 只更新 1/N 的参数
+  更新后                    ──AllGather────→  每个 rank 拿回完整参数
+  通信量: <span class="hl4">|G| + |P| ≈ 2|G|</span>  ← 和 AllReduce 一样！
+  内存:   每个 rank 只存 <span class="hl2">1/N</span> 的优化器状态                ← <span class="hl2">优势一：省内存</span>
+
+<span class="hl3">通信量相同，为什么还要用分布式优化器？</span>
+  ① <span class="hl2">内存</span>：Adam 优化器状态 = 2× 参数量（FP32），N 个 rank 均摊后省 (N-1)/N
+  ② <span class="hl2">重叠</span>：把 AllReduce 拆成两个半量操作，分别和<span class="hl2">不同阶段的计算</span>重叠 ← <span class="hl2">优势二：藏通信</span>
+     ReduceScatter 和反向计算重叠（overlap_grad_reduce）
+     AllGather 和前向计算重叠（overlap_param_gather）</div>
+
+  <details class="collapsible">
+    <summary>分布式优化器的完整生命周期（带具体数值） <span class="badge">示例</span></summary>
+    <div class="collapsible-body">
+
+  <div class="prose">
+    <p>以 <strong>4 个 DP rank</strong>、模型参数 <strong>W = 4GB</strong>、Adam 优化器为例，展示一轮训练的完整数据流。</p>
+  </div>
+
+  <div class="diagram"><span class="hl">分布式优化器完整生命周期（4 DP ranks, W = 4GB）</span>
+
+<span class="hl3">═══ 持久存储（始终在 GPU 上）═══</span>
+
+GPU 0 持有: W[0:1G]  + Adam(m[0:1G], v[0:1G])  ← 只存 <span class="hl2">1/4</span> 的参数和优化器状态
+GPU 1 持有: W[1G:2G] + Adam(m[1G:2G], v[1G:2G])
+GPU 2 持有: W[2G:3G] + Adam(m[2G:3G], v[2G:3G])
+GPU 3 持有: W[3G:4G] + Adam(m[3G:4G], v[3G:4G])
+
+<span class="hl2">═══ 步骤 1: AllGather 参数 ═══</span>（overlap_param_gather 时和上一轮前向重叠）
+
+AllGather(W): 每个 GPU 临时拿到完整的 W[0:4G]
+通信量: (N-1)/N × 4GB = <span class="hl2">3GB</span> / GPU
+
+<span class="hl4">═══ 步骤 2: 前向计算 ═══</span>
+
+每个 GPU 用完整 W[0:4G] + 各自不同的 mini-batch 做前向
+算完后释放非自己的参数分片（临时 3GB 释放）
+
+<span class="hl">═══ 步骤 3: 反向计算 + ReduceScatter ═══</span>（overlap_grad_reduce 重叠）
+
+每个 GPU 算出完整梯度 ∇W[0:4G]（各自不同，因为 mini-batch 不同）
+
+ReduceScatter(∇W):
+  GPU 0 得到: <span class="hl2">Σ∇W[0:1G]</span>  = (∇W_0 + ∇W_1 + ∇W_2 + ∇W_3)[0:1G]
+  GPU 1 得到: <span class="hl2">Σ∇W[1G:2G]</span>
+  GPU 2 得到: <span class="hl2">Σ∇W[2G:3G]</span>
+  GPU 3 得到: <span class="hl2">Σ∇W[3G:4G]</span>
+通信量: (N-1)/N × 4GB = <span class="hl2">3GB</span> / GPU
+
+<span class="hl3">═══ 步骤 4: 参数更新 ═══</span>
+
+GPU 0: W[0:1G] -= lr × Adam(Σ∇W[0:1G], m[0:1G], v[0:1G])
+GPU 1: W[1G:2G] -= lr × Adam(Σ∇W[1G:2G], m[1G:2G], v[1G:2G])
+...
+每个 GPU 只更新 1/4，只需要 1/4 的 Adam 状态
+
+→ 回到步骤 1（AllGather 参数，和下一轮前向重叠）
+
+<span class="hl4">═══ 内存对比 ═══</span>
+
+                  传统 AllReduce          分布式优化器
+参数:             4GB × 4 = <span class="hl4">16GB</span>         4GB(临时) + 1GB(持久) × 4 = <span class="hl2">8GB</span>
+Adam 状态(FP32):  8GB × 4 = <span class="hl4">32GB</span>         2GB × 4 = <span class="hl2">8GB</span>
+梯度:             4GB × 4 = <span class="hl4">16GB</span>         1GB × 4 = <span class="hl2">4GB</span>
+总计:             <span class="hl4">64GB</span>                  <span class="hl2">20GB</span>（节省 69%）</div>
+
+    </div>
+  </details>
+
+  <details class="collapsible">
+    <summary>为什么能重叠？逐层流水线机制详解 <span class="badge">可选</span></summary>
+    <div class="collapsible-body">
+
+  <div class="prose">
+    <p>重叠的前提是：<strong>模型按层顺序执行</strong>。前向从 layer 0 → layer L，反向从 layer L → layer 0。每一层的计算只需要<strong>当前层</strong>的参数和梯度，不需要一次性拿到全部。</p>
+  </div>
+
+  <div class="diagram"><span class="hl">传统 AllReduce：2|G| 的通信只能和反向重叠</span>
+
+时间 ──────────────────────────────────────────────────────────→
+
+计算:  │◄─── 前向 layer 0→L ───►│◄─── 反向 layer L→0 ───►│  <span class="hl4">等待</span>  │◄── 更新 ──►│
+通信:                            │◄── AllReduce 2|G| ────────────►│
+                                                          <span class="hl4">▲</span>
+                                              反向没算完时通信也没做完
+                                              剩余通信变成<span class="hl4">纯等待</span></div>
+
+  <div class="diagram"><span class="hl">分布式优化器：拆成两个 |G|，分别和不同阶段重叠</span>
+
+时间 ──────────────────────────────────────────────────────────→
+
+计算:  │◄─── 前向 layer 0→L ───►│◄─── 反向 layer L→0 ───►│◄── 更新 ──►│◄── 前向 ──►│
+通信:                            │◄ RS layer L..0 <span class="hl2">|G|</span> ──►│            │◄ AG layer 0..L <span class="hl2">|G|</span> ►│
+                                  <span class="hl2">和反向重叠</span>                           <span class="hl2">和前向重叠</span>
+
+       两个 |G| 分别藏进两个计算阶段 → 理想情况下<span class="hl2">通信完全隐藏</span></div>
+
+  <div class="prose">
+    <p><strong>反向阶段：ReduceScatter 逐层重叠</strong>（<code>overlap_grad_reduce</code>）</p>
+    <p>反向计算从最后一层开始。当 layer k 的梯度算完后，不需要等其他层，立即对 layer k 的梯度发起<strong>异步 ReduceScatter</strong>。同时 GPU 继续计算 layer k-1 的梯度。</p>
+  </div>
+
+  <div class="callout callout-warn">
+    <div class="callout-title">常见误解：layer k-1 的反向需要等 layer k 的梯度聚合结果吗？</div>
+    <strong>不需要。</strong>反向传播中每一层计算两样东西，它们是<strong>完全独立</strong>的数据流：
+    <ul style="margin-top:8px">
+      <li><strong>参数梯度</strong> <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="19" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D715"></mjx-c></mjx-mi><mjx-texatom texclass="ORD"><mjx-mi class="mjx-cal mjx-i"><mjx-c class="mjx-c4C TEX-C"></mjx-c></mjx-mi></mjx-texatom></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mrow size="s"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D715"></mjx-c></mjx-mi><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44A TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em; margin-left: -0.104em;"><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D458 TEX-I"></mjx-c></mjx-mi></mjx-script></mjx-msub></mjx-mrow></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mfrac space="4"><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D715"></mjx-c></mjx-mi><mjx-texatom texclass="ORD"><mjx-mi class="mjx-cal mjx-i"><mjx-c class="mjx-c4C TEX-C"></mjx-c></mjx-mi></mjx-texatom></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mrow size="s"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D715"></mjx-c></mjx-mi><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44E TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em;"><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D458 TEX-I"></mjx-c></mjx-mi></mjx-script></mjx-msub></mjx-mrow></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-msubsup space="3"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44E TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.308em; margin-left: 0px;"><mjx-mi class="mjx-n" size="s"><mjx-c class="mjx-c22A4"></mjx-c></mjx-mi><mjx-spacer style="margin-top: 0.18em;"></mjx-spacer><mjx-texatom size="s" texclass="ORD"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D458 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn></mjx-texatom></mjx-script></mjx-msubsup></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mi>∂</mi><mrow data-mjx-texclass="ORD"><mi data-mjx-variant="-tex-calligraphic" mathvariant="script">L</mi></mrow></mrow><mrow><mi>∂</mi><msub><mi>W</mi><mi>k</mi></msub></mrow></mfrac><mo>=</mo><mfrac><mrow><mi>∂</mi><mrow data-mjx-texclass="ORD"><mi data-mjx-variant="-tex-calligraphic" mathvariant="script">L</mi></mrow></mrow><mrow><mi>∂</mi><msub><mi>a</mi><mi>k</mi></msub></mrow></mfrac><mo>⋅</mo><msubsup><mi>a</mi><mrow data-mjx-texclass="ORD"><mi>k</mi><mo>−</mo><mn>1</mn></mrow><mi mathvariant="normal">⊤</mi></msubsup></math></mjx-assistive-mml></mjx-container> — 用来更新 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="20" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44A TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em; margin-left: -0.104em;"><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D458 TEX-I"></mjx-c></mjx-mi></mjx-script></mjx-msub></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>W</mi><mi>k</mi></msub></math></mjx-assistive-mml></mjx-container>，是 ReduceScatter 的对象</li>
+      <li><strong>误差信号</strong> <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="21" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D715"></mjx-c></mjx-mi><mjx-texatom texclass="ORD"><mjx-mi class="mjx-cal mjx-i"><mjx-c class="mjx-c4C TEX-C"></mjx-c></mjx-mi></mjx-texatom></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mrow size="s"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D715"></mjx-c></mjx-mi><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44E TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em;"><mjx-texatom size="s" texclass="ORD"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D458 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn></mjx-texatom></mjx-script></mjx-msub></mjx-mrow></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-msubsup space="4"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44A TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.308em; margin-left: -0.104em;"><mjx-mi class="mjx-n" size="s" style="margin-left: 0.225em;"><mjx-c class="mjx-c22A4"></mjx-c></mjx-mi><mjx-spacer style="margin-top: 0.18em;"></mjx-spacer><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D458 TEX-I"></mjx-c></mjx-mi></mjx-script></mjx-msubsup><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-mfrac space="3"><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D715"></mjx-c></mjx-mi><mjx-texatom texclass="ORD"><mjx-mi class="mjx-cal mjx-i"><mjx-c class="mjx-c4C TEX-C"></mjx-c></mjx-mi></mjx-texatom></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mrow size="s"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D715"></mjx-c></mjx-mi><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44E TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em;"><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D458 TEX-I"></mjx-c></mjx-mi></mjx-script></mjx-msub></mjx-mrow></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mi>∂</mi><mrow data-mjx-texclass="ORD"><mi data-mjx-variant="-tex-calligraphic" mathvariant="script">L</mi></mrow></mrow><mrow><mi>∂</mi><msub><mi>a</mi><mrow data-mjx-texclass="ORD"><mi>k</mi><mo>−</mo><mn>1</mn></mrow></msub></mrow></mfrac><mo>=</mo><msubsup><mi>W</mi><mi>k</mi><mi mathvariant="normal">⊤</mi></msubsup><mo>⋅</mo><mfrac><mrow><mi>∂</mi><mrow data-mjx-texclass="ORD"><mi data-mjx-variant="-tex-calligraphic" mathvariant="script">L</mi></mrow></mrow><mrow><mi>∂</mi><msub><mi>a</mi><mi>k</mi></msub></mrow></mfrac></math></mjx-assistive-mml></mjx-container> — 传给 layer k-1 继续反向传播</li>
+    </ul>
+    <p style="margin-top:8px">计算 layer k-1 的梯度只需要<strong>误差信号</strong>，不需要<strong>参数梯度的聚合结果</strong>。误差信号是 GPU 本地计算的结果，不涉及任何跨 GPU 通信。参数梯度算出来后直接扔给网卡做 ReduceScatter，不影响后续任何层的计算。</p>
+  </div>
+
+  <div class="diagram"><span class="hl">误差信号 vs 参数梯度：两条独立的数据流</span>
+
+∂Loss/∂a_k（从上层传来的误差信号）
+    │
+    ├──→ <span class="hl2">∂Loss/∂W_k = ∂Loss/∂a_k × a_{k-1}^T</span>     参数梯度（本层产物）
+    │    │
+    │    └── <span class="hl3">异步 ReduceScatter → 给优化器</span>        DP 组内聚合，与后续层无关
+    │
+    └──→ <span class="hl4">∂Loss/∂a_{k-1} = W_k^T × ∂Loss/∂a_k</span>   误差信号（传给下一层）
+         │
+         └── <span class="hl">GPU 本地计算</span>，不依赖任何通信结果      layer k-1 拿到这个就能继续反向传播
+
+结论：ReduceScatter（处理参数梯度）和下一层的反向计算（使用误差信号）<span class="hl2">完全并行，互不依赖</span></div>
+
+  <div class="diagram"><span class="hl">反向阶段的逐层重叠</span>
+
+layer L:  │<span class="hl4">反向计算</span>│
+          ├───────┤<span class="hl3">RS 异步</span>──────│     layer L 的 RS 和 layer L-1 的计算重叠
+layer L-1:        │<span class="hl4">反向计算</span>│
+                  ├───────┤<span class="hl3">RS 异步</span>──────│
+layer L-2:                │<span class="hl4">反向计算</span>│
+                          ├───────┤<span class="hl3">RS 异步</span>──────│
+  ...                              ...
+
+每层的 RS 只有 |G|/L 的数据量，很容易在下一层计算时完成</div>
+
+  <div class="callout callout-info">
+    <div class="callout-title">反向传播中的两层 ReduceScatter</div>
+    开启 TP + SP + 分布式优化器时，反向传播中实际存在<strong>两个层面</strong>的 ReduceScatter，它们发生在不同通信组，解决不同问题：
+    <table class="data-table" style="margin-top:8px">
+      <thead><tr><th>层面</th><th>通信组</th><th>通信对象</th><th>目的</th><th>是否阻塞下一层？</th></tr></thead>
+      <tbody>
+        <tr><td><strong>TP 组内 RS</strong></td><td>TP group（同节点 NVLink）</td><td>input 梯度 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="22" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D715"></mjx-c></mjx-mi><mjx-texatom texclass="ORD"><mjx-mi class="mjx-cal mjx-i"><mjx-c class="mjx-c4C TEX-C"></mjx-c></mjx-mi></mjx-texatom></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mrow size="s"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D715"></mjx-c></mjx-mi><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44E TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em;"><mjx-texatom size="s" texclass="ORD"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D458 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn></mjx-texatom></mjx-script></mjx-msub></mjx-mrow></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mi>∂</mi><mrow data-mjx-texclass="ORD"><mi data-mjx-variant="-tex-calligraphic" mathvariant="script">L</mi></mrow></mrow><mrow><mi>∂</mi><msub><mi>a</mi><mrow data-mjx-texclass="ORD"><mi>k</mi><mo>−</mo><mn>1</mn></mrow></msub></mrow></mfrac></math></mjx-assistive-mml></mjx-container></td><td>SP 下把完整梯度切回序列分片</td><td>是，但 NVLink 速度极快，且和 wgrad 计算重叠</td></tr>
+        <tr><td><strong>DP 组内 RS</strong></td><td>DP group（跨节点网络）</td><td>参数梯度 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="23" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D715"></mjx-c></mjx-mi><mjx-texatom texclass="ORD"><mjx-mi class="mjx-cal mjx-i"><mjx-c class="mjx-c4C TEX-C"></mjx-c></mjx-mi></mjx-texatom></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mrow size="s"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D715"></mjx-c></mjx-mi><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44A TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em; margin-left: -0.104em;"><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D458 TEX-I"></mjx-c></mjx-mi></mjx-script></mjx-msub></mjx-mrow></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mi>∂</mi><mrow data-mjx-texclass="ORD"><mi data-mjx-variant="-tex-calligraphic" mathvariant="script">L</mi></mrow></mrow><mrow><mi>∂</mi><msub><mi>W</mi><mi>k</mi></msub></mrow></mfrac></math></mjx-assistive-mml></mjx-container></td><td>分布式优化器聚合梯度切片</td><td><strong>不阻塞</strong>，完全异步</td></tr>
+      </tbody>
+    </table>
+    TP 组内 RS 虽然技术上会阻塞，但由于 NVLink 带宽极高（900 GB/s on NVSwitch）且数据量小（单层 input 梯度），实际延迟可忽略。真正的"通信-计算重叠"优化主要针对 DP 组内 RS，因为 DP 通信走跨节点网络（带宽低 10-100 倍）。
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>distributed_data_parallel.py — 反向 hook：梯度算完立即触发异步 RS</span>
+      <span class="lines">L475-504</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># 每个参数注册反向 post-hook</span>
+<span class="hljs-comment"># 当该参数的梯度计算完成后，hook 被自动调用</span>
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">_make_backward_post_hook</span>(<span class="hljs-params">param</span>):
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">hook</span>(<span class="hljs-params">*unused</span>):
+        <span class="hljs-comment"># 梯度累加到 param.main_grad</span>
+        param.main_grad.add_(param.grad.data)
+        <span class="hljs-comment"># 标记该参数的梯度已就绪</span>
+        bucket_group.register_grad_ready(param)
+    <span class="hljs-keyword">return</span> hook
+
+<span class="hljs-comment"># register_grad_ready 内部：当一个 bucket 内所有参数梯度都就绪时</span>
+<span class="hljs-comment"># 自动触发异步 ReduceScatter</span>
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">register_grad_ready</span>(<span class="hljs-params">self, param</span>):
+    self.params_with_grad.add(param)
+    <span class="hljs-keyword">if</span> <span class="hljs-built_in">len</span>(self.params_with_grad) == self.num_params_with_grad:
+        self.start_grad_sync()       <span class="hljs-comment"># 发起异步 RS，async_op=True</span></code></pre>
+  </div>
+
+  <div class="prose">
+    <p><strong>前向阶段：AllGather 逐层预取</strong>（<code>overlap_param_gather</code>）</p>
+    <p>更新后每个 rank 只有 1/N 的参数。前向计算 layer 0 之前，先 AllGather 拿到 layer 0 的完整参数。<strong>同时</strong>在后台异步 AllGather layer 1 的参数。当 layer 0 算完时，layer 1 的参数已经到位。</p>
+  </div>
+
+  <div class="diagram"><span class="hl">前向阶段的逐层预取</span>
+
+          │<span class="hl3">AG layer 0</span>│
+          ├──<span class="hl">等待</span>──┤<span class="hl4">前向计算 layer 0</span>│
+                   │<span class="hl3">AG layer 1</span>──────│        layer 1 的 AG 和 layer 0 的计算重叠
+                                    ├──┤<span class="hl4">前向计算 layer 1</span>│
+                                    │<span class="hl3">AG layer 2</span>──────│
+                                                    ├──┤<span class="hl4">前向计算 layer 2</span>│
+
+只有第一层需要等待 AG 完成（冷启动），后续层的 AG 都被前一层的计算隐藏</div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>distributed_data_parallel.py — 前向 pre-hook：等当前层 + 预取下一层</span>
+      <span class="lines">L434-473</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># 每个 module 注册前向 pre-hook</span>
+<span class="hljs-comment"># 在该 module 的 forward() 执行之前自动调用</span>
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">_make_forward_pre_hook</span>(<span class="hljs-params">bucket_group</span>):
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">hook</span>(<span class="hljs-params">*unused</span>):
+        <span class="hljs-comment"># ① 等待当前层的 AllGather 完成（参数就绪）</span>
+        bucket_group.finish_param_sync()
+        <span class="hljs-comment"># ② 立即发起下一层的异步 AllGather（预取）</span>
+        next_bg = bucket_group.next_param_gather_bucket_group
+        <span class="hljs-keyword">if</span> next_bg <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span>:
+            next_bg.start_param_sync()   <span class="hljs-comment"># async_op=True</span>
+    <span class="hljs-keyword">return</span> hook</code></pre>
+  </div>
+
+  <div class="callout callout-key">
+    <div class="callout-title">为什么 AllReduce 不能做到同样的重叠？</div>
+    AllReduce 是一个<strong>原子操作</strong>，把 ReduceScatter 和 AllGather 绑在一起。它只能发生在反向阶段（梯度算完后），无法把 AllGather 部分推迟到前向阶段。分布式优化器通过<strong>拆开</strong> AllReduce，让两个半量操作分别寄生在不同的计算阶段上，实现更好的重叠。
+    <table class="data-table" style="margin-top:12px">
+      <thead><tr><th></th><th>反向阶段可重叠</th><th>前向阶段可重叠</th><th>总可见开销</th></tr></thead>
+      <tbody>
+        <tr><td><strong>AllReduce</strong></td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="24" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mn class="mjx-n"><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-texatom texclass="ORD"><mjx-mo class="mjx-n"><mjx-c class="mjx-c7C"></mjx-c></mjx-mo></mjx-texatom><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D43A TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c7C"></mjx-c></mjx-mo></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mn>2</mn><mrow data-mjx-texclass="ORD"><mo stretchy="false">|</mo></mrow><mi>G</mi><mo stretchy="false">|</mo></math></mjx-assistive-mml></mjx-container></td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="25" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mn class="mjx-n"><mjx-c class="mjx-c30"></mjx-c></mjx-mn></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mn>0</mn></math></mjx-assistive-mml></mjx-container></td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="26" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mo class="mjx-n"><mjx-c class="mjx-c6D"></mjx-c><mjx-c class="mjx-c61"></mjx-c><mjx-c class="mjx-c78"></mjx-c></mjx-mo><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c30"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c2C"></mjx-c></mjx-mo><mjx-mstyle><mjx-mspace style="width: 0.278em;"></mjx-mspace></mjx-mstyle><mjx-mn class="mjx-n" space="2"><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-texatom texclass="ORD"><mjx-mo class="mjx-n"><mjx-c class="mjx-c7C"></mjx-c></mjx-mo></mjx-texatom><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D43A TEX-I"></mjx-c></mjx-mi><mjx-texatom texclass="ORD"><mjx-mo class="mjx-n"><mjx-c class="mjx-c7C"></mjx-c></mjx-mo></mjx-texatom><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-msub space="3"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D447 TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em; margin-left: -0.12em;"><mjx-texatom size="s" texclass="ORD"><mjx-mtext class="mjx-n"><mjx-c class="mjx-c62"></mjx-c><mjx-c class="mjx-c77"></mjx-c><mjx-c class="mjx-c64"></mjx-c></mjx-mtext></mjx-texatom></mjx-script></mjx-msub><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mo data-mjx-texclass="OP" movablelimits="true">max</mo><mo stretchy="false">(</mo><mn>0</mn><mo>,</mo><mstyle scriptlevel="0"><mspace width="0.278em"></mspace></mstyle><mn>2</mn><mrow data-mjx-texclass="ORD"><mo stretchy="false">|</mo></mrow><mi>G</mi><mrow data-mjx-texclass="ORD"><mo stretchy="false">|</mo></mrow><mo>−</mo><msub><mi>T</mi><mrow data-mjx-texclass="ORD"><mtext>bwd</mtext></mrow></msub><mo stretchy="false">)</mo></math></mjx-assistive-mml></mjx-container></td></tr>
+        <tr><td><strong>RS + AG</strong></td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="27" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mo class="mjx-n"><mjx-c class="mjx-c7C"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D43A TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c7C"></mjx-c></mjx-mo></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mo stretchy="false">|</mo><mi>G</mi><mo stretchy="false">|</mo></math></mjx-assistive-mml></mjx-container>（RS）</td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="28" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mo class="mjx-n"><mjx-c class="mjx-c7C"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D43A TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c7C"></mjx-c></mjx-mo></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mo stretchy="false">|</mo><mi>G</mi><mo stretchy="false">|</mo></math></mjx-assistive-mml></mjx-container>（AG）</td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="29" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mo class="mjx-n"><mjx-c class="mjx-c6D"></mjx-c><mjx-c class="mjx-c61"></mjx-c><mjx-c class="mjx-c78"></mjx-c></mjx-mo><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c30"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c2C"></mjx-c></mjx-mo><mjx-mstyle><mjx-mspace style="width: 0.278em;"></mjx-mspace></mjx-mstyle><mjx-texatom space="2" texclass="ORD"><mjx-mo class="mjx-n"><mjx-c class="mjx-c7C"></mjx-c></mjx-mo></mjx-texatom><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D43A TEX-I"></mjx-c></mjx-mi><mjx-texatom texclass="ORD"><mjx-mo class="mjx-n"><mjx-c class="mjx-c7C"></mjx-c></mjx-mo></mjx-texatom><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-msub space="3"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D447 TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em; margin-left: -0.12em;"><mjx-texatom size="s" texclass="ORD"><mjx-mtext class="mjx-n"><mjx-c class="mjx-c62"></mjx-c><mjx-c class="mjx-c77"></mjx-c><mjx-c class="mjx-c64"></mjx-c></mjx-mtext></mjx-texatom></mjx-script></mjx-msub><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c2B"></mjx-c></mjx-mo><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c6D"></mjx-c><mjx-c class="mjx-c61"></mjx-c><mjx-c class="mjx-c78"></mjx-c></mjx-mo><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c30"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c2C"></mjx-c></mjx-mo><mjx-mstyle><mjx-mspace style="width: 0.278em;"></mjx-mspace></mjx-mstyle><mjx-texatom space="2" texclass="ORD"><mjx-mo class="mjx-n"><mjx-c class="mjx-c7C"></mjx-c></mjx-mo></mjx-texatom><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D43A TEX-I"></mjx-c></mjx-mi><mjx-texatom texclass="ORD"><mjx-mo class="mjx-n"><mjx-c class="mjx-c7C"></mjx-c></mjx-mo></mjx-texatom><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-msub space="3"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D447 TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em; margin-left: -0.12em;"><mjx-texatom size="s" texclass="ORD"><mjx-mtext class="mjx-n"><mjx-c class="mjx-c66"></mjx-c><mjx-c class="mjx-c77"></mjx-c><mjx-c class="mjx-c64"></mjx-c></mjx-mtext></mjx-texatom></mjx-script></mjx-msub><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mo data-mjx-texclass="OP" movablelimits="true">max</mo><mo stretchy="false">(</mo><mn>0</mn><mo>,</mo><mstyle scriptlevel="0"><mspace width="0.278em"></mspace></mstyle><mrow data-mjx-texclass="ORD"><mo stretchy="false">|</mo></mrow><mi>G</mi><mrow data-mjx-texclass="ORD"><mo stretchy="false">|</mo></mrow><mo>−</mo><msub><mi>T</mi><mrow data-mjx-texclass="ORD"><mtext>bwd</mtext></mrow></msub><mo stretchy="false">)</mo><mo>+</mo><mo data-mjx-texclass="OP" movablelimits="true">max</mo><mo stretchy="false">(</mo><mn>0</mn><mo>,</mo><mstyle scriptlevel="0"><mspace width="0.278em"></mspace></mstyle><mrow data-mjx-texclass="ORD"><mo stretchy="false">|</mo></mrow><mi>G</mi><mrow data-mjx-texclass="ORD"><mo stretchy="false">|</mo></mrow><mo>−</mo><msub><mi>T</mi><mrow data-mjx-texclass="ORD"><mtext>fwd</mtext></mrow></msub><mo stretchy="false">)</mo></math></mjx-assistive-mml></mjx-container></td></tr>
+      </tbody>
+    </table>
+    当计算时间 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="30" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D447 TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em; margin-left: -0.12em;"><mjx-texatom size="s" texclass="ORD"><mjx-mtext class="mjx-n"><mjx-c class="mjx-c62"></mjx-c><mjx-c class="mjx-c77"></mjx-c><mjx-c class="mjx-c64"></mjx-c></mjx-mtext></mjx-texatom></mjx-script></mjx-msub></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>T</mi><mrow data-mjx-texclass="ORD"><mtext>bwd</mtext></mrow></msub></math></mjx-assistive-mml></mjx-container> 和 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="31" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D447 TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em; margin-left: -0.12em;"><mjx-texatom size="s" texclass="ORD"><mjx-mtext class="mjx-n"><mjx-c class="mjx-c66"></mjx-c><mjx-c class="mjx-c77"></mjx-c><mjx-c class="mjx-c64"></mjx-c></mjx-mtext></mjx-texatom></mjx-script></mjx-msub></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>T</mi><mrow data-mjx-texclass="ORD"><mtext>fwd</mtext></mrow></msub></math></mjx-assistive-mml></mjx-container> 各自 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="32" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mo class="mjx-n"><mjx-c class="mjx-c3E"></mjx-c></mjx-mo><mjx-texatom space="4" texclass="ORD"><mjx-mo class="mjx-n"><mjx-c class="mjx-c7C"></mjx-c></mjx-mo></mjx-texatom><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D43A TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c7C"></mjx-c></mjx-mo></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mo>&gt;</mo><mrow data-mjx-texclass="ORD"><mo stretchy="false">|</mo></mrow><mi>G</mi><mo stretchy="false">|</mo></math></mjx-assistive-mml></mjx-container> 时（大模型通常如此），<strong>通信完全隐藏</strong>。
+  </div>
+
+    </div>
+  </details>
+</section>
+
+<!-- ==================== 7. P2P ==================== -->
+<section id="p2p">
+  <div class="section-header">
+    <span class="section-num">07</span>
+    <h2>P2P Send / Recv：点对点通信</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">pipeline_parallel/p2p_communication.py</span>
+    <span class="tag tag-orange">PP 流水线</span>
+  </div>
+
+  <div class="mermaid" data-processed="true"><svg aria-roledescription="flowchart-v2" role="graphics-document document" viewBox="-8.875 -8 768.68359375 130.59375" style="max-width: 768.68359375px;" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="100%" id="mermaid-1783857453653"><style>#mermaid-1783857453653{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;fill:#e6edf3;}#mermaid-1783857453653 .error-icon{fill:#0d1117;}#mermaid-1783857453653 .error-text{fill:#f2eee8;stroke:#f2eee8;}#mermaid-1783857453653 .edge-thickness-normal{stroke-width:2px;}#mermaid-1783857453653 .edge-thickness-thick{stroke-width:3.5px;}#mermaid-1783857453653 .edge-pattern-solid{stroke-dasharray:0;}#mermaid-1783857453653 .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-1783857453653 .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-1783857453653 .marker{fill:#58a6ff;stroke:#58a6ff;}#mermaid-1783857453653 .marker.cross{stroke:#58a6ff;}#mermaid-1783857453653 svg{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;}#mermaid-1783857453653 .label{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:#e6edf3;}#mermaid-1783857453653 .cluster-label text{fill:#e6edf3;}#mermaid-1783857453653 .cluster-label span,#mermaid-1783857453653 p{color:#e6edf3;}#mermaid-1783857453653 .label text,#mermaid-1783857453653 span,#mermaid-1783857453653 p{fill:#e6edf3;color:#e6edf3;}#mermaid-1783857453653 .node rect,#mermaid-1783857453653 .node circle,#mermaid-1783857453653 .node ellipse,#mermaid-1783857453653 .node polygon,#mermaid-1783857453653 .node path{fill:#161b22;stroke:#30363d;stroke-width:1px;}#mermaid-1783857453653 .flowchart-label text{text-anchor:middle;}#mermaid-1783857453653 .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#mermaid-1783857453653 .node .label{text-align:center;}#mermaid-1783857453653 .node.clickable{cursor:pointer;}#mermaid-1783857453653 .arrowheadPath{fill:#e3ded6;}#mermaid-1783857453653 .edgePath .path{stroke:#58a6ff;stroke-width:2.0px;}#mermaid-1783857453653 .flowchart-link{stroke:#58a6ff;fill:none;}#mermaid-1783857453653 .edgeLabel{background-color:#1c2129;text-align:center;}#mermaid-1783857453653 .edgeLabel rect{opacity:0.5;background-color:#1c2129;fill:#1c2129;}#mermaid-1783857453653 .labelBkg{background-color:rgba(28, 33, 41, 0.5);}#mermaid-1783857453653 .cluster rect{fill:rgba(88,166,255,0.05);stroke:#30363d;stroke-width:1px;}#mermaid-1783857453653 .cluster text{fill:#e6edf3;}#mermaid-1783857453653 .cluster span,#mermaid-1783857453653 p{color:#e6edf3;}#mermaid-1783857453653 div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:12px;background:#0d1117;border:1px solid hsl(216, 0%, 17.0588235294%);border-radius:2px;pointer-events:none;z-index:100;}#mermaid-1783857453653 .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#e6edf3;}#mermaid-1783857453653 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="6" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857453653_flowchart-pointEnd"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 0 L 10 5 L 0 10 z"></path></marker><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="4.5" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857453653_flowchart-pointStart"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 5 L 10 10 L 10 0 z"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="11" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857453653_flowchart-circleEnd"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="-1" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857453653_flowchart-circleStart"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="12" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783857453653_flowchart-crossEnd"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="-1" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783857453653_flowchart-crossStart"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><g class="root"><g class="clusters"><g id="S3" class="cluster default flowchart-label"><rect height="114.59375" width="66.75" y="0" x="-0.875" ry="0" rx="0" style=""></rect><g transform="translate(-0.875, 0)" class="cluster-label"><foreignobject height="22.09375" width="66.75"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">PP Stage 3</span></div></foreignobject></g></g><g id="S2" class="cluster default flowchart-label"><rect height="114.59375" width="66.4453125" y="0" x="246.73046875" ry="0" rx="0" style=""></rect><g transform="translate(246.73046875, 0)" class="cluster-label"><foreignobject height="22.09375" width="66.4453125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">PP Stage 2</span></div></foreignobject></g></g><g id="S1" class="cluster default flowchart-label"><rect height="114.59375" width="65" y="0" x="426.328125" ry="0" rx="0" style=""></rect><g transform="translate(426.51171875, 0)" class="cluster-label"><foreignobject height="22.09375" width="64.6328125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">PP Stage 1</span></div></foreignobject></g></g><g id="S0" class="cluster default flowchart-label"><rect height="114.59375" width="66.7890625" y="0" x="685.01953125" ry="0" rx="0" style=""></rect><g transform="translate(685.01953125, 0)" class="cluster-label"><foreignobject height="22.09375" width="66.7890625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">PP Stage 0</span></div></foreignobject></g></g></g><g class="edgePaths"><path marker-end="url(#mermaid-1783857453653_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-s0 LE-s1" id="L-s0-s1-0" d="M710.914,67.154L706.747,69.852C702.581,72.55,694.247,77.947,673.865,80.645C653.483,83.344,621.052,83.344,588.621,83.344C556.19,83.344,523.759,83.344,504.118,81.126C484.478,78.907,477.627,74.471,474.202,72.253L470.777,70.035"></path><path marker-end="url(#mermaid-1783857453653_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-s1 LE-s2" id="L-s1-s2-0" d="M451.328,67.154L447.161,69.852C442.995,72.55,434.661,77.947,421.005,80.645C407.349,83.344,388.37,83.344,369.391,83.344C350.411,83.344,331.432,83.344,318.517,81.126C305.603,78.907,298.752,74.471,295.327,72.253L291.902,70.035"></path><path marker-end="url(#mermaid-1783857453653_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-s2 LE-s3" id="L-s2-s3-0" d="M272.453,67.154L268.286,69.852C264.12,72.55,255.786,77.947,236.415,80.645C217.044,83.344,186.635,83.344,156.227,83.344C125.818,83.344,95.409,83.344,76.779,81.126C58.15,78.907,51.299,74.471,47.874,72.253L44.449,70.035"></path><path marker-end="url(#mermaid-1783857453653_flowchart-pointEnd)" style="fill:none;stroke-width:2px;stroke-dasharray:3;" class="edge-thickness-normal edge-pattern-dotted flowchart-link LS-s3 LE-s2" id="L-s3-s2-0" d="M40,57.44L44.167,54.742C48.333,52.043,56.667,46.647,76.038,43.948C95.409,41.25,125.818,41.25,156.227,41.25C186.635,41.25,217.044,41.25,235.674,43.468C254.304,45.686,261.154,50.123,264.579,52.341L268.004,54.559"></path><path marker-end="url(#mermaid-1783857453653_flowchart-pointEnd)" style="fill:none;stroke-width:2px;stroke-dasharray:3;" class="edge-thickness-normal edge-pattern-dotted flowchart-link LS-s2 LE-s1" id="L-s2-s1-0" d="M287.453,57.44L291.62,54.742C295.786,52.043,304.12,46.647,317.776,43.948C331.432,41.25,350.411,41.25,369.391,41.25C388.37,41.25,407.349,41.25,420.264,43.468C433.179,45.686,440.029,50.123,443.454,52.341L446.879,54.559"></path><path marker-end="url(#mermaid-1783857453653_flowchart-pointEnd)" style="fill:none;stroke-width:2px;stroke-dasharray:3;" class="edge-thickness-normal edge-pattern-dotted flowchart-link LS-s1 LE-s0" id="L-s1-s0-0" d="M466.328,57.44L470.495,54.742C474.661,52.043,482.995,46.647,503.377,43.948C523.759,41.25,556.19,41.25,588.621,41.25C621.052,41.25,653.483,41.25,673.124,43.468C692.765,45.686,699.615,50.123,703.04,52.341L706.465,54.559"></path></g><g class="edgeLabels"><g transform="translate(588.62109375, 83.34375)" class="edgeLabel"><g transform="translate(-72.29296875, -11.046875)" class="label"><foreignobject height="22.09375" width="144.5859375"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel">send_next 前向：激活值</span></div></foreignobject></g></g><g transform="translate(369.390625, 83.34375)" class="edgeLabel"><g transform="translate(-31.50390625, -11.046875)" class="label"><foreignobject height="22.09375" width="63.0078125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel">send_next</span></div></foreignobject></g></g><g transform="translate(156.2265625, 83.34375)" class="edgeLabel"><g transform="translate(-31.50390625, -11.046875)" class="label"><foreignobject height="22.09375" width="63.0078125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel">send_next</span></div></foreignobject></g></g><g transform="translate(156.2265625, 41.25)" class="edgeLabel"><g transform="translate(-66.2265625, -11.046875)" class="label"><foreignobject height="22.09375" width="132.453125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel">send_prev 反向：梯度</span></div></foreignobject></g></g><g transform="translate(369.390625, 41.25)" class="edgeLabel"><g transform="translate(-31.9375, -11.046875)" class="label"><foreignobject height="22.09375" width="63.875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel">send_prev</span></div></foreignobject></g></g><g transform="translate(588.62109375, 41.25)" class="edgeLabel"><g transform="translate(-31.9375, -11.046875)" class="label"><foreignobject height="22.09375" width="63.875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel">send_prev</span></div></foreignobject></g></g></g><g class="nodes"><g transform="translate(32.5, 62.296875)" data-id="s3" data-node="true" id="flowchart-s3-3" class="node default default flowchart-label"><rect height="15" width="15" y="-7.5" x="-7.5" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(0, 0)" style="" class="label"><rect></rect><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel"></span></div></foreignobject></g></g><g transform="translate(279.953125, 62.296875)" data-id="s2" data-node="true" id="flowchart-s2-2" class="node default default flowchart-label"><rect height="15" width="15" y="-7.5" x="-7.5" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(0, 0)" style="" class="label"><rect></rect><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel"></span></div></foreignobject></g></g><g transform="translate(458.828125, 62.296875)" data-id="s1" data-node="true" id="flowchart-s1-1" class="node default default flowchart-label"><rect height="15" width="15" y="-7.5" x="-7.5" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(0, 0)" style="" class="label"><rect></rect><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel"></span></div></foreignobject></g></g><g transform="translate(718.4140625, 62.296875)" data-id="s0" data-node="true" id="flowchart-s0-0" class="node default default flowchart-label"><rect height="15" width="15" y="-7.5" x="-7.5" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(0, 0)" style="" class="label"><rect></rect><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel"></span></div></foreignobject></g></g></g></g></g></svg></div>
+
+  <div class="prose" style="margin-top:8px">
+    <p>对于每个 stage，<strong>prev</strong> = 流水线中在它前面的 stage，<strong>next</strong> = 在它后面的 stage。前向数据向 next 流动（send_next / recv_prev），反向梯度向 prev 流动（send_prev / recv_next）。</p>
+  </div>
+
+  <div class="prose">
+    <p><strong>语义</strong>：两个 rank 之间的单向数据传输。不像集合操作要求组内所有 rank 参与，P2P 只涉及发送方和接收方。</p>
+    <p><strong>通信量</strong>：每次传输恰好 <code>D</code>（tensor 大小）。PP 中 D = 激活值大小 = <code>micro_batch × seq_len × hidden_size</code>，远小于参数量，这也是 PP 通信开销低的原因。</p>
+  </div>
+
+  <details class="collapsible">
+    <summary>P2P 内部实现：四参数体系与 _communicate() <span class="badge">源码</span></summary>
+    <div class="collapsible-body">
+
+  <div class="prose">
+    <p>Megatron 的 P2P 通信围绕<strong>四个核心参数</strong>构建，它们贯穿从底层 <code>_p2p_ops()</code> 到上层 <code>recv_forward()</code> 的整条调用链：</p>
+  </div>
+
+  <table class="data-table">
+    <thead>
+      <tr><th>参数名</th><th>含义</th><th>对应的 PP 操作</th><th>数据内容</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>tensor_send_next</code></td>
+        <td>发送给<strong>下一个</strong> stage</td>
+        <td><code>send_forward()</code></td>
+        <td>前向的输出激活值</td>
+      </tr>
+      <tr>
+        <td><code>tensor_recv_prev</code></td>
+        <td>从<strong>上一个</strong> stage 接收</td>
+        <td><code>recv_forward()</code></td>
+        <td>前向的输入激活值</td>
+      </tr>
+      <tr>
+        <td><code>tensor_send_prev</code></td>
+        <td>发送给<strong>上一个</strong> stage</td>
+        <td><code>send_backward()</code></td>
+        <td>反向的输入梯度</td>
+      </tr>
+      <tr>
+        <td><code>tensor_recv_next</code></td>
+        <td>从<strong>下一个</strong> stage 接收</td>
+        <td><code>recv_backward()</code></td>
+        <td>反向的输出梯度</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="diagram"><span class="hl">以 Stage 1 的视角看四个参数</span>
+
+                Stage 0 (prev)            <span class="hl2">Stage 1 (当前)</span>            Stage 2 (next)
+                ┌────────────┐           ┌────────────┐           ┌────────────┐
+                │            │           │            │           │            │
+   前向:        │   output   │──<span class="hl2">send</span>──→ │ <span class="hl3">recv_prev</span>   │           │            │
+                │            │           │            │           │            │
+                │            │           │   计算...   │           │            │
+                │            │           │            │           │            │
+                │            │           │ <span class="hl2">send_next</span>   │──<span class="hl2">send</span>──→ │   input    │
+                │            │           │            │           │            │
+   反向:        │            │           │ <span class="hl4">recv_next</span>   │←──<span class="hl4">send</span>── │   grad     │
+                │            │           │            │           │            │
+                │            │           │   计算...   │           │            │
+                │            │           │            │           │            │
+                │   input    │←──<span class="hl4">send</span>── │ <span class="hl3">send_prev</span>   │           │            │
+                └────────────┘           └────────────┘           └────────────┘
+
+规律：<span class="hl2">前向数据向 next 流动</span>（send_next / recv_prev）
+      <span class="hl4">反向梯度向 prev 流动</span>（send_prev / recv_next）</div>
+
+  <div class="prose">
+    <p>所有高层 API 最终都调用同一个 <code>_communicate()</code> 方法，只是填充不同的参数：</p>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>p2p_communication.py — 高层 API 到底层参数的映射</span>
+      <span class="lines">L402-645</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># 高层 API                           → _communicate() 的参数</span>
+<span class="hljs-comment"># ─────────────────────────────────────────────────────────────────</span>
+<span class="hljs-comment"># recv_forward()                     → recv_prev=True</span>
+<span class="hljs-comment">#   返回 tensor_recv_prev（来自上一 stage 的激活值）</span>
+
+<span class="hljs-comment"># send_forward(output)               → tensor_send_next=output</span>
+<span class="hljs-comment">#   把前向输出发给下一 stage</span>
+
+<span class="hljs-comment"># recv_backward()                    → recv_next=True</span>
+<span class="hljs-comment">#   返回 tensor_recv_next（来自下一 stage 的梯度）</span>
+
+<span class="hljs-comment"># send_backward(grad)                → tensor_send_prev=grad</span>
+<span class="hljs-comment">#   把梯度发给上一 stage</span>
+
+<span class="hljs-comment"># send_forward_recv_backward(output) → tensor_send_next=output, recv_next=True</span>
+<span class="hljs-comment">#   同时：发激活值给 next + 收梯度从 next（1F1B steady 阶段用）</span>
+
+<span class="hljs-comment"># send_backward_recv_forward(grad)   → tensor_send_prev=grad, recv_prev=True</span>
+<span class="hljs-comment">#   同时：发梯度给 prev + 收激活值从 prev（1F1B steady 阶段用）</span></code></pre>
+  </div>
+
+  <div class="callout callout-key">
+    <div class="callout-title">为什么要组合操作？</div>
+    1F1B steady 阶段，一个 stage 做完前向后<strong>立刻要做反向</strong>（另一个 micro-batch），同时前向的输出要发走、反向的梯度要收回来。如果分开做 send 和 recv，需要两次通信；<strong>组合操作</strong>（如 <code>send_forward_recv_backward</code>）把两个 P2P 打包成一次调用，既减少启动开销，也是防止死锁的关键。
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>p2p_communication.py — _communicate()：所有 P2P 的入口</span>
+      <span class="lines">L254-400</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_communicate</span>(<span class="hljs-params">self, *, tensor_send_next, tensor_send_prev,
+                 recv_prev, recv_next, tensor_shape, wait_on_reqs=<span class="hljs-literal">True</span></span>):
+    <span class="hljs-comment"># ① 如果序列长度可变，先通信 shape</span>
+    <span class="hljs-keyword">if</span> config.variable_seq_lengths:
+        recv_prev_shape, recv_next_shape = self._communicate_shapes(...)
+
+    <span class="hljs-comment"># ② 为要接收的 tensor 分配空缓冲区</span>
+    <span class="hljs-keyword">if</span> recv_prev:
+        tensor_recv_prev = torch.empty(recv_prev_shape, ...)
+    <span class="hljs-keyword">if</span> recv_next:
+        tensor_recv_next = torch.empty(recv_next_shape, ...)
+
+    <span class="hljs-comment"># ③ 选择底层实现：三选一</span>
+    <span class="hljs-keyword">if</span> config.use_ring_exchange_p2p:     p2p_func = ring_exchange
+    <span class="hljs-keyword">elif</span> config.batch_p2p_comm:          p2p_func = _batched_p2p_ops
+    <span class="hljs-keyword">else</span>:                                p2p_func = _p2p_ops
+
+    <span class="hljs-comment"># ④ 调用底层，四个参数全部透传</span>
+    p2p_func(tensor_send_prev=..., tensor_recv_prev=...,
+             tensor_send_next=..., tensor_recv_next=...,
+             group=pp_group, prev_pipeline_rank=..., next_pipeline_rank=...)
+
+    <span class="hljs-keyword">return</span> tensor_recv_prev, tensor_recv_next, reqs</code></pre>
+  </div>
+
+    </div>
+  </details>
+
+  <div class="callout callout-warn">
+    <div class="callout-title">死锁风险</div>
+    P2P 通信最大的陷阱是<strong>死锁</strong>。如果 Stage A 先 send 给 B，而 B 也在 send 给 A，两者都在等对方 recv，就永远卡住。Megatron 用两层机制防死锁：<strong>batch_isend_irecv</strong>（打包原子提交）和<strong>奇偶 rank 交替顺序</strong>。
+  </div>
+
+  <details class="collapsible">
+    <summary>P2P 死锁问题与防护机制详解 <span class="badge">可选</span></summary>
+    <div class="collapsible-body">
+
+  <div class="prose">
+    <p>要理解死锁，先看一个<strong>最简单的死锁场景</strong>：</p>
+  </div>
+
+  <div class="mermaid" data-processed="true"><svg aria-roledescription="sequence" role="graphics-document document" viewBox="-50 -10 492 542" style="max-width: 492px;" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="100%" id="mermaid-1783857453669"><g><rect class="actor actor-bottom" ry="3" rx="3" name="S1" height="65" width="150" stroke="#666" fill="#eaeaea" y="456" x="242"></rect><text style="text-anchor: middle; font-size: 16px; font-weight: 400;" class="actor" alignment-baseline="central" dominant-baseline="central" y="488.5" x="317"><tspan dy="0" x="317">Stage 1</tspan></text></g><g><rect class="actor actor-bottom" ry="3" rx="3" name="S0" height="65" width="150" stroke="#666" fill="#eaeaea" y="456" x="0"></rect><text style="text-anchor: middle; font-size: 16px; font-weight: 400;" class="actor" alignment-baseline="central" dominant-baseline="central" y="488.5" x="75"><tspan dy="0" x="75">Stage 0</tspan></text></g><g><line stroke="#999" stroke-width="0.5px" class="200" y2="456" x2="317" y1="5" x1="317" id="actor1"></line><g id="root-1"><rect class="actor actor-top" ry="3" rx="3" name="S1" height="65" width="150" stroke="#666" fill="#eaeaea" y="0" x="242"></rect><text style="text-anchor: middle; font-size: 16px; font-weight: 400;" class="actor" alignment-baseline="central" dominant-baseline="central" y="32.5" x="317"><tspan dy="0" x="317">Stage 1</tspan></text></g></g><g><line stroke="#999" stroke-width="0.5px" class="200" y2="456" x2="75" y1="5" x1="75" id="actor0"></line><g id="root-0"><rect class="actor actor-top" ry="3" rx="3" name="S0" height="65" width="150" stroke="#666" fill="#eaeaea" y="0" x="0"></rect><text style="text-anchor: middle; font-size: 16px; font-weight: 400;" class="actor" alignment-baseline="central" dominant-baseline="central" y="32.5" x="75"><tspan dy="0" x="75">Stage 0</tspan></text></g></g><style>#mermaid-1783857453669{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;fill:#e6edf3;}#mermaid-1783857453669 .error-icon{fill:#0d1117;}#mermaid-1783857453669 .error-text{fill:#f2eee8;stroke:#f2eee8;}#mermaid-1783857453669 .edge-thickness-normal{stroke-width:2px;}#mermaid-1783857453669 .edge-thickness-thick{stroke-width:3.5px;}#mermaid-1783857453669 .edge-pattern-solid{stroke-dasharray:0;}#mermaid-1783857453669 .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-1783857453669 .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-1783857453669 .marker{fill:#58a6ff;stroke:#58a6ff;}#mermaid-1783857453669 .marker.cross{stroke:#58a6ff;}#mermaid-1783857453669 svg{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;}#mermaid-1783857453669 .actor{stroke:#30363d;fill:#161b22;}#mermaid-1783857453669 text.actor&gt;tspan{fill:#e6edf3;stroke:none;}#mermaid-1783857453669 .actor-line{stroke:grey;}#mermaid-1783857453669 .messageLine0{stroke-width:1.5;stroke-dasharray:none;stroke:#e6edf3;}#mermaid-1783857453669 .messageLine1{stroke-width:1.5;stroke-dasharray:2,2;stroke:#e6edf3;}#mermaid-1783857453669 #arrowhead path{fill:#e6edf3;stroke:#e6edf3;}#mermaid-1783857453669 .sequenceNumber{fill:#a75900;}#mermaid-1783857453669 #sequencenumber{fill:#e6edf3;}#mermaid-1783857453669 #crosshead path{fill:#e6edf3;stroke:#e6edf3;}#mermaid-1783857453669 .messageText{fill:#e6edf3;stroke:none;}#mermaid-1783857453669 .labelBox{stroke:#30363d;fill:#161b22;}#mermaid-1783857453669 .labelText,#mermaid-1783857453669 .labelText&gt;tspan{fill:#e6edf3;stroke:none;}#mermaid-1783857453669 .loopText,#mermaid-1783857453669 .loopText&gt;tspan{fill:#e6edf3;stroke:none;}#mermaid-1783857453669 .loopLine{stroke-width:2px;stroke-dasharray:2,2;stroke:#30363d;fill:#30363d;}#mermaid-1783857453669 .note{stroke:hsl(52.6829268293, 60%, 93.9215686275%);fill:#fff5ad;}#mermaid-1783857453669 .noteText,#mermaid-1783857453669 .noteText&gt;tspan{fill:#333;stroke:none;}#mermaid-1783857453669 .activation0{fill:#161b22;stroke:hsl(215, 21.4285714286%, 0.9803921569%);}#mermaid-1783857453669 .activation1{fill:#161b22;stroke:hsl(215, 21.4285714286%, 0.9803921569%);}#mermaid-1783857453669 .activation2{fill:#161b22;stroke:hsl(215, 21.4285714286%, 0.9803921569%);}#mermaid-1783857453669 .actorPopupMenu{position:absolute;}#mermaid-1783857453669 .actorPopupMenuPanel{position:absolute;fill:#161b22;box-shadow:0px 8px 16px 0px rgba(0,0,0,0.2);filter:drop-shadow(3px 5px 2px rgb(0 0 0 / 0.4));}#mermaid-1783857453669 .actor-man line{stroke:#30363d;fill:#161b22;}#mermaid-1783857453669 .actor-man circle,#mermaid-1783857453669 line{stroke:#30363d;fill:#161b22;stroke-width:2px;}#mermaid-1783857453669 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g></g><defs><symbol height="24" width="24" id="computer"><path d="M2 2v13h20v-13h-20zm18 11h-16v-9h16v9zm-10.228 6l.466-1h3.524l.467 1h-4.457zm14.228 3h-24l2-6h2.104l-1.33 4h18.45l-1.297-4h2.073l2 6zm-5-10h-14v-7h14v7z" transform="scale(.5)"></path></symbol></defs><defs><symbol clip-rule="evenodd" fill-rule="evenodd" id="database"><path d="M12.258.001l.256.004.255.005.253.008.251.01.249.012.247.015.246.016.242.019.241.02.239.023.236.024.233.027.231.028.229.031.225.032.223.034.22.036.217.038.214.04.211.041.208.043.205.045.201.046.198.048.194.05.191.051.187.053.183.054.18.056.175.057.172.059.168.06.163.061.16.063.155.064.15.066.074.033.073.033.071.034.07.034.069.035.068.035.067.035.066.035.064.036.064.036.062.036.06.036.06.037.058.037.058.037.055.038.055.038.053.038.052.038.051.039.05.039.048.039.047.039.045.04.044.04.043.04.041.04.04.041.039.041.037.041.036.041.034.041.033.042.032.042.03.042.029.042.027.042.026.043.024.043.023.043.021.043.02.043.018.044.017.043.015.044.013.044.012.044.011.045.009.044.007.045.006.045.004.045.002.045.001.045v17l-.001.045-.002.045-.004.045-.006.045-.007.045-.009.044-.011.045-.012.044-.013.044-.015.044-.017.043-.018.044-.02.043-.021.043-.023.043-.024.043-.026.043-.027.042-.029.042-.03.042-.032.042-.033.042-.034.041-.036.041-.037.041-.039.041-.04.041-.041.04-.043.04-.044.04-.045.04-.047.039-.048.039-.05.039-.051.039-.052.038-.053.038-.055.038-.055.038-.058.037-.058.037-.06.037-.06.036-.062.036-.064.036-.064.036-.066.035-.067.035-.068.035-.069.035-.07.034-.071.034-.073.033-.074.033-.15.066-.155.064-.16.063-.163.061-.168.06-.172.059-.175.057-.18.056-.183.054-.187.053-.191.051-.194.05-.198.048-.201.046-.205.045-.208.043-.211.041-.214.04-.217.038-.22.036-.223.034-.225.032-.229.031-.231.028-.233.027-.236.024-.239.023-.241.02-.242.019-.246.016-.247.015-.249.012-.251.01-.253.008-.255.005-.256.004-.258.001-.258-.001-.256-.004-.255-.005-.253-.008-.251-.01-.249-.012-.247-.015-.245-.016-.243-.019-.241-.02-.238-.023-.236-.024-.234-.027-.231-.028-.228-.031-.226-.032-.223-.034-.22-.036-.217-.038-.214-.04-.211-.041-.208-.043-.204-.045-.201-.046-.198-.048-.195-.05-.19-.051-.187-.053-.184-.054-.179-.056-.176-.057-.172-.059-.167-.06-.164-.061-.159-.063-.155-.064-.151-.066-.074-.033-.072-.033-.072-.034-.07-.034-.069-.035-.068-.035-.067-.035-.066-.035-.064-.036-.063-.036-.062-.036-.061-.036-.06-.037-.058-.037-.057-.037-.056-.038-.055-.038-.053-.038-.052-.038-.051-.039-.049-.039-.049-.039-.046-.039-.046-.04-.044-.04-.043-.04-.041-.04-.04-.041-.039-.041-.037-.041-.036-.041-.034-.041-.033-.042-.032-.042-.03-.042-.029-.042-.027-.042-.026-.043-.024-.043-.023-.043-.021-.043-.02-.043-.018-.044-.017-.043-.015-.044-.013-.044-.012-.044-.011-.045-.009-.044-.007-.045-.006-.045-.004-.045-.002-.045-.001-.045v-17l.001-.045.002-.045.004-.045.006-.045.007-.045.009-.044.011-.045.012-.044.013-.044.015-.044.017-.043.018-.044.02-.043.021-.043.023-.043.024-.043.026-.043.027-.042.029-.042.03-.042.032-.042.033-.042.034-.041.036-.041.037-.041.039-.041.04-.041.041-.04.043-.04.044-.04.046-.04.046-.039.049-.039.049-.039.051-.039.052-.038.053-.038.055-.038.056-.038.057-.037.058-.037.06-.037.061-.036.062-.036.063-.036.064-.036.066-.035.067-.035.068-.035.069-.035.07-.034.072-.034.072-.033.074-.033.151-.066.155-.064.159-.063.164-.061.167-.06.172-.059.176-.057.179-.056.184-.054.187-.053.19-.051.195-.05.198-.048.201-.046.204-.045.208-.043.211-.041.214-.04.217-.038.22-.036.223-.034.226-.032.228-.031.231-.028.234-.027.236-.024.238-.023.241-.02.243-.019.245-.016.247-.015.249-.012.251-.01.253-.008.255-.005.256-.004.258-.001.258.001zm-9.258 20.499v.01l.001.021.003.021.004.022.005.021.006.022.007.022.009.023.01.022.011.023.012.023.013.023.015.023.016.024.017.023.018.024.019.024.021.024.022.025.023.024.024.025.052.049.056.05.061.051.066.051.07.051.075.051.079.052.084.052.088.052.092.052.097.052.102.051.105.052.11.052.114.051.119.051.123.051.127.05.131.05.135.05.139.048.144.049.147.047.152.047.155.047.16.045.163.045.167.043.171.043.176.041.178.041.183.039.187.039.19.037.194.035.197.035.202.033.204.031.209.03.212.029.216.027.219.025.222.024.226.021.23.02.233.018.236.016.24.015.243.012.246.01.249.008.253.005.256.004.259.001.26-.001.257-.004.254-.005.25-.008.247-.011.244-.012.241-.014.237-.016.233-.018.231-.021.226-.021.224-.024.22-.026.216-.027.212-.028.21-.031.205-.031.202-.034.198-.034.194-.036.191-.037.187-.039.183-.04.179-.04.175-.042.172-.043.168-.044.163-.045.16-.046.155-.046.152-.047.148-.048.143-.049.139-.049.136-.05.131-.05.126-.05.123-.051.118-.052.114-.051.11-.052.106-.052.101-.052.096-.052.092-.052.088-.053.083-.051.079-.052.074-.052.07-.051.065-.051.06-.051.056-.05.051-.05.023-.024.023-.025.021-.024.02-.024.019-.024.018-.024.017-.024.015-.023.014-.024.013-.023.012-.023.01-.023.01-.022.008-.022.006-.022.006-.022.004-.022.004-.021.001-.021.001-.021v-4.127l-.077.055-.08.053-.083.054-.085.053-.087.052-.09.052-.093.051-.095.05-.097.05-.1.049-.102.049-.105.048-.106.047-.109.047-.111.046-.114.045-.115.045-.118.044-.12.043-.122.042-.124.042-.126.041-.128.04-.13.04-.132.038-.134.038-.135.037-.138.037-.139.035-.142.035-.143.034-.144.033-.147.032-.148.031-.15.03-.151.03-.153.029-.154.027-.156.027-.158.026-.159.025-.161.024-.162.023-.163.022-.165.021-.166.02-.167.019-.169.018-.169.017-.171.016-.173.015-.173.014-.175.013-.175.012-.177.011-.178.01-.179.008-.179.008-.181.006-.182.005-.182.004-.184.003-.184.002h-.37l-.184-.002-.184-.003-.182-.004-.182-.005-.181-.006-.179-.008-.179-.008-.178-.01-.176-.011-.176-.012-.175-.013-.173-.014-.172-.015-.171-.016-.17-.017-.169-.018-.167-.019-.166-.02-.165-.021-.163-.022-.162-.023-.161-.024-.159-.025-.157-.026-.156-.027-.155-.027-.153-.029-.151-.03-.15-.03-.148-.031-.146-.032-.145-.033-.143-.034-.141-.035-.14-.035-.137-.037-.136-.037-.134-.038-.132-.038-.13-.04-.128-.04-.126-.041-.124-.042-.122-.042-.12-.044-.117-.043-.116-.045-.113-.045-.112-.046-.109-.047-.106-.047-.105-.048-.102-.049-.1-.049-.097-.05-.095-.05-.093-.052-.09-.051-.087-.052-.085-.053-.083-.054-.08-.054-.077-.054v4.127zm0-5.654v.011l.001.021.003.021.004.021.005.022.006.022.007.022.009.022.01.022.011.023.012.023.013.023.015.024.016.023.017.024.018.024.019.024.021.024.022.024.023.025.024.024.052.05.056.05.061.05.066.051.07.051.075.052.079.051.084.052.088.052.092.052.097.052.102.052.105.052.11.051.114.051.119.052.123.05.127.051.131.05.135.049.139.049.144.048.147.048.152.047.155.046.16.045.163.045.167.044.171.042.176.042.178.04.183.04.187.038.19.037.194.036.197.034.202.033.204.032.209.03.212.028.216.027.219.025.222.024.226.022.23.02.233.018.236.016.24.014.243.012.246.01.249.008.253.006.256.003.259.001.26-.001.257-.003.254-.006.25-.008.247-.01.244-.012.241-.015.237-.016.233-.018.231-.02.226-.022.224-.024.22-.025.216-.027.212-.029.21-.03.205-.032.202-.033.198-.035.194-.036.191-.037.187-.039.183-.039.179-.041.175-.042.172-.043.168-.044.163-.045.16-.045.155-.047.152-.047.148-.048.143-.048.139-.05.136-.049.131-.05.126-.051.123-.051.118-.051.114-.052.11-.052.106-.052.101-.052.096-.052.092-.052.088-.052.083-.052.079-.052.074-.051.07-.052.065-.051.06-.05.056-.051.051-.049.023-.025.023-.024.021-.025.02-.024.019-.024.018-.024.017-.024.015-.023.014-.023.013-.024.012-.022.01-.023.01-.023.008-.022.006-.022.006-.022.004-.021.004-.022.001-.021.001-.021v-4.139l-.077.054-.08.054-.083.054-.085.052-.087.053-.09.051-.093.051-.095.051-.097.05-.1.049-.102.049-.105.048-.106.047-.109.047-.111.046-.114.045-.115.044-.118.044-.12.044-.122.042-.124.042-.126.041-.128.04-.13.039-.132.039-.134.038-.135.037-.138.036-.139.036-.142.035-.143.033-.144.033-.147.033-.148.031-.15.03-.151.03-.153.028-.154.028-.156.027-.158.026-.159.025-.161.024-.162.023-.163.022-.165.021-.166.02-.167.019-.169.018-.169.017-.171.016-.173.015-.173.014-.175.013-.175.012-.177.011-.178.009-.179.009-.179.007-.181.007-.182.005-.182.004-.184.003-.184.002h-.37l-.184-.002-.184-.003-.182-.004-.182-.005-.181-.007-.179-.007-.179-.009-.178-.009-.176-.011-.176-.012-.175-.013-.173-.014-.172-.015-.171-.016-.17-.017-.169-.018-.167-.019-.166-.02-.165-.021-.163-.022-.162-.023-.161-.024-.159-.025-.157-.026-.156-.027-.155-.028-.153-.028-.151-.03-.15-.03-.148-.031-.146-.033-.145-.033-.143-.033-.141-.035-.14-.036-.137-.036-.136-.037-.134-.038-.132-.039-.13-.039-.128-.04-.126-.041-.124-.042-.122-.043-.12-.043-.117-.044-.116-.044-.113-.046-.112-.046-.109-.046-.106-.047-.105-.048-.102-.049-.1-.049-.097-.05-.095-.051-.093-.051-.09-.051-.087-.053-.085-.052-.083-.054-.08-.054-.077-.054v4.139zm0-5.666v.011l.001.02.003.022.004.021.005.022.006.021.007.022.009.023.01.022.011.023.012.023.013.023.015.023.016.024.017.024.018.023.019.024.021.025.022.024.023.024.024.025.052.05.056.05.061.05.066.051.07.051.075.052.079.051.084.052.088.052.092.052.097.052.102.052.105.051.11.052.114.051.119.051.123.051.127.05.131.05.135.05.139.049.144.048.147.048.152.047.155.046.16.045.163.045.167.043.171.043.176.042.178.04.183.04.187.038.19.037.194.036.197.034.202.033.204.032.209.03.212.028.216.027.219.025.222.024.226.021.23.02.233.018.236.017.24.014.243.012.246.01.249.008.253.006.256.003.259.001.26-.001.257-.003.254-.006.25-.008.247-.01.244-.013.241-.014.237-.016.233-.018.231-.02.226-.022.224-.024.22-.025.216-.027.212-.029.21-.03.205-.032.202-.033.198-.035.194-.036.191-.037.187-.039.183-.039.179-.041.175-.042.172-.043.168-.044.163-.045.16-.045.155-.047.152-.047.148-.048.143-.049.139-.049.136-.049.131-.051.126-.05.123-.051.118-.052.114-.051.11-.052.106-.052.101-.052.096-.052.092-.052.088-.052.083-.052.079-.052.074-.052.07-.051.065-.051.06-.051.056-.05.051-.049.023-.025.023-.025.021-.024.02-.024.019-.024.018-.024.017-.024.015-.023.014-.024.013-.023.012-.023.01-.022.01-.023.008-.022.006-.022.006-.022.004-.022.004-.021.001-.021.001-.021v-4.153l-.077.054-.08.054-.083.053-.085.053-.087.053-.09.051-.093.051-.095.051-.097.05-.1.049-.102.048-.105.048-.106.048-.109.046-.111.046-.114.046-.115.044-.118.044-.12.043-.122.043-.124.042-.126.041-.128.04-.13.039-.132.039-.134.038-.135.037-.138.036-.139.036-.142.034-.143.034-.144.033-.147.032-.148.032-.15.03-.151.03-.153.028-.154.028-.156.027-.158.026-.159.024-.161.024-.162.023-.163.023-.165.021-.166.02-.167.019-.169.018-.169.017-.171.016-.173.015-.173.014-.175.013-.175.012-.177.01-.178.01-.179.009-.179.007-.181.006-.182.006-.182.004-.184.003-.184.001-.185.001-.185-.001-.184-.001-.184-.003-.182-.004-.182-.006-.181-.006-.179-.007-.179-.009-.178-.01-.176-.01-.176-.012-.175-.013-.173-.014-.172-.015-.171-.016-.17-.017-.169-.018-.167-.019-.166-.02-.165-.021-.163-.023-.162-.023-.161-.024-.159-.024-.157-.026-.156-.027-.155-.028-.153-.028-.151-.03-.15-.03-.148-.032-.146-.032-.145-.033-.143-.034-.141-.034-.14-.036-.137-.036-.136-.037-.134-.038-.132-.039-.13-.039-.128-.041-.126-.041-.124-.041-.122-.043-.12-.043-.117-.044-.116-.044-.113-.046-.112-.046-.109-.046-.106-.048-.105-.048-.102-.048-.1-.05-.097-.049-.095-.051-.093-.051-.09-.052-.087-.052-.085-.053-.083-.053-.08-.054-.077-.054v4.153zm8.74-8.179l-.257.004-.254.005-.25.008-.247.011-.244.012-.241.014-.237.016-.233.018-.231.021-.226.022-.224.023-.22.026-.216.027-.212.028-.21.031-.205.032-.202.033-.198.034-.194.036-.191.038-.187.038-.183.04-.179.041-.175.042-.172.043-.168.043-.163.045-.16.046-.155.046-.152.048-.148.048-.143.048-.139.049-.136.05-.131.05-.126.051-.123.051-.118.051-.114.052-.11.052-.106.052-.101.052-.096.052-.092.052-.088.052-.083.052-.079.052-.074.051-.07.052-.065.051-.06.05-.056.05-.051.05-.023.025-.023.024-.021.024-.02.025-.019.024-.018.024-.017.023-.015.024-.014.023-.013.023-.012.023-.01.023-.01.022-.008.022-.006.023-.006.021-.004.022-.004.021-.001.021-.001.021.001.021.001.021.004.021.004.022.006.021.006.023.008.022.01.022.01.023.012.023.013.023.014.023.015.024.017.023.018.024.019.024.02.025.021.024.023.024.023.025.051.05.056.05.06.05.065.051.07.052.074.051.079.052.083.052.088.052.092.052.096.052.101.052.106.052.11.052.114.052.118.051.123.051.126.051.131.05.136.05.139.049.143.048.148.048.152.048.155.046.16.046.163.045.168.043.172.043.175.042.179.041.183.04.187.038.191.038.194.036.198.034.202.033.205.032.21.031.212.028.216.027.22.026.224.023.226.022.231.021.233.018.237.016.241.014.244.012.247.011.25.008.254.005.257.004.26.001.26-.001.257-.004.254-.005.25-.008.247-.011.244-.012.241-.014.237-.016.233-.018.231-.021.226-.022.224-.023.22-.026.216-.027.212-.028.21-.031.205-.032.202-.033.198-.034.194-.036.191-.038.187-.038.183-.04.179-.041.175-.042.172-.043.168-.043.163-.045.16-.046.155-.046.152-.048.148-.048.143-.048.139-.049.136-.05.131-.05.126-.051.123-.051.118-.051.114-.052.11-.052.106-.052.101-.052.096-.052.092-.052.088-.052.083-.052.079-.052.074-.051.07-.052.065-.051.06-.05.056-.05.051-.05.023-.025.023-.024.021-.024.02-.025.019-.024.018-.024.017-.023.015-.024.014-.023.013-.023.012-.023.01-.023.01-.022.008-.022.006-.023.006-.021.004-.022.004-.021.001-.021.001-.021-.001-.021-.001-.021-.004-.021-.004-.022-.006-.021-.006-.023-.008-.022-.01-.022-.01-.023-.012-.023-.013-.023-.014-.023-.015-.024-.017-.023-.018-.024-.019-.024-.02-.025-.021-.024-.023-.024-.023-.025-.051-.05-.056-.05-.06-.05-.065-.051-.07-.052-.074-.051-.079-.052-.083-.052-.088-.052-.092-.052-.096-.052-.101-.052-.106-.052-.11-.052-.114-.052-.118-.051-.123-.051-.126-.051-.131-.05-.136-.05-.139-.049-.143-.048-.148-.048-.152-.048-.155-.046-.16-.046-.163-.045-.168-.043-.172-.043-.175-.042-.179-.041-.183-.04-.187-.038-.191-.038-.194-.036-.198-.034-.202-.033-.205-.032-.21-.031-.212-.028-.216-.027-.22-.026-.224-.023-.226-.022-.231-.021-.233-.018-.237-.016-.241-.014-.244-.012-.247-.011-.25-.008-.254-.005-.257-.004-.26-.001-.26.001z" transform="scale(.5)"></path></symbol></defs><defs><symbol height="24" width="24" id="clock"><path d="M12 2c5.514 0 10 4.486 10 10s-4.486 10-10 10-10-4.486-10-10 4.486-10 10-10zm0-2c-6.627 0-12 5.373-12 12s5.373 12 12 12 12-5.373 12-12-5.373-12-12-12zm5.848 12.459c.202.038.202.333.001.372-1.907.361-6.045 1.111-6.547 1.111-.719 0-1.301-.582-1.301-1.301 0-.512.77-5.447 1.125-7.445.034-.192.312-.181.343.014l.985 6.238 5.394 1.011z" transform="scale(.5)"></path></symbol></defs><defs><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="7.9" id="arrowhead"><path d="M 0 0 L 10 5 L 0 10 z"></path></marker></defs><defs><marker refY="4.5" refX="4" orient="auto" markerHeight="8" markerWidth="15" id="crosshead"><path style="stroke-dasharray: 0, 0;" d="M 1,2 L 6,7 M 6,2 L 1,7" stroke-width="1pt" stroke="#000000" fill="none"></path></marker></defs><defs><marker orient="auto" markerHeight="28" markerWidth="20" refY="7" refX="15.5" id="filled-head"><path d="M 18,7 L9,13 L14,7 L9,1 Z"></path></marker></defs><defs><marker orient="auto" markerHeight="40" markerWidth="60" refY="15" refX="15" id="sequencenumber"><circle r="6" cy="15" cx="15"></circle></marker></defs><g><rect class="note" ry="0" rx="0" height="39" width="150" stroke="#666" fill="#EDF2AE" y="187" x="0"></rect><text style="font-size: 16px; font-weight: 400;" dy="1em" class="noteText" alignment-baseline="middle" dominant-baseline="middle" text-anchor="middle" y="192" x="75"><tspan x="75">等待 S1 recv...</tspan></text></g><g><rect class="note" ry="0" rx="0" height="39" width="150" stroke="#666" fill="#EDF2AE" y="236" x="242"></rect><text style="font-size: 16px; font-weight: 400;" dy="1em" class="noteText" alignment-baseline="middle" dominant-baseline="middle" text-anchor="middle" y="241" x="317"><tspan x="317">等待 S0 recv...</tspan></text></g><g><rect class="note" ry="0" rx="0" height="39" width="292" stroke="#666" fill="#EDF2AE" y="397" x="50"></rect><text style="font-size: 16px; font-weight: 400;" dy="1em" class="noteText" alignment-baseline="middle" dominant-baseline="middle" text-anchor="middle" y="402" x="196"><tspan x="196">循环等待 = 死锁</tspan></text></g><text style="font-size: 16px; font-weight: 400;" dy="1em" class="messageText" alignment-baseline="middle" dominant-baseline="middle" text-anchor="middle" y="80" x="195">isend(→ S1)</text><line style="fill: none;" marker-end="url(#arrowhead)" stroke="none" stroke-width="2" class="messageLine0" y2="121" x2="313" y1="121" x1="76"></line><text style="font-size: 16px; font-weight: 400;" dy="1em" class="messageText" alignment-baseline="middle" dominant-baseline="middle" text-anchor="middle" y="136" x="198">isend(→ S0)</text><line style="fill: none;" marker-end="url(#arrowhead)" stroke="none" stroke-width="2" class="messageLine0" y2="177" x2="79" y1="177" x1="316"></line><text style="font-size: 16px; font-weight: 400;" dy="1em" class="messageText" alignment-baseline="middle" dominant-baseline="middle" text-anchor="middle" y="290" x="195">irecv(← S1) 永远等不到</text><line style="stroke-dasharray: 3, 3; fill: none;" marker-end="url(#crosshead)" stroke="none" stroke-width="2" class="messageLine1" y2="331" x2="313" y1="331" x1="76"></line><text style="font-size: 16px; font-weight: 400;" dy="1em" class="messageText" alignment-baseline="middle" dominant-baseline="middle" text-anchor="middle" y="346" x="198">irecv(← S0) 永远等不到</text><line style="stroke-dasharray: 3, 3; fill: none;" marker-end="url(#crosshead)" stroke="none" stroke-width="2" class="messageLine1" y2="387" x2="79" y1="387" x1="316"></line></svg></div>
+
+  <div class="prose">
+    <p>这在 1F1B 的 Steady 阶段会发生：Stage 0 做完前向要 send_next 给 Stage 1，同时 Stage 1 做完前向也要 send_next 给 Stage 2，但如果 Stage 1 同时还要 send_prev（反向梯度给 Stage 0），就出现双向同时 send。</p>
+  </div>
+
+  <div class="prose">
+    <p><strong>方案一：<code>batch_isend_irecv</code>（默认方案）</strong></p>
+    <p>把所有 send 和 recv 打包成一次原子调用，NCCL 内部保证不会死锁：</p>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>p2p_communication.py — _batched_p2p_ops</span>
+      <span class="lines">L16-51</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_batched_p2p_ops</span>(<span class="hljs-params">*, tensor_send_prev, tensor_recv_prev,
+                     tensor_send_next, tensor_recv_next, group, ...</span>):
+    ops = []
+    <span class="hljs-comment"># 把所有需要的 send/recv 操作收集到列表</span>
+    <span class="hljs-keyword">if</span> tensor_send_prev <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span>:
+        ops.append(P2POp(isend, tensor_send_prev, prev_rank, group))
+    <span class="hljs-keyword">if</span> tensor_recv_prev <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span>:
+        ops.append(P2POp(irecv, tensor_recv_prev, prev_rank, group))
+    <span class="hljs-keyword">if</span> tensor_send_next <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span>:
+        ops.append(P2POp(isend, tensor_send_next, next_rank, group))
+    <span class="hljs-keyword">if</span> tensor_recv_next <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span>:
+        ops.append(P2POp(irecv, tensor_recv_next, next_rank, group))
+
+    <span class="hljs-comment"># 一次性提交，NCCL 内部排序，保证不死锁</span>
+    reqs = torch.distributed.batch_isend_irecv(ops)
+    <span class="hljs-keyword">return</span> reqs</code></pre>
+  </div>
+
+  <div class="prose">
+    <p><strong>方案二：<code>_p2p_ops</code> 奇偶 rank 交替顺序</strong></p>
+    <p>如果不用 batch（某些后端不支持），就靠<strong>操作顺序</strong>打破循环等待。核心思路：<strong>偶数 rank 先 send，奇数 rank 先 recv</strong>。这样一方主动发，另一方主动收，不会互相等。</p>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>p2p_communication.py — _p2p_ops：奇偶交替防死锁</span>
+      <span class="lines">L54-127</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_p2p_ops</span>(<span class="hljs-params">*, tensor_send_prev, tensor_recv_prev,
+             tensor_send_next, tensor_recv_next, group, ...</span>):
+
+    <span class="hljs-keyword">if</span> group.rank() % <span class="hljs-number">2</span> == <span class="hljs-number">0</span>:    <span class="hljs-comment"># 偶数 rank：先 send 后 recv</span>
+        isend(tensor_send_next, dst=next_rank)    <span class="hljs-comment"># ① 先发给 next</span>
+        irecv(tensor_recv_prev, src=prev_rank)    <span class="hljs-comment"># ② 再收从 prev</span>
+        isend(tensor_send_prev, dst=prev_rank)    <span class="hljs-comment"># ③ 发给 prev</span>
+        irecv(tensor_recv_next, src=next_rank)    <span class="hljs-comment"># ④ 收从 next</span>
+
+    <span class="hljs-keyword">else</span>:                        <span class="hljs-comment"># 奇数 rank：先 recv 后 send</span>
+        irecv(tensor_recv_prev, src=prev_rank)    <span class="hljs-comment"># ① 先收从 prev</span>
+        isend(tensor_send_next, dst=next_rank)    <span class="hljs-comment"># ② 再发给 next</span>
+        irecv(tensor_recv_next, src=next_rank)    <span class="hljs-comment"># ③ 收从 next</span>
+        isend(tensor_send_prev, dst=prev_rank)    <span class="hljs-comment"># ④ 发给 prev</span></code></pre>
+  </div>
+
+  <div class="mermaid" data-processed="true"><svg aria-roledescription="sequence" role="graphics-document document" viewBox="-63.5 -10 538.5 602" style="max-width: 538.5px;" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="100%" id="mermaid-1783857453678"><g><rect class="actor actor-bottom" ry="3" rx="3" name="S1" height="65" width="176" stroke="#666" fill="#eaeaea" y="516" x="230"></rect><text style="text-anchor: middle; font-size: 16px; font-weight: 400;" class="actor" alignment-baseline="central" dominant-baseline="central" y="548.5" x="318"><tspan dy="0" x="318">Stage 1（奇数 rank）</tspan></text></g><g><rect class="actor actor-bottom" ry="3" rx="3" name="S0" height="65" width="180" stroke="#666" fill="#eaeaea" y="516" x="0"></rect><text style="text-anchor: middle; font-size: 16px; font-weight: 400;" class="actor" alignment-baseline="central" dominant-baseline="central" y="548.5" x="90"><tspan dy="0" x="90">Stage 0（偶数 rank）</tspan></text></g><g><line stroke="#999" stroke-width="0.5px" class="200" y2="516" x2="318" y1="5" x1="318" id="actor3"></line><g id="root-3"><rect class="actor actor-top" ry="3" rx="3" name="S1" height="65" width="176" stroke="#666" fill="#eaeaea" y="0" x="230"></rect><text style="text-anchor: middle; font-size: 16px; font-weight: 400;" class="actor" alignment-baseline="central" dominant-baseline="central" y="32.5" x="318"><tspan dy="0" x="318">Stage 1（奇数 rank）</tspan></text></g></g><g><line stroke="#999" stroke-width="0.5px" class="200" y2="516" x2="90" y1="5" x1="90" id="actor2"></line><g id="root-2"><rect class="actor actor-top" ry="3" rx="3" name="S0" height="65" width="180" stroke="#666" fill="#eaeaea" y="0" x="0"></rect><text style="text-anchor: middle; font-size: 16px; font-weight: 400;" class="actor" alignment-baseline="central" dominant-baseline="central" y="32.5" x="90"><tspan dy="0" x="90">Stage 0（偶数 rank）</tspan></text></g></g><style>#mermaid-1783857453678{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;fill:#e6edf3;}#mermaid-1783857453678 .error-icon{fill:#0d1117;}#mermaid-1783857453678 .error-text{fill:#f2eee8;stroke:#f2eee8;}#mermaid-1783857453678 .edge-thickness-normal{stroke-width:2px;}#mermaid-1783857453678 .edge-thickness-thick{stroke-width:3.5px;}#mermaid-1783857453678 .edge-pattern-solid{stroke-dasharray:0;}#mermaid-1783857453678 .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-1783857453678 .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-1783857453678 .marker{fill:#58a6ff;stroke:#58a6ff;}#mermaid-1783857453678 .marker.cross{stroke:#58a6ff;}#mermaid-1783857453678 svg{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;}#mermaid-1783857453678 .actor{stroke:#30363d;fill:#161b22;}#mermaid-1783857453678 text.actor&gt;tspan{fill:#e6edf3;stroke:none;}#mermaid-1783857453678 .actor-line{stroke:grey;}#mermaid-1783857453678 .messageLine0{stroke-width:1.5;stroke-dasharray:none;stroke:#e6edf3;}#mermaid-1783857453678 .messageLine1{stroke-width:1.5;stroke-dasharray:2,2;stroke:#e6edf3;}#mermaid-1783857453678 #arrowhead path{fill:#e6edf3;stroke:#e6edf3;}#mermaid-1783857453678 .sequenceNumber{fill:#a75900;}#mermaid-1783857453678 #sequencenumber{fill:#e6edf3;}#mermaid-1783857453678 #crosshead path{fill:#e6edf3;stroke:#e6edf3;}#mermaid-1783857453678 .messageText{fill:#e6edf3;stroke:none;}#mermaid-1783857453678 .labelBox{stroke:#30363d;fill:#161b22;}#mermaid-1783857453678 .labelText,#mermaid-1783857453678 .labelText&gt;tspan{fill:#e6edf3;stroke:none;}#mermaid-1783857453678 .loopText,#mermaid-1783857453678 .loopText&gt;tspan{fill:#e6edf3;stroke:none;}#mermaid-1783857453678 .loopLine{stroke-width:2px;stroke-dasharray:2,2;stroke:#30363d;fill:#30363d;}#mermaid-1783857453678 .note{stroke:hsl(52.6829268293, 60%, 93.9215686275%);fill:#fff5ad;}#mermaid-1783857453678 .noteText,#mermaid-1783857453678 .noteText&gt;tspan{fill:#333;stroke:none;}#mermaid-1783857453678 .activation0{fill:#161b22;stroke:hsl(215, 21.4285714286%, 0.9803921569%);}#mermaid-1783857453678 .activation1{fill:#161b22;stroke:hsl(215, 21.4285714286%, 0.9803921569%);}#mermaid-1783857453678 .activation2{fill:#161b22;stroke:hsl(215, 21.4285714286%, 0.9803921569%);}#mermaid-1783857453678 .actorPopupMenu{position:absolute;}#mermaid-1783857453678 .actorPopupMenuPanel{position:absolute;fill:#161b22;box-shadow:0px 8px 16px 0px rgba(0,0,0,0.2);filter:drop-shadow(3px 5px 2px rgb(0 0 0 / 0.4));}#mermaid-1783857453678 .actor-man line{stroke:#30363d;fill:#161b22;}#mermaid-1783857453678 .actor-man circle,#mermaid-1783857453678 line{stroke:#30363d;fill:#161b22;stroke-width:2px;}#mermaid-1783857453678 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g></g><defs><symbol height="24" width="24" id="computer"><path d="M2 2v13h20v-13h-20zm18 11h-16v-9h16v9zm-10.228 6l.466-1h3.524l.467 1h-4.457zm14.228 3h-24l2-6h2.104l-1.33 4h18.45l-1.297-4h2.073l2 6zm-5-10h-14v-7h14v7z" transform="scale(.5)"></path></symbol></defs><defs><symbol clip-rule="evenodd" fill-rule="evenodd" id="database"><path d="M12.258.001l.256.004.255.005.253.008.251.01.249.012.247.015.246.016.242.019.241.02.239.023.236.024.233.027.231.028.229.031.225.032.223.034.22.036.217.038.214.04.211.041.208.043.205.045.201.046.198.048.194.05.191.051.187.053.183.054.18.056.175.057.172.059.168.06.163.061.16.063.155.064.15.066.074.033.073.033.071.034.07.034.069.035.068.035.067.035.066.035.064.036.064.036.062.036.06.036.06.037.058.037.058.037.055.038.055.038.053.038.052.038.051.039.05.039.048.039.047.039.045.04.044.04.043.04.041.04.04.041.039.041.037.041.036.041.034.041.033.042.032.042.03.042.029.042.027.042.026.043.024.043.023.043.021.043.02.043.018.044.017.043.015.044.013.044.012.044.011.045.009.044.007.045.006.045.004.045.002.045.001.045v17l-.001.045-.002.045-.004.045-.006.045-.007.045-.009.044-.011.045-.012.044-.013.044-.015.044-.017.043-.018.044-.02.043-.021.043-.023.043-.024.043-.026.043-.027.042-.029.042-.03.042-.032.042-.033.042-.034.041-.036.041-.037.041-.039.041-.04.041-.041.04-.043.04-.044.04-.045.04-.047.039-.048.039-.05.039-.051.039-.052.038-.053.038-.055.038-.055.038-.058.037-.058.037-.06.037-.06.036-.062.036-.064.036-.064.036-.066.035-.067.035-.068.035-.069.035-.07.034-.071.034-.073.033-.074.033-.15.066-.155.064-.16.063-.163.061-.168.06-.172.059-.175.057-.18.056-.183.054-.187.053-.191.051-.194.05-.198.048-.201.046-.205.045-.208.043-.211.041-.214.04-.217.038-.22.036-.223.034-.225.032-.229.031-.231.028-.233.027-.236.024-.239.023-.241.02-.242.019-.246.016-.247.015-.249.012-.251.01-.253.008-.255.005-.256.004-.258.001-.258-.001-.256-.004-.255-.005-.253-.008-.251-.01-.249-.012-.247-.015-.245-.016-.243-.019-.241-.02-.238-.023-.236-.024-.234-.027-.231-.028-.228-.031-.226-.032-.223-.034-.22-.036-.217-.038-.214-.04-.211-.041-.208-.043-.204-.045-.201-.046-.198-.048-.195-.05-.19-.051-.187-.053-.184-.054-.179-.056-.176-.057-.172-.059-.167-.06-.164-.061-.159-.063-.155-.064-.151-.066-.074-.033-.072-.033-.072-.034-.07-.034-.069-.035-.068-.035-.067-.035-.066-.035-.064-.036-.063-.036-.062-.036-.061-.036-.06-.037-.058-.037-.057-.037-.056-.038-.055-.038-.053-.038-.052-.038-.051-.039-.049-.039-.049-.039-.046-.039-.046-.04-.044-.04-.043-.04-.041-.04-.04-.041-.039-.041-.037-.041-.036-.041-.034-.041-.033-.042-.032-.042-.03-.042-.029-.042-.027-.042-.026-.043-.024-.043-.023-.043-.021-.043-.02-.043-.018-.044-.017-.043-.015-.044-.013-.044-.012-.044-.011-.045-.009-.044-.007-.045-.006-.045-.004-.045-.002-.045-.001-.045v-17l.001-.045.002-.045.004-.045.006-.045.007-.045.009-.044.011-.045.012-.044.013-.044.015-.044.017-.043.018-.044.02-.043.021-.043.023-.043.024-.043.026-.043.027-.042.029-.042.03-.042.032-.042.033-.042.034-.041.036-.041.037-.041.039-.041.04-.041.041-.04.043-.04.044-.04.046-.04.046-.039.049-.039.049-.039.051-.039.052-.038.053-.038.055-.038.056-.038.057-.037.058-.037.06-.037.061-.036.062-.036.063-.036.064-.036.066-.035.067-.035.068-.035.069-.035.07-.034.072-.034.072-.033.074-.033.151-.066.155-.064.159-.063.164-.061.167-.06.172-.059.176-.057.179-.056.184-.054.187-.053.19-.051.195-.05.198-.048.201-.046.204-.045.208-.043.211-.041.214-.04.217-.038.22-.036.223-.034.226-.032.228-.031.231-.028.234-.027.236-.024.238-.023.241-.02.243-.019.245-.016.247-.015.249-.012.251-.01.253-.008.255-.005.256-.004.258-.001.258.001zm-9.258 20.499v.01l.001.021.003.021.004.022.005.021.006.022.007.022.009.023.01.022.011.023.012.023.013.023.015.023.016.024.017.023.018.024.019.024.021.024.022.025.023.024.024.025.052.049.056.05.061.051.066.051.07.051.075.051.079.052.084.052.088.052.092.052.097.052.102.051.105.052.11.052.114.051.119.051.123.051.127.05.131.05.135.05.139.048.144.049.147.047.152.047.155.047.16.045.163.045.167.043.171.043.176.041.178.041.183.039.187.039.19.037.194.035.197.035.202.033.204.031.209.03.212.029.216.027.219.025.222.024.226.021.23.02.233.018.236.016.24.015.243.012.246.01.249.008.253.005.256.004.259.001.26-.001.257-.004.254-.005.25-.008.247-.011.244-.012.241-.014.237-.016.233-.018.231-.021.226-.021.224-.024.22-.026.216-.027.212-.028.21-.031.205-.031.202-.034.198-.034.194-.036.191-.037.187-.039.183-.04.179-.04.175-.042.172-.043.168-.044.163-.045.16-.046.155-.046.152-.047.148-.048.143-.049.139-.049.136-.05.131-.05.126-.05.123-.051.118-.052.114-.051.11-.052.106-.052.101-.052.096-.052.092-.052.088-.053.083-.051.079-.052.074-.052.07-.051.065-.051.06-.051.056-.05.051-.05.023-.024.023-.025.021-.024.02-.024.019-.024.018-.024.017-.024.015-.023.014-.024.013-.023.012-.023.01-.023.01-.022.008-.022.006-.022.006-.022.004-.022.004-.021.001-.021.001-.021v-4.127l-.077.055-.08.053-.083.054-.085.053-.087.052-.09.052-.093.051-.095.05-.097.05-.1.049-.102.049-.105.048-.106.047-.109.047-.111.046-.114.045-.115.045-.118.044-.12.043-.122.042-.124.042-.126.041-.128.04-.13.04-.132.038-.134.038-.135.037-.138.037-.139.035-.142.035-.143.034-.144.033-.147.032-.148.031-.15.03-.151.03-.153.029-.154.027-.156.027-.158.026-.159.025-.161.024-.162.023-.163.022-.165.021-.166.02-.167.019-.169.018-.169.017-.171.016-.173.015-.173.014-.175.013-.175.012-.177.011-.178.01-.179.008-.179.008-.181.006-.182.005-.182.004-.184.003-.184.002h-.37l-.184-.002-.184-.003-.182-.004-.182-.005-.181-.006-.179-.008-.179-.008-.178-.01-.176-.011-.176-.012-.175-.013-.173-.014-.172-.015-.171-.016-.17-.017-.169-.018-.167-.019-.166-.02-.165-.021-.163-.022-.162-.023-.161-.024-.159-.025-.157-.026-.156-.027-.155-.027-.153-.029-.151-.03-.15-.03-.148-.031-.146-.032-.145-.033-.143-.034-.141-.035-.14-.035-.137-.037-.136-.037-.134-.038-.132-.038-.13-.04-.128-.04-.126-.041-.124-.042-.122-.042-.12-.044-.117-.043-.116-.045-.113-.045-.112-.046-.109-.047-.106-.047-.105-.048-.102-.049-.1-.049-.097-.05-.095-.05-.093-.052-.09-.051-.087-.052-.085-.053-.083-.054-.08-.054-.077-.054v4.127zm0-5.654v.011l.001.021.003.021.004.021.005.022.006.022.007.022.009.022.01.022.011.023.012.023.013.023.015.024.016.023.017.024.018.024.019.024.021.024.022.024.023.025.024.024.052.05.056.05.061.05.066.051.07.051.075.052.079.051.084.052.088.052.092.052.097.052.102.052.105.052.11.051.114.051.119.052.123.05.127.051.131.05.135.049.139.049.144.048.147.048.152.047.155.046.16.045.163.045.167.044.171.042.176.042.178.04.183.04.187.038.19.037.194.036.197.034.202.033.204.032.209.03.212.028.216.027.219.025.222.024.226.022.23.02.233.018.236.016.24.014.243.012.246.01.249.008.253.006.256.003.259.001.26-.001.257-.003.254-.006.25-.008.247-.01.244-.012.241-.015.237-.016.233-.018.231-.02.226-.022.224-.024.22-.025.216-.027.212-.029.21-.03.205-.032.202-.033.198-.035.194-.036.191-.037.187-.039.183-.039.179-.041.175-.042.172-.043.168-.044.163-.045.16-.045.155-.047.152-.047.148-.048.143-.048.139-.05.136-.049.131-.05.126-.051.123-.051.118-.051.114-.052.11-.052.106-.052.101-.052.096-.052.092-.052.088-.052.083-.052.079-.052.074-.051.07-.052.065-.051.06-.05.056-.051.051-.049.023-.025.023-.024.021-.025.02-.024.019-.024.018-.024.017-.024.015-.023.014-.023.013-.024.012-.022.01-.023.01-.023.008-.022.006-.022.006-.022.004-.021.004-.022.001-.021.001-.021v-4.139l-.077.054-.08.054-.083.054-.085.052-.087.053-.09.051-.093.051-.095.051-.097.05-.1.049-.102.049-.105.048-.106.047-.109.047-.111.046-.114.045-.115.044-.118.044-.12.044-.122.042-.124.042-.126.041-.128.04-.13.039-.132.039-.134.038-.135.037-.138.036-.139.036-.142.035-.143.033-.144.033-.147.033-.148.031-.15.03-.151.03-.153.028-.154.028-.156.027-.158.026-.159.025-.161.024-.162.023-.163.022-.165.021-.166.02-.167.019-.169.018-.169.017-.171.016-.173.015-.173.014-.175.013-.175.012-.177.011-.178.009-.179.009-.179.007-.181.007-.182.005-.182.004-.184.003-.184.002h-.37l-.184-.002-.184-.003-.182-.004-.182-.005-.181-.007-.179-.007-.179-.009-.178-.009-.176-.011-.176-.012-.175-.013-.173-.014-.172-.015-.171-.016-.17-.017-.169-.018-.167-.019-.166-.02-.165-.021-.163-.022-.162-.023-.161-.024-.159-.025-.157-.026-.156-.027-.155-.028-.153-.028-.151-.03-.15-.03-.148-.031-.146-.033-.145-.033-.143-.033-.141-.035-.14-.036-.137-.036-.136-.037-.134-.038-.132-.039-.13-.039-.128-.04-.126-.041-.124-.042-.122-.043-.12-.043-.117-.044-.116-.044-.113-.046-.112-.046-.109-.046-.106-.047-.105-.048-.102-.049-.1-.049-.097-.05-.095-.051-.093-.051-.09-.051-.087-.053-.085-.052-.083-.054-.08-.054-.077-.054v4.139zm0-5.666v.011l.001.02.003.022.004.021.005.022.006.021.007.022.009.023.01.022.011.023.012.023.013.023.015.023.016.024.017.024.018.023.019.024.021.025.022.024.023.024.024.025.052.05.056.05.061.05.066.051.07.051.075.052.079.051.084.052.088.052.092.052.097.052.102.052.105.051.11.052.114.051.119.051.123.051.127.05.131.05.135.05.139.049.144.048.147.048.152.047.155.046.16.045.163.045.167.043.171.043.176.042.178.04.183.04.187.038.19.037.194.036.197.034.202.033.204.032.209.03.212.028.216.027.219.025.222.024.226.021.23.02.233.018.236.017.24.014.243.012.246.01.249.008.253.006.256.003.259.001.26-.001.257-.003.254-.006.25-.008.247-.01.244-.013.241-.014.237-.016.233-.018.231-.02.226-.022.224-.024.22-.025.216-.027.212-.029.21-.03.205-.032.202-.033.198-.035.194-.036.191-.037.187-.039.183-.039.179-.041.175-.042.172-.043.168-.044.163-.045.16-.045.155-.047.152-.047.148-.048.143-.049.139-.049.136-.049.131-.051.126-.05.123-.051.118-.052.114-.051.11-.052.106-.052.101-.052.096-.052.092-.052.088-.052.083-.052.079-.052.074-.052.07-.051.065-.051.06-.051.056-.05.051-.049.023-.025.023-.025.021-.024.02-.024.019-.024.018-.024.017-.024.015-.023.014-.024.013-.023.012-.023.01-.022.01-.023.008-.022.006-.022.006-.022.004-.022.004-.021.001-.021.001-.021v-4.153l-.077.054-.08.054-.083.053-.085.053-.087.053-.09.051-.093.051-.095.051-.097.05-.1.049-.102.048-.105.048-.106.048-.109.046-.111.046-.114.046-.115.044-.118.044-.12.043-.122.043-.124.042-.126.041-.128.04-.13.039-.132.039-.134.038-.135.037-.138.036-.139.036-.142.034-.143.034-.144.033-.147.032-.148.032-.15.03-.151.03-.153.028-.154.028-.156.027-.158.026-.159.024-.161.024-.162.023-.163.023-.165.021-.166.02-.167.019-.169.018-.169.017-.171.016-.173.015-.173.014-.175.013-.175.012-.177.01-.178.01-.179.009-.179.007-.181.006-.182.006-.182.004-.184.003-.184.001-.185.001-.185-.001-.184-.001-.184-.003-.182-.004-.182-.006-.181-.006-.179-.007-.179-.009-.178-.01-.176-.01-.176-.012-.175-.013-.173-.014-.172-.015-.171-.016-.17-.017-.169-.018-.167-.019-.166-.02-.165-.021-.163-.023-.162-.023-.161-.024-.159-.024-.157-.026-.156-.027-.155-.028-.153-.028-.151-.03-.15-.03-.148-.032-.146-.032-.145-.033-.143-.034-.141-.034-.14-.036-.137-.036-.136-.037-.134-.038-.132-.039-.13-.039-.128-.041-.126-.041-.124-.041-.122-.043-.12-.043-.117-.044-.116-.044-.113-.046-.112-.046-.109-.046-.106-.048-.105-.048-.102-.048-.1-.05-.097-.049-.095-.051-.093-.051-.09-.052-.087-.052-.085-.053-.083-.053-.08-.054-.077-.054v4.153zm8.74-8.179l-.257.004-.254.005-.25.008-.247.011-.244.012-.241.014-.237.016-.233.018-.231.021-.226.022-.224.023-.22.026-.216.027-.212.028-.21.031-.205.032-.202.033-.198.034-.194.036-.191.038-.187.038-.183.04-.179.041-.175.042-.172.043-.168.043-.163.045-.16.046-.155.046-.152.048-.148.048-.143.048-.139.049-.136.05-.131.05-.126.051-.123.051-.118.051-.114.052-.11.052-.106.052-.101.052-.096.052-.092.052-.088.052-.083.052-.079.052-.074.051-.07.052-.065.051-.06.05-.056.05-.051.05-.023.025-.023.024-.021.024-.02.025-.019.024-.018.024-.017.023-.015.024-.014.023-.013.023-.012.023-.01.023-.01.022-.008.022-.006.023-.006.021-.004.022-.004.021-.001.021-.001.021.001.021.001.021.004.021.004.022.006.021.006.023.008.022.01.022.01.023.012.023.013.023.014.023.015.024.017.023.018.024.019.024.02.025.021.024.023.024.023.025.051.05.056.05.06.05.065.051.07.052.074.051.079.052.083.052.088.052.092.052.096.052.101.052.106.052.11.052.114.052.118.051.123.051.126.051.131.05.136.05.139.049.143.048.148.048.152.048.155.046.16.046.163.045.168.043.172.043.175.042.179.041.183.04.187.038.191.038.194.036.198.034.202.033.205.032.21.031.212.028.216.027.22.026.224.023.226.022.231.021.233.018.237.016.241.014.244.012.247.011.25.008.254.005.257.004.26.001.26-.001.257-.004.254-.005.25-.008.247-.011.244-.012.241-.014.237-.016.233-.018.231-.021.226-.022.224-.023.22-.026.216-.027.212-.028.21-.031.205-.032.202-.033.198-.034.194-.036.191-.038.187-.038.183-.04.179-.041.175-.042.172-.043.168-.043.163-.045.16-.046.155-.046.152-.048.148-.048.143-.048.139-.049.136-.05.131-.05.126-.051.123-.051.118-.051.114-.052.11-.052.106-.052.101-.052.096-.052.092-.052.088-.052.083-.052.079-.052.074-.051.07-.052.065-.051.06-.05.056-.05.051-.05.023-.025.023-.024.021-.024.02-.025.019-.024.018-.024.017-.023.015-.024.014-.023.013-.023.012-.023.01-.023.01-.022.008-.022.006-.023.006-.021.004-.022.004-.021.001-.021.001-.021-.001-.021-.001-.021-.004-.021-.004-.022-.006-.021-.006-.023-.008-.022-.01-.022-.01-.023-.012-.023-.013-.023-.014-.023-.015-.024-.017-.023-.018-.024-.019-.024-.02-.025-.021-.024-.023-.024-.023-.025-.051-.05-.056-.05-.06-.05-.065-.051-.07-.052-.074-.051-.079-.052-.083-.052-.088-.052-.092-.052-.096-.052-.101-.052-.106-.052-.11-.052-.114-.052-.118-.051-.123-.051-.126-.051-.131-.05-.136-.05-.139-.049-.143-.048-.148-.048-.152-.048-.155-.046-.16-.046-.163-.045-.168-.043-.172-.043-.175-.042-.179-.041-.183-.04-.187-.038-.191-.038-.194-.036-.198-.034-.202-.033-.205-.032-.21-.031-.212-.028-.216-.027-.22-.026-.224-.023-.226-.022-.231-.021-.233-.018-.237-.016-.241-.014-.244-.012-.247-.011-.25-.008-.254-.005-.257-.004-.26-.001-.26.001z" transform="scale(.5)"></path></symbol></defs><defs><symbol height="24" width="24" id="clock"><path d="M12 2c5.514 0 10 4.486 10 10s-4.486 10-10 10-10-4.486-10-10 4.486-10 10-10zm0-2c-6.627 0-12 5.373-12 12s5.373 12 12 12 12-5.373 12-12-5.373-12-12-12zm5.848 12.459c.202.038.202.333.001.372-1.907.361-6.045 1.111-6.547 1.111-.719 0-1.301-.582-1.301-1.301 0-.512.77-5.447 1.125-7.445.034-.192.312-.181.343.014l.985 6.238 5.394 1.011z" transform="scale(.5)"></path></symbol></defs><defs><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="7.9" id="arrowhead"><path d="M 0 0 L 10 5 L 0 10 z"></path></marker></defs><defs><marker refY="4.5" refX="4" orient="auto" markerHeight="8" markerWidth="15" id="crosshead"><path style="stroke-dasharray: 0, 0;" d="M 1,2 L 6,7 M 6,2 L 1,7" stroke-width="1pt" stroke="#000000" fill="none"></path></marker></defs><defs><marker orient="auto" markerHeight="28" markerWidth="20" refY="7" refX="15.5" id="filled-head"><path d="M 18,7 L9,13 L14,7 L9,1 Z"></path></marker></defs><defs><marker orient="auto" markerHeight="40" markerWidth="60" refY="15" refX="15" id="sequencenumber"><circle r="6" cy="15" cx="15"></circle></marker></defs><g><rect class="note" ry="0" rx="0" height="39" width="180" stroke="#666" fill="#EDF2AE" y="75" x="0"></rect><text style="font-size: 16px; font-weight: 400;" dy="1em" class="noteText" alignment-baseline="middle" dominant-baseline="middle" text-anchor="middle" y="80" x="90"><tspan x="90">偶数先 send</tspan></text></g><g><rect class="note" ry="0" rx="0" height="39" width="176" stroke="#666" fill="#EDF2AE" y="124" x="230"></rect><text style="font-size: 16px; font-weight: 400;" dy="1em" class="noteText" alignment-baseline="middle" dominant-baseline="middle" text-anchor="middle" y="129" x="318"><tspan x="318">奇数先 recv</tspan></text></g><g><rect class="note" ry="0" rx="0" height="39" width="278" stroke="#666" fill="#EDF2AE" y="457" x="65"></rect><text style="font-size: 16px; font-weight: 400;" dy="1em" class="noteText" alignment-baseline="middle" dominant-baseline="middle" text-anchor="middle" y="462" x="204"><tspan x="204">偶数先发、奇数先收 → 不会死锁</tspan></text></g><text style="font-size: 16px; font-weight: 400;" dy="1em" class="messageText" alignment-baseline="middle" dominant-baseline="middle" text-anchor="middle" y="178" x="203">① isend → Stage 1</text><line style="fill: none;" marker-end="url(#arrowhead)" stroke="none" stroke-width="2" class="messageLine0" y2="219" x2="314" y1="219" x1="91"></line><text style="font-size: 16px; font-weight: 400;" dy="1em" class="messageText" alignment-baseline="middle" dominant-baseline="middle" text-anchor="middle" y="234" x="319">① irecv ← Stage 0 ✓ 匹配！</text><path style="fill: none;" marker-end="url(#arrowhead)" stroke="none" stroke-width="2" class="messageLine0" d="M 319,275 C 379,265 379,305 319,295"></path><text style="font-size: 16px; font-weight: 400;" dy="1em" class="messageText" alignment-baseline="middle" dominant-baseline="middle" text-anchor="middle" y="320" x="206">② isend → Stage 0</text><line style="fill: none;" marker-end="url(#arrowhead)" stroke="none" stroke-width="2" class="messageLine0" y2="361" x2="94" y1="361" x1="317"></line><text style="font-size: 16px; font-weight: 400;" dy="1em" class="messageText" alignment-baseline="middle" dominant-baseline="middle" text-anchor="middle" y="376" x="91">② irecv ← Stage 1 ✓ 匹配！</text><path style="fill: none;" marker-end="url(#arrowhead)" stroke="none" stroke-width="2" class="messageLine0" d="M 91,417 C 151,407 151,447 91,437"></path></svg></div>
+
+  <div class="prose">
+    <p><strong>特殊处理：PP=2 的双 rank 通信组</strong></p>
+    <p>当流水线只有 2 个 stage 时，一个 rank 的 prev 和 next 是<strong>同一个 rank</strong>。如果两个方向的通信用同一个 process group，NCCL 会串行化它们。Megatron 的解决方案：让一个方向用 <strong>PP group</strong>，另一个方向用 <strong>WORLD group</strong>，使两个通信独立并行。</p>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>p2p_communication.py — PP=2 的特殊处理</span>
+      <span class="lines">L65-76</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes">even_send_odd_recv_group = group
+<span class="hljs-keyword">if</span> group.size() == <span class="hljs-number">2</span> <span class="hljs-keyword">and</span> get_backend(group) != <span class="hljs-string">'ucc'</span>:
+    <span class="hljs-comment"># PP 只有 2 个 stage 时，用全局 WORLD group 做一个方向的通信</span>
+    <span class="hljs-comment"># 这样两个方向的 P2P 可以真正并行，不被同一 group 串行化</span>
+    even_recv_odd_send_group = torch.distributed.group.WORLD
+<span class="hljs-keyword">else</span>:
+    even_recv_odd_send_group = group
+
+<span class="hljs-comment"># 偶数 rank send 用 even_send_odd_recv_group</span>
+<span class="hljs-comment"># 偶数 rank recv 用 even_recv_odd_send_group（WORLD）</span>
+<span class="hljs-comment"># → 两个通信走不同的 group，可以并行</span></code></pre>
+  </div>
+
+  <div class="callout callout-key">
+    <div class="callout-title">三层防死锁机制总结</div>
+    <table class="data-table" style="margin-top:8px">
+      <thead><tr><th>层级</th><th>机制</th><th>原理</th></tr></thead>
+      <tbody>
+        <tr><td><strong>底层</strong></td><td><code>batch_isend_irecv</code></td><td>所有 P2P 原子提交，NCCL 内部排序</td></tr>
+        <tr><td><strong>底层</strong></td><td>奇偶 rank 交替</td><td>偶数先 send、奇数先 recv，打破循环等待</td></tr>
+        <tr><td><strong>上层</strong></td><td>组合 API</td><td><code>send_forward_recv_backward</code> 等把双向通信合并为一次调用</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+    </div>
+  </details>
+
+  <details class="collapsible">
+    <summary>1F1B 调度中的 P2P 通信模式 <span class="badge">可选</span></summary>
+    <div class="collapsible-body">
+
+  <div class="prose">
+    <p><strong>1F1B 调度中的 P2P 通信模式</strong>：三个阶段用不同的 API 组合：</p>
+  </div>
+
+  <div class="diagram"><span class="hl">1F1B 调度的三阶段 P2P 通信（以 Stage 1 为例）</span>
+
+<span class="hl2">Phase 1: Warmup</span> — 只有前向，逐个 micro-batch 填满流水线
+   recv_forward()         → 从 Stage 0 收激活值（<span class="hl3">recv_prev</span>）
+   forward_step()         → 计算
+   send_forward()         → 发激活值给 Stage 2（<span class="hl2">send_next</span>）
+
+<span class="hl3">Phase 2: 1F1B Steady</span> — 一前一后交替，用组合操作
+   forward_step()
+   <span class="hl">send_forward_recv_backward</span>()  → <span class="hl2">send_next</span> + <span class="hl4">recv_next</span> 打包
+                                     发激活值给 next，同时收梯度从 next
+   backward_step()
+   <span class="hl">send_backward_recv_forward</span>()  → <span class="hl4">send_prev</span> + <span class="hl3">recv_prev</span> 打包
+                                     发梯度给 prev，同时收下个 micro-batch 的激活值
+
+<span class="hl4">Phase 3: Cooldown</span> — 只有反向，排空流水线
+   backward_step()
+   send_backward()        → 发梯度给 Stage 0（<span class="hl4">send_prev</span>）</div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>schedules.py — 1F1B steady 阶段的通信</span>
+      <span class="lines">L2328-2401</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># Steady 阶段：每次循环做 1 个前向 + 1 个反向</span>
+<span class="hljs-keyword">for</span> i <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(num_microbatches_remaining):
+    output_tensor = forward_step(input_tensor, ...)
+
+    <span class="hljs-comment"># 发前向输出（send_next）+ 收反向梯度（recv_next）</span>
+    output_tensor_grad = p2p_communicator.send_forward_recv_backward(
+        output_tensor, tensor_shapes
+    )
+    <span class="hljs-comment"># 底层: _communicate(tensor_send_next=output, recv_next=True)</span>
+
+    input_tensor_grad = backward_step(input_tensor, output_tensor_grad, ...)
+
+    <span class="hljs-comment"># 发反向梯度（send_prev）+ 收下个前向输入（recv_prev）</span>
+    input_tensor = p2p_communicator.send_backward_recv_forward(
+        input_tensor_grad, tensor_shapes
+    )
+    <span class="hljs-comment"># 底层: _communicate(tensor_send_prev=grad, recv_prev=True)</span></code></pre>
+  </div>
+
+    </div>
+  </details>
+</section>
+
+<!-- ==================== 8. AllToAll ==================== -->
+<section id="all-to-all">
+  <div class="section-header">
+    <span class="section-num">08</span>
+    <h2>AllToAll：全对全交换</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">tensor_parallel/mappings.py</span>
+    <span class="tag tag-purple">MoE / Context Parallel</span>
+  </div>
+
+  <div class="op-vis">
+    <div class="op-title">AllToAll：每个 rank 把数据切成 N 份，分别发给 N 个 rank</div>
+    <table class="op-table">
+      <thead><tr><th>操作前</th><th></th><th>操作后</th></tr></thead>
+      <tbody>
+        <tr><td class="rank-card"><span class="rank-id">rank 0</span><span class="val" style="color:var(--accent)">a0</span> <span class="val" style="color:var(--accent3)">a1</span> <span class="val" style="color:var(--accent4)">a2</span> <span class="val">a3</span></td><td class="arrow-col">→</td><td class="rank-card out"><span class="rank-id">rank 0</span><span class="val">a0 b0 c0 d0</span></td></tr>
+        <tr><td class="rank-card"><span class="rank-id">rank 1</span><span class="val" style="color:var(--accent)">b0</span> <span class="val" style="color:var(--accent3)">b1</span> <span class="val" style="color:var(--accent4)">b2</span> <span class="val">b3</span></td><td class="arrow-col">→</td><td class="rank-card out"><span class="rank-id">rank 1</span><span class="val">a1 b1 c1 d1</span></td></tr>
+        <tr><td class="rank-card"><span class="rank-id">rank 2</span><span class="val" style="color:var(--accent)">c0</span> <span class="val" style="color:var(--accent3)">c1</span> <span class="val" style="color:var(--accent4)">c2</span> <span class="val">c3</span></td><td class="arrow-col">→</td><td class="rank-card out"><span class="rank-id">rank 2</span><span class="val">a2 b2 c2 d2</span></td></tr>
+        <tr><td class="rank-card"><span class="rank-id">rank 3</span><span class="val" style="color:var(--accent)">d0</span> <span class="val" style="color:var(--accent3)">d1</span> <span class="val" style="color:var(--accent4)">d2</span> <span class="val">d3</span></td><td class="arrow-col">→</td><td class="rank-card out"><span class="rank-id">rank 3</span><span class="val">a3 b3 c3 d3</span></td></tr>
+      </tbody>
+    </table>
+    <div class="op-note">可以理解为矩阵转置：每个 rank 的第 i 份发给 rank i</div>
+  </div>
+
+  <div class="prose">
+    <p><strong>语义</strong>：每个 rank 持有大小为 D 的数据，切成 N 份，第 i 份发给 rank i；同时从每个 rank 收到发给自己的那一份。相当于做了一次<strong>数据重排</strong>。</p>
+    <p><strong>通信量</strong>：每 GPU 发送 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="33" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="3"><mjx-c class="mjx-c1D437 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c2248"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="4"><mjx-c class="mjx-c1D437 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mi>N</mi><mo>−</mo><mn>1</mn></mrow><mi>N</mi></mfrac><mo>⋅</mo><mi>D</mi><mo>≈</mo><mi>D</mi></math></mjx-assistive-mml></mjx-container>。自己那份（<mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="34" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D437 TEX-I"></mjx-c></mjx-mi></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mi>D</mi><mi>N</mi></mfrac></math></mjx-assistive-mml></mjx-container>）不需要网络传输，其余 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="35" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mstyle style="width: 0px; margin-right: -0.167em;"><mjx-mspace style="margin-right: -0.167em;"></mjx-mspace></mjx-mstyle><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mstyle style="width: 0px; margin-right: -0.167em;"><mjx-mspace style="margin-right: -0.167em;"></mjx-mspace></mjx-mstyle><mjx-mn class="mjx-n" space="3"><mjx-c class="mjx-c31"></mjx-c></mjx-mn></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>N</mi><mstyle scriptlevel="0"><mspace width="-0.167em"></mspace></mstyle><mo>−</mo><mstyle scriptlevel="0"><mspace width="-0.167em"></mspace></mstyle><mn>1</mn></math></mjx-assistive-mml></mjx-container> 份各 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="36" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D437 TEX-I"></mjx-c></mjx-mi></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mi>D</mi><mi>N</mi></mfrac></math></mjx-assistive-mml></mjx-container> 通过网络发出。输入输出大小相同，不增不减。</p>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>tensor_parallel/mappings.py — Context Parallel 的 SP↔HP 转换</span>
+      <span class="lines">L444-450, L560-567</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># Sequence Parallel 布局:  [S/TP, B, H]  每个 rank 有部分序列、完整 hidden</span>
+<span class="hljs-comment"># Head Parallel 布局:      [S, B, H/TP]  每个 rank 有完整序列、部分 head</span>
+<span class="hljs-comment"># AllToAll 在两种布局间转换</span>
+
+<span class="hljs-comment"># SP → HP（进入 Attention 前）</span>
+torch.distributed.all_to_all_single(
+    output, <span class="hljs-built_in">input</span>,
+    output_split_sizes=output_split_sizes,
+    input_split_sizes=input_split_sizes,
+    group=group,
+)
+
+<span class="hljs-comment"># HP → SP（Attention 完成后）— 再做一次 AllToAll 就回来了</span></code></pre>
+  </div>
+
+  <div class="callout callout-info">
+    <div class="callout-title">MoE 中的 AllToAll</div>
+    MoE（Mixture of Experts）中，每个 token 被路由到不同的 expert。但 expert 分布在不同 GPU 上，所以需要 AllToAll 把 token 发送到对应 expert 所在的 GPU，计算完再 AllToAll 发回来。
+  </div>
+</section>
+
+<!-- ==================== 9. Megatron Mapping ==================== -->
+<section id="megatron-mapping">
+  <div class="section-header">
+    <span class="section-num">09</span>
+    <h2>Megatron 中的完整映射</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-green">总结</span>
+  </div>
+
+  <div class="diagram"><span class="hl">每种并行策略使用的通信操作</span>
+
+<span class="hl2">Tensor Parallelism (TP)</span>
+ ├─ Column Parallel 前向:  各自算部分，不通信
+ ├─ Column Parallel 反向:  AllReduce 梯度              → TP 组
+ ├─ Row Parallel 前向:     AllReduce 部分输出求和        → TP 组
+ ├─ Row Parallel 反向:     各自算部分，不通信
+ └─ 数据分发:               Broadcast (rank 0 → all)    → TP 组
+
+<span class="hl3">Sequence Parallelism (SP)</span>
+ ├─ 进入 Attention/MLP:     AllGather（分片 → 完整序列）  → TP 组
+ └─ 离开 Attention/MLP:     ReduceScatter（完整 → 分片）  → TP 组
+
+<span class="hl4">Pipeline Parallelism (PP)</span>
+ ├─ 前向传递:               Send 激活值给下一 stage       → P2P
+ └─ 反向传递:               Send 梯度给上一 stage         → P2P
+
+<span class="hl">Data Parallelism (DP)</span>
+ ├─ 普通 DDP:               AllReduce 梯度               → DP 组
+ └─ 分布式优化器:
+     ├─ 反向后:             ReduceScatter 梯度切片        → DP 组
+     └─ 更新后:             AllGather 收集完整参数         → DP 组
+
+<span class="hl2">Context Parallelism (CP)</span>
+ ├─ Attention 前:           AllGather KV（异步）          → CP 组
+ └─ Attention 后:           ReduceScatter                → CP 组
+
+<span class="hl3">Expert Parallelism (EP / MoE)</span>
+ ├─ 路由后:                 AllToAll 发 token 给 expert   → EP 组
+ └─ 计算后:                 AllToAll 取回结果             → EP 组</div>
+
+  <div class="callout callout-key" style="margin-top:24px">
+    <div class="callout-title">相关文档</div>
+    <ul style="margin-top:8px">
+      <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/rank_and_parallel_groups.html" style="color:var(--accent)">Rank 与并行组</a> — 通信组是如何划分的</li>
+      <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/entry/pretrain_gpt.html" style="color:var(--accent)">pretrain_gpt.py 源码精读</a> — 训练入口与 PP 调度</li>
+    </ul>
+  </div>
+</section>
+
+</div><!-- /.main-content -->
+</div><!-- /.page-body -->
+
+<footer>
+  <p>Megatron-LM 源码精读 · 基于 NVIDIA Megatron-LM 代码库</p>
+</footer>
+
+<script>hljs.highlightAll();</script>
+<script src="./集合通信操作详解 · Megatron-LM 源码精读_files/update-checker.js"></script>
+
+
+<div class="mermaidTooltip" style="opacity: 0;"></div></body></html>

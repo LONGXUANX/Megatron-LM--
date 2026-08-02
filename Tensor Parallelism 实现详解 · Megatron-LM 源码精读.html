@@ -1,0 +1,1680 @@
+<!DOCTYPE html>
+<!-- saved from url=(0080)https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/tensor_parallel.html -->
+<html lang="zh-CN"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tensor Parallelism 实现详解 · Megatron-LM 源码精读</title>
+<link rel="stylesheet" href="./Tensor Parallelism 实现详解 · Megatron-LM 源码精读_files/github-dark.min.css">
+<script src="./Tensor Parallelism 实现详解 · Megatron-LM 源码精读_files/highlight.min.js"></script>
+<script src="./Tensor Parallelism 实现详解 · Megatron-LM 源码精读_files/highlight-python.min.js"></script>
+<script>
+MathJax = {
+  tex: { inlineMath: [['\\(','\\)']], displayMath: [['$$','$$']] },
+  svg: { fontCache: 'global' }
+};
+</script>
+<script src="./Tensor Parallelism 实现详解 · Megatron-LM 源码精读_files/tex-chtml.js" async="" defer=""></script>
+<script src="./Tensor Parallelism 实现详解 · Megatron-LM 源码精读_files/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      darkMode: true,
+      background: '#1c2129',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
+      fontSize: '13px',
+      primaryColor: '#1f2937',
+      primaryTextColor: '#e6edf3',
+      primaryBorderColor: '#30363d',
+      lineColor: '#58a6ff',
+      secondaryColor: '#161b22',
+      tertiaryColor: '#0d1117',
+      mainBkg: '#161b22',
+      nodeBorder: '#30363d',
+      clusterBkg: 'rgba(88,166,255,0.05)',
+      clusterBorder: '#30363d',
+      titleColor: '#e6edf3',
+      edgeLabelBackground: '#1c2129',
+      nodeTextColor: '#e6edf3'
+    }
+  });
+</script>
+<link rel="stylesheet" href="./Tensor Parallelism 实现详解 · Megatron-LM 源码精读_files/style.css">
+<style type="text/css">.CtxtMenu_InfoClose {  top:.2em; right:.2em;}
+.CtxtMenu_InfoContent {  overflow:auto; text-align:left; font-size:80%;  padding:.4em .6em; border:1px inset; margin:1em 0px;  max-height:20em; max-width:30em; background-color:#EEEEEE;  white-space:normal;}
+.CtxtMenu_Info.CtxtMenu_MousePost {outline:none;}
+.CtxtMenu_Info {  position:fixed; left:50%; width:auto; text-align:center;  border:3px outset; padding:1em 2em; background-color:#DDDDDD;  color:black;  cursor:default; font-family:message-box; font-size:120%;  font-style:normal; text-indent:0; text-transform:none;  line-height:normal; letter-spacing:normal; word-spacing:normal;  word-wrap:normal; white-space:nowrap; float:none; z-index:201;  border-radius: 15px;                     /* Opera 10.5 and IE9 */  -webkit-border-radius:15px;               /* Safari and Chrome */  -moz-border-radius:15px;                  /* Firefox */  -khtml-border-radius:15px;                /* Konqueror */  box-shadow:0px 10px 20px #808080;         /* Opera 10.5 and IE9 */  -webkit-box-shadow:0px 10px 20px #808080; /* Safari 3 & Chrome */  -moz-box-shadow:0px 10px 20px #808080;    /* Forefox 3.5 */  -khtml-box-shadow:0px 10px 20px #808080;  /* Konqueror */  filter:progid:DXImageTransform.Microsoft.dropshadow(OffX=2, OffY=2, Color="gray", Positive="true"); /* IE */}
+</style><style type="text/css">.CtxtMenu_MenuClose {  position:absolute;  cursor:pointer;  display:inline-block;  border:2px solid #AAA;  border-radius:18px;  -webkit-border-radius: 18px;             /* Safari and Chrome */  -moz-border-radius: 18px;                /* Firefox */  -khtml-border-radius: 18px;              /* Konqueror */  font-family: "Courier New", Courier;  font-size:24px;  color:#F0F0F0}
+.CtxtMenu_MenuClose span {  display:block; background-color:#AAA; border:1.5px solid;  border-radius:18px;  -webkit-border-radius: 18px;             /* Safari and Chrome */  -moz-border-radius: 18px;                /* Firefox */  -khtml-border-radius: 18px;              /* Konqueror */  line-height:0;  padding:8px 0 6px     /* may need to be browser-specific */}
+.CtxtMenu_MenuClose:hover {  color:white!important;  border:2px solid #CCC!important}
+.CtxtMenu_MenuClose:hover span {  background-color:#CCC!important}
+.CtxtMenu_MenuClose:hover:focus {  outline:none}
+</style><style type="text/css">.CtxtMenu_Menu {  position:absolute;  background-color:white;  color:black;  width:auto; padding:5px 0px;  border:1px solid #CCCCCC; margin:0; cursor:default;  font: menu; text-align:left; text-indent:0; text-transform:none;  line-height:normal; letter-spacing:normal; word-spacing:normal;  word-wrap:normal; white-space:nowrap; float:none; z-index:201;  border-radius: 5px;                     /* Opera 10.5 and IE9 */  -webkit-border-radius: 5px;             /* Safari and Chrome */  -moz-border-radius: 5px;                /* Firefox */  -khtml-border-radius: 5px;              /* Konqueror */  box-shadow:0px 10px 20px #808080;         /* Opera 10.5 and IE9 */  -webkit-box-shadow:0px 10px 20px #808080; /* Safari 3 & Chrome */  -moz-box-shadow:0px 10px 20px #808080;    /* Forefox 3.5 */  -khtml-box-shadow:0px 10px 20px #808080;  /* Konqueror */}
+.CtxtMenu_MenuItem {  padding: 1px 2em;  background:transparent;}
+.CtxtMenu_MenuArrow {  position:absolute; right:.5em; padding-top:.25em; color:#666666;  font-family: null; font-size: .75em}
+.CtxtMenu_MenuActive .CtxtMenu_MenuArrow {color:white}
+.CtxtMenu_MenuArrow.CtxtMenu_RTL {left:.5em; right:auto}
+.CtxtMenu_MenuCheck {  position:absolute; left:.7em;  font-family: null}
+.CtxtMenu_MenuCheck.CtxtMenu_RTL { right:.7em; left:auto }
+.CtxtMenu_MenuRadioCheck {  position:absolute; left: .7em;}
+.CtxtMenu_MenuRadioCheck.CtxtMenu_RTL {  right: .7em; left:auto}
+.CtxtMenu_MenuInputBox {  padding-left: 1em; right:.5em; color:#666666;  font-family: null;}
+.CtxtMenu_MenuInputBox.CtxtMenu_RTL {  left: .1em;}
+.CtxtMenu_MenuComboBox {  left:.1em; padding-bottom:.5em;}
+.CtxtMenu_MenuSlider {  left: .1em;}
+.CtxtMenu_SliderValue {  position:absolute; right:.1em; padding-top:.25em; color:#333333;  font-size: .75em}
+.CtxtMenu_SliderBar {  outline: none; background: #d3d3d3}
+.CtxtMenu_MenuLabel {  padding: 1px 2em 3px 1.33em;  font-style:italic}
+.CtxtMenu_MenuRule {  border-top: 1px solid #DDDDDD;  margin: 4px 3px;}
+.CtxtMenu_MenuDisabled {  color:GrayText}
+.CtxtMenu_MenuActive {  background-color: #606872;  color: white;}
+.CtxtMenu_MenuDisabled:focus {  background-color: #E8E8E8}
+.CtxtMenu_MenuLabel:focus {  background-color: #E8E8E8}
+.CtxtMenu_ContextMenu:focus {  outline:none}
+.CtxtMenu_ContextMenu .CtxtMenu_MenuItem:focus {  outline:none}
+.CtxtMenu_SelectionMenu {  position:relative; float:left;  border-bottom: none; -webkit-box-shadow:none; -webkit-border-radius:0px; }
+.CtxtMenu_SelectionItem {  padding-right: 1em;}
+.CtxtMenu_Selection {  right: 40%; width:50%; }
+.CtxtMenu_SelectionBox {  padding: 0em; max-height:20em; max-width: none;  background-color:#FFFFFF;}
+.CtxtMenu_SelectionDivider {  clear: both; border-top: 2px solid #000000;}
+.CtxtMenu_Menu .CtxtMenu_MenuClose {  top:-10px; left:-10px}
+</style><style id="MJX-CHTML-styles">
+mjx-container[jax="CHTML"] {
+  line-height: 0;
+}
+
+mjx-container [space="1"] {
+  margin-left: .111em;
+}
+
+mjx-container [space="2"] {
+  margin-left: .167em;
+}
+
+mjx-container [space="3"] {
+  margin-left: .222em;
+}
+
+mjx-container [space="4"] {
+  margin-left: .278em;
+}
+
+mjx-container [space="5"] {
+  margin-left: .333em;
+}
+
+mjx-container [rspace="1"] {
+  margin-right: .111em;
+}
+
+mjx-container [rspace="2"] {
+  margin-right: .167em;
+}
+
+mjx-container [rspace="3"] {
+  margin-right: .222em;
+}
+
+mjx-container [rspace="4"] {
+  margin-right: .278em;
+}
+
+mjx-container [rspace="5"] {
+  margin-right: .333em;
+}
+
+mjx-container [size="s"] {
+  font-size: 70.7%;
+}
+
+mjx-container [size="ss"] {
+  font-size: 50%;
+}
+
+mjx-container [size="Tn"] {
+  font-size: 60%;
+}
+
+mjx-container [size="sm"] {
+  font-size: 85%;
+}
+
+mjx-container [size="lg"] {
+  font-size: 120%;
+}
+
+mjx-container [size="Lg"] {
+  font-size: 144%;
+}
+
+mjx-container [size="LG"] {
+  font-size: 173%;
+}
+
+mjx-container [size="hg"] {
+  font-size: 207%;
+}
+
+mjx-container [size="HG"] {
+  font-size: 249%;
+}
+
+mjx-container [width="full"] {
+  width: 100%;
+}
+
+mjx-box {
+  display: inline-block;
+}
+
+mjx-block {
+  display: block;
+}
+
+mjx-itable {
+  display: inline-table;
+}
+
+mjx-row {
+  display: table-row;
+}
+
+mjx-row > * {
+  display: table-cell;
+}
+
+mjx-mtext {
+  display: inline-block;
+}
+
+mjx-mstyle {
+  display: inline-block;
+}
+
+mjx-merror {
+  display: inline-block;
+  color: red;
+  background-color: yellow;
+}
+
+mjx-mphantom {
+  visibility: hidden;
+}
+
+_::-webkit-full-page-media, _:future, :root mjx-container {
+  will-change: opacity;
+}
+
+mjx-assistive-mml {
+  position: absolute !important;
+  top: 0px;
+  left: 0px;
+  clip: rect(1px, 1px, 1px, 1px);
+  padding: 1px 0px 0px 0px !important;
+  border: 0px !important;
+  display: block !important;
+  width: auto !important;
+  overflow: hidden !important;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+mjx-assistive-mml[display="block"] {
+  width: 100% !important;
+}
+
+mjx-math {
+  display: inline-block;
+  text-align: left;
+  line-height: 0;
+  text-indent: 0;
+  font-style: normal;
+  font-weight: normal;
+  font-size: 100%;
+  font-size-adjust: none;
+  letter-spacing: normal;
+  border-collapse: collapse;
+  word-wrap: normal;
+  word-spacing: normal;
+  white-space: nowrap;
+  direction: ltr;
+  padding: 1px 0;
+}
+
+mjx-container[jax="CHTML"][display="true"] {
+  display: block;
+  text-align: center;
+  margin: 1em 0;
+}
+
+mjx-container[jax="CHTML"][display="true"][width="full"] {
+  display: flex;
+}
+
+mjx-container[jax="CHTML"][display="true"] mjx-math {
+  padding: 0;
+}
+
+mjx-container[jax="CHTML"][justify="left"] {
+  text-align: left;
+}
+
+mjx-container[jax="CHTML"][justify="right"] {
+  text-align: right;
+}
+
+mjx-mo {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-stretchy-h {
+  display: inline-table;
+  width: 100%;
+}
+
+mjx-stretchy-h > * {
+  display: table-cell;
+  width: 0;
+}
+
+mjx-stretchy-h > * > mjx-c {
+  display: inline-block;
+  transform: scalex(1.0000001);
+}
+
+mjx-stretchy-h > * > mjx-c::before {
+  display: inline-block;
+  width: initial;
+}
+
+mjx-stretchy-h > mjx-ext {
+  /* IE */ overflow: hidden;
+  /* others */ overflow: clip visible;
+  width: 100%;
+}
+
+mjx-stretchy-h > mjx-ext > mjx-c::before {
+  transform: scalex(500);
+}
+
+mjx-stretchy-h > mjx-ext > mjx-c {
+  width: 0;
+}
+
+mjx-stretchy-h > mjx-beg > mjx-c {
+  margin-right: -.1em;
+}
+
+mjx-stretchy-h > mjx-end > mjx-c {
+  margin-left: -.1em;
+}
+
+mjx-stretchy-v {
+  display: inline-block;
+}
+
+mjx-stretchy-v > * {
+  display: block;
+}
+
+mjx-stretchy-v > mjx-beg {
+  height: 0;
+}
+
+mjx-stretchy-v > mjx-end > mjx-c {
+  display: block;
+}
+
+mjx-stretchy-v > * > mjx-c {
+  transform: scaley(1.0000001);
+  transform-origin: left center;
+  overflow: hidden;
+}
+
+mjx-stretchy-v > mjx-ext {
+  display: block;
+  height: 100%;
+  box-sizing: border-box;
+  border: 0px solid transparent;
+  /* IE */ overflow: hidden;
+  /* others */ overflow: visible clip;
+}
+
+mjx-stretchy-v > mjx-ext > mjx-c::before {
+  width: initial;
+  box-sizing: border-box;
+}
+
+mjx-stretchy-v > mjx-ext > mjx-c {
+  transform: scaleY(500) translateY(.075em);
+  overflow: visible;
+}
+
+mjx-mark {
+  display: inline-block;
+  height: 0px;
+}
+
+mjx-c {
+  display: inline-block;
+}
+
+mjx-utext {
+  display: inline-block;
+  padding: .75em 0 .2em 0;
+}
+
+mjx-mn {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-mi {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-msup {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-msub {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-mfrac {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-frac {
+  display: inline-block;
+  vertical-align: 0.17em;
+  padding: 0 .22em;
+}
+
+mjx-frac[type="d"] {
+  vertical-align: .04em;
+}
+
+mjx-frac[delims] {
+  padding: 0 .1em;
+}
+
+mjx-frac[atop] {
+  padding: 0 .12em;
+}
+
+mjx-frac[atop][delims] {
+  padding: 0;
+}
+
+mjx-dtable {
+  display: inline-table;
+  width: 100%;
+}
+
+mjx-dtable > * {
+  font-size: 2000%;
+}
+
+mjx-dbox {
+  display: block;
+  font-size: 5%;
+}
+
+mjx-num {
+  display: block;
+  text-align: center;
+}
+
+mjx-den {
+  display: block;
+  text-align: center;
+}
+
+mjx-mfrac[bevelled] > mjx-num {
+  display: inline-block;
+}
+
+mjx-mfrac[bevelled] > mjx-den {
+  display: inline-block;
+}
+
+mjx-den[align="right"], mjx-num[align="right"] {
+  text-align: right;
+}
+
+mjx-den[align="left"], mjx-num[align="left"] {
+  text-align: left;
+}
+
+mjx-nstrut {
+  display: inline-block;
+  height: .054em;
+  width: 0;
+  vertical-align: -.054em;
+}
+
+mjx-nstrut[type="d"] {
+  height: .217em;
+  vertical-align: -.217em;
+}
+
+mjx-dstrut {
+  display: inline-block;
+  height: .505em;
+  width: 0;
+}
+
+mjx-dstrut[type="d"] {
+  height: .726em;
+}
+
+mjx-line {
+  display: block;
+  box-sizing: border-box;
+  min-height: 1px;
+  height: .06em;
+  border-top: .06em solid;
+  margin: .06em -.1em;
+  overflow: hidden;
+}
+
+mjx-line[type="d"] {
+  margin: .18em -.1em;
+}
+
+mjx-mrow {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-TeXAtom {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-msubsup {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-script {
+  display: inline-block;
+  padding-right: .05em;
+  padding-left: .033em;
+}
+
+mjx-script > mjx-spacer {
+  display: block;
+}
+
+mjx-c::before {
+  display: block;
+  width: 0;
+}
+
+.MJX-TEX {
+  font-family: MJXZERO, MJXTEX;
+}
+
+.TEX-B {
+  font-family: MJXZERO, MJXTEX-B;
+}
+
+.TEX-I {
+  font-family: MJXZERO, MJXTEX-I;
+}
+
+.TEX-MI {
+  font-family: MJXZERO, MJXTEX-MI;
+}
+
+.TEX-BI {
+  font-family: MJXZERO, MJXTEX-BI;
+}
+
+.TEX-S1 {
+  font-family: MJXZERO, MJXTEX-S1;
+}
+
+.TEX-S2 {
+  font-family: MJXZERO, MJXTEX-S2;
+}
+
+.TEX-S3 {
+  font-family: MJXZERO, MJXTEX-S3;
+}
+
+.TEX-S4 {
+  font-family: MJXZERO, MJXTEX-S4;
+}
+
+.TEX-A {
+  font-family: MJXZERO, MJXTEX-A;
+}
+
+.TEX-C {
+  font-family: MJXZERO, MJXTEX-C;
+}
+
+.TEX-CB {
+  font-family: MJXZERO, MJXTEX-CB;
+}
+
+.TEX-FR {
+  font-family: MJXZERO, MJXTEX-FR;
+}
+
+.TEX-FRB {
+  font-family: MJXZERO, MJXTEX-FRB;
+}
+
+.TEX-SS {
+  font-family: MJXZERO, MJXTEX-SS;
+}
+
+.TEX-SSB {
+  font-family: MJXZERO, MJXTEX-SSB;
+}
+
+.TEX-SSI {
+  font-family: MJXZERO, MJXTEX-SSI;
+}
+
+.TEX-SC {
+  font-family: MJXZERO, MJXTEX-SC;
+}
+
+.TEX-T {
+  font-family: MJXZERO, MJXTEX-T;
+}
+
+.TEX-V {
+  font-family: MJXZERO, MJXTEX-V;
+}
+
+.TEX-VB {
+  font-family: MJXZERO, MJXTEX-VB;
+}
+
+mjx-stretchy-v mjx-c, mjx-stretchy-h mjx-c {
+  font-family: MJXZERO, MJXTEX-S1, MJXTEX-S4, MJXTEX, MJXTEX-A ! important;
+}
+
+@font-face /* 0 */ {
+  font-family: MJXZERO;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Zero.woff") format("woff");
+}
+
+@font-face /* 1 */ {
+  font-family: MJXTEX;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Main-Regular.woff") format("woff");
+}
+
+@font-face /* 2 */ {
+  font-family: MJXTEX-B;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Main-Bold.woff") format("woff");
+}
+
+@font-face /* 3 */ {
+  font-family: MJXTEX-I;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Math-Italic.woff") format("woff");
+}
+
+@font-face /* 4 */ {
+  font-family: MJXTEX-MI;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Main-Italic.woff") format("woff");
+}
+
+@font-face /* 5 */ {
+  font-family: MJXTEX-BI;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Math-BoldItalic.woff") format("woff");
+}
+
+@font-face /* 6 */ {
+  font-family: MJXTEX-S1;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Size1-Regular.woff") format("woff");
+}
+
+@font-face /* 7 */ {
+  font-family: MJXTEX-S2;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Size2-Regular.woff") format("woff");
+}
+
+@font-face /* 8 */ {
+  font-family: MJXTEX-S3;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Size3-Regular.woff") format("woff");
+}
+
+@font-face /* 9 */ {
+  font-family: MJXTEX-S4;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Size4-Regular.woff") format("woff");
+}
+
+@font-face /* 10 */ {
+  font-family: MJXTEX-A;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_AMS-Regular.woff") format("woff");
+}
+
+@font-face /* 11 */ {
+  font-family: MJXTEX-C;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Calligraphic-Regular.woff") format("woff");
+}
+
+@font-face /* 12 */ {
+  font-family: MJXTEX-CB;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Calligraphic-Bold.woff") format("woff");
+}
+
+@font-face /* 13 */ {
+  font-family: MJXTEX-FR;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Fraktur-Regular.woff") format("woff");
+}
+
+@font-face /* 14 */ {
+  font-family: MJXTEX-FRB;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Fraktur-Bold.woff") format("woff");
+}
+
+@font-face /* 15 */ {
+  font-family: MJXTEX-SS;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_SansSerif-Regular.woff") format("woff");
+}
+
+@font-face /* 16 */ {
+  font-family: MJXTEX-SSB;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_SansSerif-Bold.woff") format("woff");
+}
+
+@font-face /* 17 */ {
+  font-family: MJXTEX-SSI;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_SansSerif-Italic.woff") format("woff");
+}
+
+@font-face /* 18 */ {
+  font-family: MJXTEX-SC;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Script-Regular.woff") format("woff");
+}
+
+@font-face /* 19 */ {
+  font-family: MJXTEX-T;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Typewriter-Regular.woff") format("woff");
+}
+
+@font-face /* 20 */ {
+  font-family: MJXTEX-V;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Vector-Regular.woff") format("woff");
+}
+
+@font-face /* 21 */ {
+  font-family: MJXTEX-VB;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Vector-Bold.woff") format("woff");
+}
+
+mjx-c.mjx-c5B::before {
+  padding: 0.75em 0.278em 0.25em 0;
+  content: "[";
+}
+
+mjx-c.mjx-c38::before {
+  padding: 0.666em 0.5em 0.022em 0;
+  content: "8";
+}
+
+mjx-c.mjx-c31::before {
+  padding: 0.666em 0.5em 0 0;
+  content: "1";
+}
+
+mjx-c.mjx-c39::before {
+  padding: 0.666em 0.5em 0.022em 0;
+  content: "9";
+}
+
+mjx-c.mjx-c32::before {
+  padding: 0.666em 0.5em 0 0;
+  content: "2";
+}
+
+mjx-c.mjx-c2C::before {
+  padding: 0.121em 0.278em 0.194em 0;
+  content: ",";
+}
+
+mjx-c.mjx-c36::before {
+  padding: 0.666em 0.5em 0.022em 0;
+  content: "6";
+}
+
+mjx-c.mjx-c37::before {
+  padding: 0.676em 0.5em 0.022em 0;
+  content: "7";
+}
+
+mjx-c.mjx-c5D::before {
+  padding: 0.75em 0.278em 0.25em 0;
+  content: "]";
+}
+
+mjx-c.mjx-cD7::before {
+  padding: 0.491em 0.778em 0 0;
+  content: "\D7";
+}
+
+mjx-c.mjx-c3D::before {
+  padding: 0.583em 0.778em 0.082em 0;
+  content: "=";
+}
+
+mjx-c.mjx-c34::before {
+  padding: 0.677em 0.5em 0 0;
+  content: "4";
+}
+
+mjx-c.mjx-c35::before {
+  padding: 0.666em 0.5em 0.022em 0;
+  content: "5";
+}
+
+mjx-c.mjx-c30::before {
+  padding: 0.666em 0.5em 0.022em 0;
+  content: "0";
+}
+
+mjx-c.mjx-c1D44C.TEX-I::before {
+  padding: 0.683em 0.763em 0 0;
+  content: "Y";
+}
+
+mjx-c.mjx-c1D44B.TEX-I::before {
+  padding: 0.683em 0.852em 0 0;
+  content: "X";
+}
+
+mjx-c.mjx-c1D44A.TEX-I::before {
+  padding: 0.683em 1.048em 0.022em 0;
+  content: "W";
+}
+
+mjx-c.mjx-c1D447.TEX-I::before {
+  padding: 0.677em 0.704em 0 0;
+  content: "T";
+}
+
+mjx-c.mjx-c2211.TEX-S1::before {
+  padding: 0.75em 1.056em 0.25em 0;
+  content: "\2211";
+}
+
+mjx-c.mjx-c1D456.TEX-I::before {
+  padding: 0.661em 0.345em 0.011em 0;
+  content: "i";
+}
+
+mjx-c.mjx-c1D715::before {
+  padding: 0.715em 0.566em 0.022em 0;
+  content: "\2202";
+}
+
+mjx-c.mjx-c4C.TEX-C::before {
+  padding: 0.705em 0.69em 0.022em 0;
+  content: "L";
+}
+
+mjx-c.mjx-c1D434.TEX-I::before {
+  padding: 0.716em 0.75em 0 0;
+  content: "A";
+}
+
+mjx-c.mjx-c210E.TEX-I::before {
+  padding: 0.694em 0.576em 0.011em 0;
+  content: "h";
+}
+
+mjx-c.mjx-c1D45B.TEX-I::before {
+  padding: 0.442em 0.6em 0.011em 0;
+  content: "n";
+}
+
+mjx-c.mjx-c1D45C.TEX-I::before {
+  padding: 0.441em 0.485em 0.011em 0;
+  content: "o";
+}
+
+mjx-c.mjx-c1D462.TEX-I::before {
+  padding: 0.442em 0.572em 0.011em 0;
+  content: "u";
+}
+
+mjx-c.mjx-c1D461.TEX-I::before {
+  padding: 0.626em 0.361em 0.011em 0;
+  content: "t";
+}
+
+mjx-c.mjx-c3A::before {
+  padding: 0.43em 0.278em 0 0;
+  content: ":";
+}
+
+mjx-c.mjx-c22C5::before {
+  padding: 0.31em 0.278em 0 0;
+  content: "\22C5";
+}
+
+mjx-c.mjx-c2F::before {
+  padding: 0.75em 0.5em 0.25em 0;
+  content: "/";
+}
+
+mjx-c.mjx-c1D441.TEX-I::before {
+  padding: 0.683em 0.888em 0 0;
+  content: "N";
+}
+
+mjx-c.mjx-c28::before {
+  padding: 0.75em 0.389em 0.25em 0;
+  content: "(";
+}
+
+mjx-c.mjx-c2B::before {
+  padding: 0.583em 0.778em 0.082em 0;
+  content: "+";
+}
+
+mjx-c.mjx-c29::before {
+  padding: 0.75em 0.389em 0.25em 0;
+  content: ")";
+}
+
+mjx-c.mjx-c1D70E.TEX-I::before {
+  padding: 0.431em 0.571em 0.011em 0;
+  content: "\3C3";
+}
+
+mjx-c.mjx-c1D440.TEX-I::before {
+  padding: 0.683em 1.051em 0 0;
+  content: "M";
+}
+
+mjx-c.mjx-c1D460.TEX-I::before {
+  padding: 0.442em 0.469em 0.01em 0;
+  content: "s";
+}
+
+mjx-c.mjx-c1D44F.TEX-I::before {
+  padding: 0.694em 0.429em 0.011em 0;
+  content: "b";
+}
+
+mjx-c.mjx-c2212::before {
+  padding: 0.583em 0.778em 0.082em 0;
+  content: "\2212";
+}
+
+mjx-c.mjx-c2248::before {
+  padding: 0.483em 0.778em 0 0;
+  content: "\2248";
+}
+
+mjx-c.mjx-c1D435.TEX-I::before {
+  padding: 0.683em 0.759em 0 0;
+  content: "B";
+}
+
+mjx-c.mjx-c33::before {
+  padding: 0.665em 0.5em 0.022em 0;
+  content: "3";
+}
+</style></head>
+<body>
+
+<!-- ==================== HERO ==================== -->
+<div class="hero">
+  <div class="container">
+    <h1><span class="file">Tensor Parallelism</span> 实现详解</h1>
+    <p class="subtitle">ColumnParallelLinear / RowParallelLinear / f-g 共轭算子 — 模型层内的张量切分策略</p>
+    <div class="meta">
+      <span>tensor_parallel/layers.py</span>
+      <span>tensor_parallel/mappings.py</span>
+      <span>前置知识：<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/collective_operations.html" style="color:var(--accent);text-decoration:none">集合通信操作</a></span>
+    </div>
+  </div>
+</div>
+
+<div class="page-body">
+
+<!-- ==================== TOC ==================== -->
+<aside class="toc-sidebar">
+<nav class="toc">
+  <div id="global-nav"><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/index.html" class="toc-home">← 文档目录</a>
+<div class="toc-group">入口</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/entry/pretrain_gpt.html" class="toc-doc">pretrain_gpt.py</a>
+<div class="toc-group">基础设施</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/pretrain_and_setup.html" class="toc-doc">初始化篇</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/training_loop.html" class="toc-doc">训练循环篇</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/memory_calculator.html" class="toc-doc">GPU 显存计算</a>
+<div class="toc-group">并行策略</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/rank_and_parallel_groups.html" class="toc-doc">Rank 与并行组</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/collective_operations.html" class="toc-doc">集合通信操作</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/tensor_parallel.html" class="toc-doc active">Tensor Parallelism</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/pipeline_parallel.html" class="toc-doc">Pipeline Parallelism</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/schedules_deep_dive.html" class="toc-doc">Schedule 深度精读</a>
+<div class="toc-group">模型架构</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/transformer_architecture.html" class="toc-doc">GPT 模型架构</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/moe_layer.html" class="toc-doc">MoE 层与 EP</a>
+<div class="toc-group">数据</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/data/vpp_data_iterator.html" class="toc-doc">VPP 数据迭代器</a>
+<div class="toc-group">优化器</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/optimizer/distrib_optimizer.html" class="toc-doc">分布式优化器</a>
+</div>
+  <script src="./Tensor Parallelism 实现详解 · Megatron-LM 源码精读_files/nav.js"></script>
+      <div class="toc-divider"></div>
+    <h2>本文目录</h2>
+  <ol>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/tensor_parallel.html#tp-core">TP 核心思想</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/tensor_parallel.html#fg-operators">f 和 g 算子</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/tensor_parallel.html#column-parallel">ColumnParallelLinear</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/tensor_parallel.html#row-parallel">RowParallelLinear</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/tensor_parallel.html#column-row-combo">Column + Row 组合</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/tensor_parallel.html#sequence-parallel">Sequence Parallelism</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/tensor_parallel.html#vocab-parallel">词表并行</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/tensor_parallel.html#comm-summary">通信量总结</a></li>
+  </ol>
+</nav>
+</aside>
+
+<!-- ==================== Main Content ==================== -->
+<div class="main-content">
+
+<!-- ==================== 1. TP Core ==================== -->
+<section id="tp-core">
+  <div class="section-header">
+    <span class="section-num">01</span>
+    <h2>TP 核心思想</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">层内切分</span>
+    <span class="tag tag-green">NVLink 节点内</span>
+  </div>
+
+  <div class="prose">
+    <p>Tensor Parallelism（TP）的目标是<strong>把单个 Linear 层的权重矩阵切分到多个 GPU 上</strong>。与 Pipeline Parallelism（按层切分）和 Data Parallelism（按数据切分）不同，TP 在<strong>层内</strong>切分 —— 每个 GPU 只持有权重的一个分片，只计算输出的一部分。</p>
+    <p>为什么需要层内切分？大语言模型的单层参数量可以非常大。以 Llama-70B 为例，单个 MLP 层的 fc1 权重为 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="0" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mo class="mjx-n"><mjx-c class="mjx-c5B"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c38"></mjx-c><mjx-c class="mjx-c31"></mjx-c><mjx-c class="mjx-c39"></mjx-c><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c2C"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="2"><mjx-c class="mjx-c32"></mjx-c><mjx-c class="mjx-c38"></mjx-c><mjx-c class="mjx-c36"></mjx-c><mjx-c class="mjx-c37"></mjx-c><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c5D"></mjx-c></mjx-mo></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mo stretchy="false">[</mo><mn>8192</mn><mo>,</mo><mn>28672</mn><mo stretchy="false">]</mo></math></mjx-assistive-mml></mjx-container>，占 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="1" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mn class="mjx-n"><mjx-c class="mjx-c38"></mjx-c><mjx-c class="mjx-c31"></mjx-c><mjx-c class="mjx-c39"></mjx-c><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-cD7"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="3"><mjx-c class="mjx-c32"></mjx-c><mjx-c class="mjx-c38"></mjx-c><mjx-c class="mjx-c36"></mjx-c><mjx-c class="mjx-c37"></mjx-c><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-cD7"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="3"><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="4"><mjx-c class="mjx-c34"></mjx-c><mjx-c class="mjx-c35"></mjx-c><mjx-c class="mjx-c30"></mjx-c></mjx-mn></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mn>8192</mn><mo>×</mo><mn>28672</mn><mo>×</mo><mn>2</mn><mo>=</mo><mn>450</mn></math></mjx-assistive-mml></mjx-container> MB（FP16）。加上 QKV、Output Projection、fc2 等，一层总参数约 1.2 GB。如果不切分，单个 GPU 需要存储所有层的完整参数。</p>
+    <p>TP 的数学基础很简单：<strong>矩阵乘法可以分解</strong>。对于 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="2" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44C TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="4"><mjx-c class="mjx-c1D44B TEX-I"></mjx-c></mjx-mi><mjx-msup><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44A TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: 0.363em; margin-left: 0.055em;"><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D447 TEX-I"></mjx-c></mjx-mi></mjx-script></mjx-msup></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>Y</mi><mo>=</mo><mi>X</mi><msup><mi>W</mi><mi>T</mi></msup></math></mjx-assistive-mml></mjx-container>，我们可以把 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="3" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44A TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>W</mi></math></mjx-assistive-mml></mjx-container> 按行或列切分，各 GPU 独立计算部分结果，最后通过通信合并。</p>
+  </div>
+
+  <div class="diagram"><span class="hl">两种矩阵切分方式</span>
+
+Megatron 论文用 <span class="hl">Y = XA</span> 的记法，A = [h_in, h_out]（注意不是 PyTorch 的转置存储）
+
+<span class="hl2">Column Split（按列切分 A，沿 h_out 维度）</span>:
+
+A = [h_in, h_out]                  沿输出维度把 A 切成 N 份
+         h_out/2  h_out/2
+┌────────┬────────┐
+│        │        │
+│  A_0   │  A_1   │ h_in 行
+│(GPU 0) │(GPU 1) │
+│        │        │
+└────────┴────────┘
+
+Y_i = X · <span class="hl2">A_i</span>         每个 GPU 用<span class="hl2">完整的 X</span>，乘 A 的<span class="hl2">第 i 列块</span>
+结果: Y_i = [s, b, <span class="hl2">h_out/N</span>]   输出按列自然切分，<span class="hl2">不需要通信</span>
+
+PyTorch 存储: self.weight = A_i^T = [<span class="hl2">h_out/N</span>, h_in]
+
+─────────────────────────────────────────────────────
+
+<span class="hl4">Row Split（按行切分 A，沿 h_in 维度）</span>:
+
+A = [h_in, h_out]                  沿输入维度把 A 切成 N 份
+┌─────────────────┐
+│   A_0 (GPU 0)   │ h_in/2
+├─────────────────┤
+│   A_1 (GPU 1)   │ h_in/2
+└─────────────────┘
+      h_out
+
+Y_i = <span class="hl4">X_i</span> · A_i       每个 GPU 用 X 的<span class="hl4">第 i 列块</span>，乘 A 的<span class="hl4">第 i 行块</span>
+结果: Y_i = [s, b, h_out]    每个 GPU 得到<span class="hl4">部分和</span>，需要 <span class="hl4">AllReduce 求和</span>
+Y = <span class="hl4">ΣY_i</span>
+
+PyTorch 存储: self.weight = A_i^T = [h_out, <span class="hl4">h_in/N</span>]</div>
+
+  <div class="callout callout-key">
+    <div class="callout-title">核心洞察：矩阵乘法的可分解性</div>
+    Column Split 不需要对输入做任何处理（每个 GPU 复制完整输入），输出自然分片。Row Split 需要输入也被对应切分，输出需要 AllReduce 聚合。Megatron 巧妙地<strong>组合</strong>这两种切分方式 —— 让 Column 的分片输出直接作为 Row 的分片输入，省去中间通信。
+  </div>
+</section>
+
+<!-- ==================== 2. f/g Operators ==================== -->
+<section id="fg-operators">
+  <div class="section-header">
+    <span class="section-num">02</span>
+    <h2>f 和 g 算子</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">mappings.py</span>
+    <span class="tag tag-purple">autograd Function</span>
+    <span class="tag tag-green">共轭配对</span>
+  </div>
+
+  <div class="prose">
+    <p>TP 的通信逻辑封装在 <code>mappings.py</code> 的 <strong>7 个 <code>torch.autograd.Function</code></strong> 中。每个 Function 定义了前向和反向的通信行为。核心设计思想是<strong>共轭配对</strong>：前向做什么通信，反向就做"逆"通信。</p>
+  </div>
+
+  <table class="data-table">
+    <thead>
+      <tr><th>类名</th><th>前向</th><th>反向</th><th>用途</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>_CopyToModelParallelRegion</code> <strong>(f)</strong></td><td>Identity</td><td>AllReduce</td><td>Column Parallel 输入端</td></tr>
+      <tr><td><code>_ReduceFromModelParallelRegion</code> <strong>(g)</strong></td><td>AllReduce</td><td>Identity</td><td>Row Parallel 输出端</td></tr>
+      <tr><td><code>_ScatterToModelParallelRegion</code></td><td>Split</td><td>AllGather</td><td>Row Parallel 分发输入</td></tr>
+      <tr><td><code>_GatherFromModelParallelRegion</code></td><td>AllGather</td><td>ReduceScatter</td><td>Column Parallel 收集输出</td></tr>
+      <tr><td><code>_GatherFromSequenceParallelRegion</code></td><td>AllGather</td><td>ReduceScatter</td><td>SP：进入 TP 区域</td></tr>
+      <tr><td><code>_ReduceScatterToSequenceParallelRegion</code></td><td>ReduceScatter</td><td>AllGather</td><td>SP：离开 TP 区域</td></tr>
+      <tr><td><code>_AllToAll</code></td><td>AllToAll</td><td>AllToAll</td><td>CP 布局切换</td></tr>
+    </tbody>
+  </table>
+
+  <div class="prose">
+    <p>其中最重要的是 <strong>f</strong> 和 <strong>g</strong> 两个算子，它们是整个 TP 设计的基石。代码中通过<strong>小写函数</strong>调用：</p>
+    <ul>
+      <li><strong>f</strong>：<code>copy_to_tensor_model_parallel_region()</code> — 内部调用 <code>_CopyToModelParallelRegion.apply()</code></li>
+      <li><strong>g</strong>：<code>reduce_from_tensor_model_parallel_region()</code> — 内部调用 <code>_ReduceFromModelParallelRegion.apply()</code></li>
+    </ul>
+    <p>后续章节代码中出现的这些小写函数，就是 f 和 g 的实际调用入口。</p>
+  </div>
+
+  <div class="diagram"><span class="hl">f 和 g 的共轭配对关系</span>
+
+<span class="hl2">f 算子</span>（_CopyToModelParallelRegion）:
+  forward:   <span class="hl2">Identity</span>     输入直接透传，不做任何通信
+  backward:  <span class="hl2">AllReduce</span>   梯度从所有 TP rank 聚合
+
+<span class="hl4">g 算子</span>（_ReduceFromModelParallelRegion）:
+  forward:   <span class="hl4">AllReduce</span>   部分结果从所有 TP rank 求和
+  backward:  <span class="hl4">Identity</span>     梯度直接透传，不做任何通信
+
+<span class="hl3">共轭关系</span>：
+  f.forward  = g.backward = <span class="hl3">Identity</span>
+  f.backward = g.forward  = <span class="hl3">AllReduce</span>
+
+为什么是"共轭"？
+  前向路径：f → [计算] → g    只有 g 处做 1 次 AllReduce
+  反向路径：g → [计算] → f    只有 f 处做 1 次 AllReduce
+  <span class="hl">总计：前向 1 次 + 反向 1 次 = 每子层仅 2 次通信</span></div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>tensor_parallel/mappings.py — f 算子</span>
+      <span class="lines">L85-108</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># f: 前向 Identity，反向 AllReduce</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">_CopyToModelParallelRegion</span>(torch.autograd.Function):
+
+<span class="hljs-meta">    @staticmethod</span>
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">forward</span>(<span class="hljs-params">ctx, input_</span>):
+        <span class="hljs-comment"># 前向：直接返回输入，不做任何通信</span>
+        <span class="hljs-comment"># 每个 TP rank 拿到相同的输入 X</span>
+        <span class="hljs-keyword">return</span> input_
+
+<span class="hljs-meta">    @staticmethod</span>
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">backward</span>(<span class="hljs-params">ctx, grad_output</span>):
+        <span class="hljs-comment"># 反向：AllReduce 梯度</span>
+        <span class="hljs-comment"># 因为前向时每个 rank 用相同的 X 算了不同的 Y_i</span>
+        <span class="hljs-comment"># 反向时 dL/dX 需要把所有 rank 的梯度贡献求和</span>
+        <span class="hljs-keyword">return</span> _reduce(grad_output)</code></pre>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>tensor_parallel/mappings.py — g 算子</span>
+      <span class="lines">L111-131</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># g: 前向 AllReduce，反向 Identity</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">_ReduceFromModelParallelRegion</span>(torch.autograd.Function):
+
+<span class="hljs-meta">    @staticmethod</span>
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">forward</span>(<span class="hljs-params">ctx, input_</span>):
+        <span class="hljs-comment"># 前向：AllReduce 部分结果</span>
+        <span class="hljs-comment"># 每个 TP rank 有 Y_i（部分和），需要 ΣY_i 得到完整输出</span>
+        <span class="hljs-keyword">return</span> _reduce(input_)
+
+<span class="hljs-meta">    @staticmethod</span>
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">backward</span>(<span class="hljs-params">ctx, grad_output</span>):
+        <span class="hljs-comment"># 反向：直接返回，不通信</span>
+        <span class="hljs-comment"># 因为前向 AllReduce 后每个 rank 有相同的 Y</span>
+        <span class="hljs-comment"># 下游对 Y 计算的梯度在每个 rank 上也相同</span>
+        <span class="hljs-comment"># 不需要再聚合</span>
+        <span class="hljs-keyword">return</span> grad_output</code></pre>
+  </div>
+
+  <div class="callout callout-info">
+    <div class="callout-title">为什么 g 的反向是 Identity？</div>
+    g 的前向做了 AllReduce：每个 rank 得到相同的 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="4" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44C TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mo class="mjx-sop" space="4"><mjx-c class="mjx-c2211 TEX-S1"></mjx-c></mjx-mo><mjx-msub space="2"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44C TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em; margin-left: -0.182em;"><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi></mjx-script></mjx-msub></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>Y</mi><mo>=</mo><mo data-mjx-texclass="OP">∑</mo><msub><mi>Y</mi><mi>i</mi></msub></math></mjx-assistive-mml></mjx-container>。下游的 LayerNorm、Dropout、残差连接等操作在每个 rank 上对相同的 Y 执行相同的计算，产生相同的梯度 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="5" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D715"></mjx-c></mjx-mi><mjx-texatom texclass="ORD"><mjx-mi class="mjx-cal mjx-i"><mjx-c class="mjx-c4C TEX-C"></mjx-c></mjx-mi></mjx-texatom></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mrow size="s"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D715"></mjx-c></mjx-mi><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44C TEX-I"></mjx-c></mjx-mi></mjx-mrow></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mi>∂</mi><mrow data-mjx-texclass="ORD"><mi data-mjx-variant="-tex-calligraphic" mathvariant="script">L</mi></mrow></mrow><mrow><mi>∂</mi><mi>Y</mi></mrow></mfrac></math></mjx-assistive-mml></mjx-container>。所以反向时梯度在每个 rank 上已经一致，不需要再通信。
+  </div>
+</section>
+
+<!-- ==================== 3. ColumnParallelLinear ==================== -->
+<section id="column-parallel">
+  <div class="section-header">
+    <span class="section-num">03</span>
+    <h2>ColumnParallelLinear</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">layers.py</span>
+    <span class="tag tag-green">按列切分权重</span>
+    <span class="tag tag-purple">gather_output</span>
+  </div>
+
+  <div class="prose">
+    <p>ColumnParallelLinear 将权重矩阵 <strong>按输出维度（列）切分</strong>。用 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="6" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44C TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="4"><mjx-c class="mjx-c1D44B TEX-I"></mjx-c></mjx-mi><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D434 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>Y</mi><mo>=</mo><mi>X</mi><mi>A</mi></math></mjx-assistive-mml></mjx-container> 的记法，<mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="7" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D434 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c5B"></mjx-c></mjx-mo><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em;"><mjx-texatom size="s" texclass="ORD"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D45B TEX-I"></mjx-c></mjx-mi></mjx-texatom></mjx-script></mjx-msub><mjx-mo class="mjx-n"><mjx-c class="mjx-c2C"></mjx-c></mjx-mo><mjx-msub space="2"><mjx-mi class="mjx-i"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em;"><mjx-texatom size="s" texclass="ORD"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D45C TEX-I"></mjx-c></mjx-mi><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D462 TEX-I"></mjx-c></mjx-mi><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D461 TEX-I"></mjx-c></mjx-mi></mjx-texatom></mjx-script></mjx-msub><mjx-mo class="mjx-n"><mjx-c class="mjx-c5D"></mjx-c></mjx-mo></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>A</mi><mo>=</mo><mo stretchy="false">[</mo><msub><mi>h</mi><mrow data-mjx-texclass="ORD"><mi>i</mi><mi>n</mi></mrow></msub><mo>,</mo><msub><mi>h</mi><mrow data-mjx-texclass="ORD"><mi>o</mi><mi>u</mi><mi>t</mi></mrow></msub><mo stretchy="false">]</mo></math></mjx-assistive-mml></mjx-container> 按列分成 N 份，GPU i 持有 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="8" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D434 TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em;"><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi></mjx-script></mjx-msub><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="4"><mjx-c class="mjx-c1D434 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c5B"></mjx-c></mjx-mo><mjx-mo class="mjx-n"><mjx-c class="mjx-c3A"></mjx-c></mjx-mo><mjx-mo class="mjx-n"><mjx-c class="mjx-c2C"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="2"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-msub space="3"><mjx-mi class="mjx-i"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em;"><mjx-texatom size="s" texclass="ORD"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D45C TEX-I"></mjx-c></mjx-mi><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D462 TEX-I"></mjx-c></mjx-mi><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D461 TEX-I"></mjx-c></mjx-mi></mjx-texatom></mjx-script></mjx-msub><mjx-texatom texclass="ORD"><mjx-mo class="mjx-n"><mjx-c class="mjx-c2F"></mjx-c></mjx-mo></mjx-texatom><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3A"></mjx-c></mjx-mo><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c2B"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="3"><mjx-c class="mjx-c31"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-msub space="3"><mjx-mi class="mjx-i"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em;"><mjx-texatom size="s" texclass="ORD"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D45C TEX-I"></mjx-c></mjx-mi><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D462 TEX-I"></mjx-c></mjx-mi><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D461 TEX-I"></mjx-c></mjx-mi></mjx-texatom></mjx-script></mjx-msub><mjx-texatom texclass="ORD"><mjx-mo class="mjx-n"><mjx-c class="mjx-c2F"></mjx-c></mjx-mo></mjx-texatom><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c5D"></mjx-c></mjx-mo></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>A</mi><mi>i</mi></msub><mo>=</mo><mi>A</mi><mo stretchy="false">[</mo><mo>:</mo><mo>,</mo><mi>i</mi><mo>⋅</mo><msub><mi>h</mi><mrow data-mjx-texclass="ORD"><mi>o</mi><mi>u</mi><mi>t</mi></mrow></msub><mrow data-mjx-texclass="ORD"><mo>/</mo></mrow><mi>N</mi><mo>:</mo><mo stretchy="false">(</mo><mi>i</mi><mo>+</mo><mn>1</mn><mo stretchy="false">)</mo><mo>⋅</mo><msub><mi>h</mi><mrow data-mjx-texclass="ORD"><mi>o</mi><mi>u</mi><mi>t</mi></mrow></msub><mrow data-mjx-texclass="ORD"><mo>/</mo></mrow><mi>N</mi><mo stretchy="false">]</mo></math></mjx-assistive-mml></mjx-container>（PyTorch 中存储为 <code>self.weight</code> = <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="9" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-msubsup><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D434 TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.284em; margin-left: 0px;"><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D447 TEX-I"></mjx-c></mjx-mi><mjx-spacer style="margin-top: 0.18em;"></mjx-spacer><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi></mjx-script></mjx-msubsup></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><msubsup><mi>A</mi><mi>i</mi><mi>T</mi></msubsup></math></mjx-assistive-mml></mjx-container> = <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="10" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mo class="mjx-n"><mjx-c class="mjx-c5B"></mjx-c></mjx-mo><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em;"><mjx-texatom size="s" texclass="ORD"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D45C TEX-I"></mjx-c></mjx-mi><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D462 TEX-I"></mjx-c></mjx-mi><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D461 TEX-I"></mjx-c></mjx-mi></mjx-texatom></mjx-script></mjx-msub><mjx-texatom texclass="ORD"><mjx-mo class="mjx-n"><mjx-c class="mjx-c2F"></mjx-c></mjx-mo></mjx-texatom><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2C"></mjx-c></mjx-mo><mjx-msub space="2"><mjx-mi class="mjx-i"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em;"><mjx-texatom size="s" texclass="ORD"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D45B TEX-I"></mjx-c></mjx-mi></mjx-texatom></mjx-script></mjx-msub><mjx-mo class="mjx-n"><mjx-c class="mjx-c5D"></mjx-c></mjx-mo></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mo stretchy="false">[</mo><msub><mi>h</mi><mrow data-mjx-texclass="ORD"><mi>o</mi><mi>u</mi><mi>t</mi></mrow></msub><mrow data-mjx-texclass="ORD"><mo>/</mo></mrow><mi>N</mi><mo>,</mo><msub><mi>h</mi><mrow data-mjx-texclass="ORD"><mi>i</mi><mi>n</mi></mrow></msub><mo stretchy="false">]</mo></math></mjx-assistive-mml></mjx-container>）。输入 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="11" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44B TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>X</mi></math></mjx-assistive-mml></mjx-container> 在所有 GPU 上保持完整（通过 f 算子透传）。</p>
+  </div>
+
+  <div class="op-vis">
+    <div class="op-title">ColumnParallelLinear：相同输入 X + 权重 W 的不同分片 → 输出的不同片段</div>
+    <table class="op-table">
+      <thead><tr><th>输入</th><th></th><th>输出 (gather_output=False)</th></tr></thead>
+      <tbody>
+        <tr><td class="rank-card hl-blue"><span class="rank-id">GPU 0</span><span class="val">X [s,b,h] · A_0 [h,h_out/2]</span></td><td class="arrow-col">→</td><td class="rank-card out"><span class="rank-id">GPU 0</span><span class="val">Y_0 [s,b,h_out/2]</span></td></tr>
+        <tr><td class="rank-card hl-blue"><span class="rank-id">GPU 1</span><span class="val">X [s,b,h] · A_1 [h,h_out/2]</span></td><td class="arrow-col">→</td><td class="rank-card out"><span class="rank-id">GPU 1</span><span class="val">Y_1 [s,b,h_out/2]</span></td></tr>
+      </tbody>
+    </table>
+    <div class="op-note">A_0, A_1 是同一个权重矩阵 A 的第 0、1 列块 → 输出自然按列切分，无需通信</div>
+  </div>
+
+  <div class="prose">
+    <p><strong><code>gather_output</code> 选项</strong>控制是否在前向结束时做 AllGather：</p>
+    <ul>
+      <li><code>gather_output=True</code>：AllGather 输出 → 每个 GPU 得到完整 Y [s,b,h]。用于最终输出层等需要完整结果的场景。</li>
+      <li><code>gather_output=False</code>（常用）：输出保持切分 → 每个 GPU 只有 Y_i [s,b,h/N]。用于 MLP、Attention 等紧跟 RowParallel 的场景，<strong>省去一次通信</strong>。</li>
+    </ul>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>tensor_parallel/layers.py — ColumnParallelLinear.forward 核心逻辑</span>
+      <span class="lines">L976-1073</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">def</span> <span class="hljs-title function_">forward</span>(<span class="hljs-params">self, input_</span>):
+    <span class="hljs-comment"># ① 如果开启 SP：输入是 [s/tp, b, h]，需要 AllGather 拼回 [s, b, h]</span>
+    <span class="hljs-keyword">if</span> self.sequence_parallel:
+        input_parallel = gather_from_sequence_parallel_region(input_, ...)
+    <span class="hljs-keyword">else</span>:
+        <span class="hljs-comment"># ② 普通 TP：f 算子 — forward=Identity，直接透传</span>
+        input_parallel = copy_to_tensor_model_parallel_region(input_)
+
+    <span class="hljs-comment"># ③ 矩阵乘法：每个 GPU 用自己的 W_i 分片计算</span>
+    <span class="hljs-comment"># output_parallel: [s, b, h_out/tp]</span>
+    output_parallel = linear_with_grad_accumulation(
+        input_parallel, self.weight, self.bias, ...
+    )
+
+    <span class="hljs-comment"># ④ 是否收集完整输出</span>
+    <span class="hljs-keyword">if</span> self.gather_output:
+        <span class="hljs-comment"># AllGather 拼回完整输出 [s, b, h_out]</span>
+        output = gather_from_tensor_model_parallel_region(output_parallel)
+    <span class="hljs-keyword">else</span>:
+        <span class="hljs-comment"># 保持切分，直接传给下游 RowParallel</span>
+        output = output_parallel
+
+    <span class="hljs-keyword">return</span> output</code></pre>
+  </div>
+
+  <div class="callout callout-key">
+    <div class="callout-title">MLP 和 Attention 中 gather_output=False</div>
+    在 MLP 中，fc1 是 ColumnParallel，输出直接传给 fc2（RowParallel）。fc2 的 <code>input_is_parallel=True</code> 表示它接受已切分的输入。这样 fc1 和 fc2 之间<strong>不需要任何通信</strong> —— 切分的输出直接就是切分的输入。Attention 中 QKV 投影和 Output 投影也是同样的配对。
+  </div>
+</section>
+
+<!-- ==================== 4. RowParallelLinear ==================== -->
+<section id="row-parallel">
+  <div class="section-header">
+    <span class="section-num">04</span>
+    <h2>RowParallelLinear</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">layers.py</span>
+    <span class="tag tag-orange">按行切分权重</span>
+    <span class="tag tag-purple">input_is_parallel</span>
+  </div>
+
+  <div class="prose">
+    <p>RowParallelLinear 将权重矩阵 <strong>按输入维度（行）切分</strong>。用 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="12" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44C TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="4"><mjx-c class="mjx-c1D44B TEX-I"></mjx-c></mjx-mi><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D434 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>Y</mi><mo>=</mo><mi>X</mi><mi>A</mi></math></mjx-assistive-mml></mjx-container> 的记法，<mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="13" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D434 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c5B"></mjx-c></mjx-mo><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em;"><mjx-texatom size="s" texclass="ORD"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D45B TEX-I"></mjx-c></mjx-mi></mjx-texatom></mjx-script></mjx-msub><mjx-mo class="mjx-n"><mjx-c class="mjx-c2C"></mjx-c></mjx-mo><mjx-msub space="2"><mjx-mi class="mjx-i"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em;"><mjx-texatom size="s" texclass="ORD"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D45C TEX-I"></mjx-c></mjx-mi><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D462 TEX-I"></mjx-c></mjx-mi><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D461 TEX-I"></mjx-c></mjx-mi></mjx-texatom></mjx-script></mjx-msub><mjx-mo class="mjx-n"><mjx-c class="mjx-c5D"></mjx-c></mjx-mo></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>A</mi><mo>=</mo><mo stretchy="false">[</mo><msub><mi>h</mi><mrow data-mjx-texclass="ORD"><mi>i</mi><mi>n</mi></mrow></msub><mo>,</mo><msub><mi>h</mi><mrow data-mjx-texclass="ORD"><mi>o</mi><mi>u</mi><mi>t</mi></mrow></msub><mo stretchy="false">]</mo></math></mjx-assistive-mml></mjx-container> 按行分成 N 份，GPU i 持有 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="14" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D434 TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em;"><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi></mjx-script></mjx-msub><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="4"><mjx-c class="mjx-c1D434 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c5B"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-msub space="3"><mjx-mi class="mjx-i"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em;"><mjx-texatom size="s" texclass="ORD"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D45B TEX-I"></mjx-c></mjx-mi></mjx-texatom></mjx-script></mjx-msub><mjx-texatom texclass="ORD"><mjx-mo class="mjx-n"><mjx-c class="mjx-c2F"></mjx-c></mjx-mo></mjx-texatom><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3A"></mjx-c></mjx-mo><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c2B"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="3"><mjx-c class="mjx-c31"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-msub space="3"><mjx-mi class="mjx-i"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em;"><mjx-texatom size="s" texclass="ORD"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D45B TEX-I"></mjx-c></mjx-mi></mjx-texatom></mjx-script></mjx-msub><mjx-texatom texclass="ORD"><mjx-mo class="mjx-n"><mjx-c class="mjx-c2F"></mjx-c></mjx-mo></mjx-texatom><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2C"></mjx-c></mjx-mo><mjx-mo class="mjx-n" space="2"><mjx-c class="mjx-c3A"></mjx-c></mjx-mo><mjx-mo class="mjx-n"><mjx-c class="mjx-c5D"></mjx-c></mjx-mo></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>A</mi><mi>i</mi></msub><mo>=</mo><mi>A</mi><mo stretchy="false">[</mo><mi>i</mi><mo>⋅</mo><msub><mi>h</mi><mrow data-mjx-texclass="ORD"><mi>i</mi><mi>n</mi></mrow></msub><mrow data-mjx-texclass="ORD"><mo>/</mo></mrow><mi>N</mi><mo>:</mo><mo stretchy="false">(</mo><mi>i</mi><mo>+</mo><mn>1</mn><mo stretchy="false">)</mo><mo>⋅</mo><msub><mi>h</mi><mrow data-mjx-texclass="ORD"><mi>i</mi><mi>n</mi></mrow></msub><mrow data-mjx-texclass="ORD"><mo>/</mo></mrow><mi>N</mi><mo>,</mo><mo>:</mo><mo stretchy="false">]</mo></math></mjx-assistive-mml></mjx-container>（PyTorch 中存储为 <code>self.weight</code> = <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="15" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-msubsup><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D434 TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.284em; margin-left: 0px;"><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D447 TEX-I"></mjx-c></mjx-mi><mjx-spacer style="margin-top: 0.18em;"></mjx-spacer><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi></mjx-script></mjx-msubsup></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><msubsup><mi>A</mi><mi>i</mi><mi>T</mi></msubsup></math></mjx-assistive-mml></mjx-container> = <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="16" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mo class="mjx-n"><mjx-c class="mjx-c5B"></mjx-c></mjx-mo><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em;"><mjx-texatom size="s" texclass="ORD"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D45C TEX-I"></mjx-c></mjx-mi><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D462 TEX-I"></mjx-c></mjx-mi><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D461 TEX-I"></mjx-c></mjx-mi></mjx-texatom></mjx-script></mjx-msub><mjx-mo class="mjx-n"><mjx-c class="mjx-c2C"></mjx-c></mjx-mo><mjx-msub space="2"><mjx-mi class="mjx-i"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em;"><mjx-texatom size="s" texclass="ORD"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D45B TEX-I"></mjx-c></mjx-mi></mjx-texatom></mjx-script></mjx-msub><mjx-texatom texclass="ORD"><mjx-mo class="mjx-n"><mjx-c class="mjx-c2F"></mjx-c></mjx-mo></mjx-texatom><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c5D"></mjx-c></mjx-mo></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mo stretchy="false">[</mo><msub><mi>h</mi><mrow data-mjx-texclass="ORD"><mi>o</mi><mi>u</mi><mi>t</mi></mrow></msub><mo>,</mo><msub><mi>h</mi><mrow data-mjx-texclass="ORD"><mi>i</mi><mi>n</mi></mrow></msub><mrow data-mjx-texclass="ORD"><mo>/</mo></mrow><mi>N</mi><mo stretchy="false">]</mo></math></mjx-assistive-mml></mjx-container>）。要求输入也按对应维度切分（通常来自上游 ColumnParallel 的输出）。</p>
+    <p>每个 GPU 计算 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="17" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44C TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em; margin-left: -0.182em;"><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi></mjx-script></mjx-msub><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-msub space="4"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44B TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em; margin-left: -0.024em;"><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi></mjx-script></mjx-msub><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-msub space="3"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D434 TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em;"><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi></mjx-script></mjx-msub></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>Y</mi><mi>i</mi></msub><mo>=</mo><msub><mi>X</mi><mi>i</mi></msub><mo>⋅</mo><msub><mi>A</mi><mi>i</mi></msub></math></mjx-assistive-mml></mjx-container>，得到的是<strong>部分和</strong>。最终通过 g 算子做 AllReduce 得到完整输出 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="18" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44C TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mo class="mjx-sop" space="4"><mjx-c class="mjx-c2211 TEX-S1"></mjx-c></mjx-mo><mjx-msub space="2"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44C TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em; margin-left: -0.182em;"><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi></mjx-script></mjx-msub></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>Y</mi><mo>=</mo><mo data-mjx-texclass="OP">∑</mo><msub><mi>Y</mi><mi>i</mi></msub></math></mjx-assistive-mml></mjx-container>。</p>
+  </div>
+
+  <div class="op-vis">
+    <div class="op-title">RowParallelLinear：输入的不同分片 + 权重的不同分片 → 部分和 → AllReduce</div>
+    <table class="op-table">
+      <thead><tr><th>输入 (已切分)</th><th></th><th>局部输出</th><th></th><th>AllReduce 后</th></tr></thead>
+      <tbody>
+        <tr><td class="rank-card hl-blue"><span class="rank-id">GPU 0</span><span class="val">X_0 [s,b,h/2]<br>A_0 [h/2,h_out]</span></td><td class="arrow-col">→</td><td class="rank-card"><span class="rank-id">GPU 0</span><span class="val">Y_0 [s,b,h_out]<br>(部分和)</span></td><td class="arrow-col">→</td><td class="rank-card out"><span class="rank-id">GPU 0</span><span class="val">Y [s,b,h_out]</span></td></tr>
+        <tr><td class="rank-card hl-blue"><span class="rank-id">GPU 1</span><span class="val">X_1 [s,b,h/2]<br>A_1 [h/2,h_out]</span></td><td class="arrow-col">→</td><td class="rank-card"><span class="rank-id">GPU 1</span><span class="val">Y_1 [s,b,h_out]<br>(部分和)</span></td><td class="arrow-col">→</td><td class="rank-card out"><span class="rank-id">GPU 1</span><span class="val">Y [s,b,h_out]</span></td></tr>
+      </tbody>
+    </table>
+    <div class="op-note">g 算子: AllReduce(Y_0 + Y_1) → 每个 GPU 得到相同的完整 Y</div>
+  </div>
+
+  <div class="prose">
+    <p><strong><code>input_is_parallel</code> 选项</strong>：</p>
+    <ul>
+      <li><code>input_is_parallel=True</code>（常用）：输入已按 TP 维度切分，直接使用。配合上游 ColumnParallel 的 <code>gather_output=False</code>。</li>
+      <li><code>input_is_parallel=False</code>：输入是完整的，需要先 Scatter 切分再计算。</li>
+    </ul>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>tensor_parallel/layers.py — RowParallelLinear.forward 核心逻辑</span>
+      <span class="lines">L1268-1324</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">def</span> <span class="hljs-title function_">forward</span>(<span class="hljs-params">self, input_</span>):
+    <span class="hljs-comment"># ① 处理输入</span>
+    <span class="hljs-keyword">if</span> self.input_is_parallel:
+        <span class="hljs-comment"># 输入已切分（来自 ColumnParallel 的输出），直接用</span>
+        input_parallel = input_
+    <span class="hljs-keyword">else</span>:
+        <span class="hljs-comment"># 输入是完整的，Scatter 切分到各 GPU</span>
+        input_parallel = scatter_to_tensor_model_parallel_region(input_)
+
+    <span class="hljs-comment"># ② 矩阵乘法：每个 GPU 用自己的 W_i 分片计算部分和</span>
+    <span class="hljs-comment"># output_parallel: [s, b, h_out]（每个 GPU 得到部分和）</span>
+    output_parallel = linear_with_grad_accumulation(
+        input_parallel, self.weight, self.bias, ...
+    )
+
+    <span class="hljs-comment"># ③ 如果开启 SP：ReduceScatter（归约+切分到 [s/tp, b, h]）</span>
+    <span class="hljs-keyword">if</span> self.sequence_parallel:
+        output_ = reduce_scatter_to_sequence_parallel_region(output_parallel, ...)
+    <span class="hljs-keyword">else</span>:
+        <span class="hljs-comment"># ④ 普通 TP：g 算子 — AllReduce 部分和</span>
+        output_ = reduce_from_tensor_model_parallel_region(output_parallel)
+
+    <span class="hljs-comment"># ⑤ 加 bias（如果有）</span>
+    output = output_ + self.bias <span class="hljs-keyword">if</span> self.bias <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span> <span class="hljs-keyword">else</span> output_
+
+    <span class="hljs-keyword">return</span> output</code></pre>
+  </div>
+
+  <div class="callout callout-info">
+    <div class="callout-title">RowParallel 的通信发生在前向</div>
+    与 ColumnParallel（通信在反向）不同，RowParallel 的 g 算子在<strong>前向</strong>做 AllReduce。这是因为下游需要完整的输出（残差连接、LayerNorm）。反向时 g 的 backward=Identity，梯度直接透传，不通信。
+  </div>
+</section>
+
+<!-- ==================== 5. Column + Row Combo ==================== -->
+<section id="column-row-combo">
+  <div class="section-header">
+    <span class="section-num">05</span>
+    <h2>Column + Row 组合</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">MLP TP 策略</span>
+    <span class="tag tag-purple">Attention TP 策略</span>
+    <span class="tag tag-green">每子层仅 1 次通信</span>
+  </div>
+
+  <div class="prose">
+    <p>TP 的精髓不在于单个 ColumnParallel 或 RowParallel，而在于<strong>组合</strong>。Megatron 中所有可 TP 化的子层都采用 <strong>Column + Row 配对</strong>：</p>
+    <ul>
+      <li><strong>MLP</strong>：fc1 (Column) → 激活函数 → fc2 (Row)</li>
+      <li><strong>Attention</strong>：QKV (Column) → Core Attention → Output Proj (Row)</li>
+    </ul>
+    <p>配对的好处：Column 的分片输出<strong>直接喂给</strong> Row 的分片输入，中间不需要通信。整个子层只在 Row 的输出端做 <strong>1 次 AllReduce</strong>（前向），在 Column 的输入端做 <strong>1 次 AllReduce</strong>（反向）。</p>
+  </div>
+
+  <div style="display:flex;gap:20px;align-items:flex-start;margin:20px 0">
+
+  <div style="flex:1;min-width:0">
+  <div class="mermaid" data-processed="true"><svg aria-roledescription="flowchart-v2" role="graphics-document document" viewBox="-8 -8 226.4765625 575.65625" style="max-width: 226.4765625px;" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="100%" id="mermaid-1783857372762"><style>#mermaid-1783857372762{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;fill:#e6edf3;}#mermaid-1783857372762 .error-icon{fill:#0d1117;}#mermaid-1783857372762 .error-text{fill:#f2eee8;stroke:#f2eee8;}#mermaid-1783857372762 .edge-thickness-normal{stroke-width:2px;}#mermaid-1783857372762 .edge-thickness-thick{stroke-width:3.5px;}#mermaid-1783857372762 .edge-pattern-solid{stroke-dasharray:0;}#mermaid-1783857372762 .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-1783857372762 .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-1783857372762 .marker{fill:#58a6ff;stroke:#58a6ff;}#mermaid-1783857372762 .marker.cross{stroke:#58a6ff;}#mermaid-1783857372762 svg{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;}#mermaid-1783857372762 .label{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:#e6edf3;}#mermaid-1783857372762 .cluster-label text{fill:#e6edf3;}#mermaid-1783857372762 .cluster-label span,#mermaid-1783857372762 p{color:#e6edf3;}#mermaid-1783857372762 .label text,#mermaid-1783857372762 span,#mermaid-1783857372762 p{fill:#e6edf3;color:#e6edf3;}#mermaid-1783857372762 .node rect,#mermaid-1783857372762 .node circle,#mermaid-1783857372762 .node ellipse,#mermaid-1783857372762 .node polygon,#mermaid-1783857372762 .node path{fill:#161b22;stroke:#30363d;stroke-width:1px;}#mermaid-1783857372762 .flowchart-label text{text-anchor:middle;}#mermaid-1783857372762 .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#mermaid-1783857372762 .node .label{text-align:center;}#mermaid-1783857372762 .node.clickable{cursor:pointer;}#mermaid-1783857372762 .arrowheadPath{fill:#e3ded6;}#mermaid-1783857372762 .edgePath .path{stroke:#58a6ff;stroke-width:2.0px;}#mermaid-1783857372762 .flowchart-link{stroke:#58a6ff;fill:none;}#mermaid-1783857372762 .edgeLabel{background-color:#1c2129;text-align:center;}#mermaid-1783857372762 .edgeLabel rect{opacity:0.5;background-color:#1c2129;fill:#1c2129;}#mermaid-1783857372762 .labelBkg{background-color:rgba(28, 33, 41, 0.5);}#mermaid-1783857372762 .cluster rect{fill:rgba(88,166,255,0.05);stroke:#30363d;stroke-width:1px;}#mermaid-1783857372762 .cluster text{fill:#e6edf3;}#mermaid-1783857372762 .cluster span,#mermaid-1783857372762 p{color:#e6edf3;}#mermaid-1783857372762 div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:12px;background:#0d1117;border:1px solid hsl(216, 0%, 17.0588235294%);border-radius:2px;pointer-events:none;z-index:100;}#mermaid-1783857372762 .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#e6edf3;}#mermaid-1783857372762 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="6" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857372762_flowchart-pointEnd"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 0 L 10 5 L 0 10 z"></path></marker><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="4.5" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857372762_flowchart-pointStart"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 5 L 10 10 L 10 0 z"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="11" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857372762_flowchart-circleEnd"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="-1" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857372762_flowchart-circleStart"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="12" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783857372762_flowchart-crossEnd"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="-1" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783857372762_flowchart-crossStart"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><g class="root"><g class="clusters"></g><g class="edgePaths"><path marker-end="url(#mermaid-1783857372762_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-X1 LE-F1" id="L-X1-F1-0" d="M105.238,37.094L105.238,41.26C105.238,45.427,105.238,53.76,105.238,61.21C105.238,68.66,105.238,75.227,105.238,78.51L105.238,81.794"></path><path marker-end="url(#mermaid-1783857372762_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-F1 LE-FC1_1" id="L-F1-FC1_1-0" d="M105.238,124.188L105.238,128.354C105.238,132.521,105.238,140.854,105.238,148.304C105.238,155.754,105.238,162.321,105.238,165.604L105.238,168.888"></path><path marker-end="url(#mermaid-1783857372762_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-FC1_1 LE-ACT1" id="L-FC1_1-ACT1-0" d="M105.238,211.281L105.238,215.448C105.238,219.615,105.238,227.948,105.238,235.398C105.238,242.848,105.238,249.415,105.238,252.698L105.238,255.981"></path><path marker-end="url(#mermaid-1783857372762_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-ACT1 LE-FC2_1" id="L-ACT1-FC2_1-0" d="M105.238,298.375L105.238,302.542C105.238,306.708,105.238,315.042,105.238,322.492C105.238,329.942,105.238,336.508,105.238,339.792L105.238,343.075"></path><path marker-end="url(#mermaid-1783857372762_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-FC2_1 LE-G1_1" id="L-FC2_1-G1_1-0" d="M105.238,385.469L105.238,389.635C105.238,393.802,105.238,402.135,105.238,409.585C105.238,417.035,105.238,423.602,105.238,426.885L105.238,430.169"></path><path marker-end="url(#mermaid-1783857372762_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-G1_1 LE-Y1" id="L-G1_1-Y1-0" d="M105.238,472.563L105.238,476.729C105.238,480.896,105.238,489.229,105.238,496.679C105.238,504.129,105.238,510.696,105.238,513.979L105.238,517.263"></path></g><g class="edgeLabels"><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g></g><g class="nodes"><g transform="translate(105.23828125, 18.546875)" data-id="X1" data-node="true" id="flowchart-X1-0" class="node default default flowchart-label"><rect height="37.09375" width="101.265625" y="-18.546875" x="-50.6328125" ry="0" rx="0" style="fill:#0d1117;stroke:#3fb950;" class="basic label-container"></rect><g transform="translate(-43.1328125, -11.046875)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="22.09375" width="86.265625"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel">Input X [s,b,h]</span></div></foreignobject></g></g><g transform="translate(105.23828125, 105.640625)" data-id="F1" data-node="true" id="flowchart-F1-1" class="node default default flowchart-label"><rect height="37.09375" width="188.1640625" y="-18.546875" x="-94.08203125" ry="0" rx="0" style="fill:#1a2332;stroke:#58a6ff;" class="basic label-container"></rect><g transform="translate(-86.58203125, -11.046875)" style="color:#58a6ff;" class="label"><rect></rect><foreignobject height="22.09375" width="173.1640625"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(88, 166, 255); display: inline-block; white-space: nowrap;"><span style="color:#58a6ff;" class="nodeLabel">f fwd:Identity bwd:AllReduce</span></div></foreignobject></g></g><g transform="translate(105.23828125, 192.734375)" data-id="FC1_1" data-node="true" id="flowchart-FC1_1-2" class="node default default flowchart-label"><rect height="37.09375" width="182.4921875" y="-18.546875" x="-91.24609375" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-83.74609375, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="167.4921875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">ColParallel fc1 gather=False</span></div></foreignobject></g></g><g transform="translate(105.23828125, 279.828125)" data-id="ACT1" data-node="true" id="flowchart-ACT1-3" class="node default default flowchart-label"><rect height="37.09375" width="147.828125" y="-18.546875" x="-73.9140625" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-66.4140625, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="132.828125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">SwiGLU 逐元素,无通信</span></div></foreignobject></g></g><g transform="translate(105.23828125, 366.921875)" data-id="FC2_1" data-node="true" id="flowchart-FC2_1-4" class="node default default flowchart-label"><rect height="37.09375" width="210.4765625" y="-18.546875" x="-105.23828125" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-97.73828125, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="195.4765625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">RowParallel fc2 input_is_parallel</span></div></foreignobject></g></g><g transform="translate(105.23828125, 454.015625)" data-id="G1_1" data-node="true" id="flowchart-G1_1-5" class="node default default flowchart-label"><rect height="37.09375" width="191.3828125" y="-18.546875" x="-95.69140625" ry="0" rx="0" style="fill:#1a2332;stroke:#58a6ff;" class="basic label-container"></rect><g transform="translate(-88.19140625, -11.046875)" style="color:#58a6ff;" class="label"><rect></rect><foreignobject height="22.09375" width="176.3828125"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(88, 166, 255); display: inline-block; white-space: nowrap;"><span style="color:#58a6ff;" class="nodeLabel">g fwd:AllReduce bwd:Identity</span></div></foreignobject></g></g><g transform="translate(105.23828125, 541.109375)" data-id="Y1" data-node="true" id="flowchart-Y1-6" class="node default default flowchart-label"><rect height="37.09375" width="112.15625" y="-18.546875" x="-56.078125" ry="0" rx="0" style="fill:#0d1117;stroke:#3fb950;" class="basic label-container"></rect><g transform="translate(-48.578125, -11.046875)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="22.09375" width="97.15625"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel">Output Y [s,b,h]</span></div></foreignobject></g></g></g></g></g></svg></div>
+  <div style="text-align:center;font-size:0.85rem;color:var(--text-muted);margin-top:-8px">
+    <strong style="color:var(--accent)">MLP TP</strong> — fc1 和 fc2 之间零通信<br>前向 1 次 AllReduce (g) + 反向 1 次 AllReduce (f)
+  </div>
+  </div>
+
+  <div style="flex:1;min-width:0">
+  <div class="mermaid" data-processed="true"><svg aria-roledescription="flowchart-v2" role="graphics-document document" viewBox="-8 -8 247.46875 575.65625" style="max-width: 247.46875px;" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="100%" id="mermaid-1783857372777"><style>#mermaid-1783857372777{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;fill:#e6edf3;}#mermaid-1783857372777 .error-icon{fill:#0d1117;}#mermaid-1783857372777 .error-text{fill:#f2eee8;stroke:#f2eee8;}#mermaid-1783857372777 .edge-thickness-normal{stroke-width:2px;}#mermaid-1783857372777 .edge-thickness-thick{stroke-width:3.5px;}#mermaid-1783857372777 .edge-pattern-solid{stroke-dasharray:0;}#mermaid-1783857372777 .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-1783857372777 .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-1783857372777 .marker{fill:#58a6ff;stroke:#58a6ff;}#mermaid-1783857372777 .marker.cross{stroke:#58a6ff;}#mermaid-1783857372777 svg{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;}#mermaid-1783857372777 .label{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:#e6edf3;}#mermaid-1783857372777 .cluster-label text{fill:#e6edf3;}#mermaid-1783857372777 .cluster-label span,#mermaid-1783857372777 p{color:#e6edf3;}#mermaid-1783857372777 .label text,#mermaid-1783857372777 span,#mermaid-1783857372777 p{fill:#e6edf3;color:#e6edf3;}#mermaid-1783857372777 .node rect,#mermaid-1783857372777 .node circle,#mermaid-1783857372777 .node ellipse,#mermaid-1783857372777 .node polygon,#mermaid-1783857372777 .node path{fill:#161b22;stroke:#30363d;stroke-width:1px;}#mermaid-1783857372777 .flowchart-label text{text-anchor:middle;}#mermaid-1783857372777 .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#mermaid-1783857372777 .node .label{text-align:center;}#mermaid-1783857372777 .node.clickable{cursor:pointer;}#mermaid-1783857372777 .arrowheadPath{fill:#e3ded6;}#mermaid-1783857372777 .edgePath .path{stroke:#58a6ff;stroke-width:2.0px;}#mermaid-1783857372777 .flowchart-link{stroke:#58a6ff;fill:none;}#mermaid-1783857372777 .edgeLabel{background-color:#1c2129;text-align:center;}#mermaid-1783857372777 .edgeLabel rect{opacity:0.5;background-color:#1c2129;fill:#1c2129;}#mermaid-1783857372777 .labelBkg{background-color:rgba(28, 33, 41, 0.5);}#mermaid-1783857372777 .cluster rect{fill:rgba(88,166,255,0.05);stroke:#30363d;stroke-width:1px;}#mermaid-1783857372777 .cluster text{fill:#e6edf3;}#mermaid-1783857372777 .cluster span,#mermaid-1783857372777 p{color:#e6edf3;}#mermaid-1783857372777 div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:12px;background:#0d1117;border:1px solid hsl(216, 0%, 17.0588235294%);border-radius:2px;pointer-events:none;z-index:100;}#mermaid-1783857372777 .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#e6edf3;}#mermaid-1783857372777 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="6" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857372777_flowchart-pointEnd"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 0 L 10 5 L 0 10 z"></path></marker><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="4.5" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857372777_flowchart-pointStart"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 5 L 10 10 L 10 0 z"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="11" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857372777_flowchart-circleEnd"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="-1" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857372777_flowchart-circleStart"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="12" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783857372777_flowchart-crossEnd"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="-1" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783857372777_flowchart-crossStart"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><g class="root"><g class="clusters"></g><g class="edgePaths"><path marker-end="url(#mermaid-1783857372777_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-X2 LE-F2_a" id="L-X2-F2_a-0" d="M115.734,37.094L115.734,41.26C115.734,45.427,115.734,53.76,115.734,61.21C115.734,68.66,115.734,75.227,115.734,78.51L115.734,81.794"></path><path marker-end="url(#mermaid-1783857372777_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-F2_a LE-QKV_a" id="L-F2_a-QKV_a-0" d="M115.734,124.188L115.734,128.354C115.734,132.521,115.734,140.854,115.734,148.304C115.734,155.754,115.734,162.321,115.734,165.604L115.734,168.888"></path><path marker-end="url(#mermaid-1783857372777_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-QKV_a LE-CA_a" id="L-QKV_a-CA_a-0" d="M115.734,211.281L115.734,215.448C115.734,219.615,115.734,227.948,115.734,235.398C115.734,242.848,115.734,249.415,115.734,252.698L115.734,255.981"></path><path marker-end="url(#mermaid-1783857372777_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-CA_a LE-OP_a" id="L-CA_a-OP_a-0" d="M115.734,298.375L115.734,302.542C115.734,306.708,115.734,315.042,115.734,322.492C115.734,329.942,115.734,336.508,115.734,339.792L115.734,343.075"></path><path marker-end="url(#mermaid-1783857372777_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-OP_a LE-G2_a" id="L-OP_a-G2_a-0" d="M115.734,385.469L115.734,389.635C115.734,393.802,115.734,402.135,115.734,409.585C115.734,417.035,115.734,423.602,115.734,426.885L115.734,430.169"></path><path marker-end="url(#mermaid-1783857372777_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-G2_a LE-Y2" id="L-G2_a-Y2-0" d="M115.734,472.563L115.734,476.729C115.734,480.896,115.734,489.229,115.734,496.679C115.734,504.129,115.734,510.696,115.734,513.979L115.734,517.263"></path></g><g class="edgeLabels"><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g></g><g class="nodes"><g transform="translate(115.734375, 18.546875)" data-id="X2" data-node="true" id="flowchart-X2-18" class="node default default flowchart-label"><rect height="37.09375" width="101.265625" y="-18.546875" x="-50.6328125" ry="0" rx="0" style="fill:#0d1117;stroke:#3fb950;" class="basic label-container"></rect><g transform="translate(-43.1328125, -11.046875)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="22.09375" width="86.265625"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel">Input X [s,b,h]</span></div></foreignobject></g></g><g transform="translate(115.734375, 105.640625)" data-id="F2_a" data-node="true" id="flowchart-F2_a-19" class="node default default flowchart-label"><rect height="37.09375" width="188.1640625" y="-18.546875" x="-94.08203125" ry="0" rx="0" style="fill:#1a2332;stroke:#58a6ff;" class="basic label-container"></rect><g transform="translate(-86.58203125, -11.046875)" style="color:#58a6ff;" class="label"><rect></rect><foreignobject height="22.09375" width="173.1640625"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(88, 166, 255); display: inline-block; white-space: nowrap;"><span style="color:#58a6ff;" class="nodeLabel">f fwd:Identity bwd:AllReduce</span></div></foreignobject></g></g><g transform="translate(115.734375, 192.734375)" data-id="QKV_a" data-node="true" id="flowchart-QKV_a-20" class="node default default flowchart-label"><rect height="37.09375" width="192.125" y="-18.546875" x="-96.0625" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-88.5625, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="177.125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">ColParallel QKV gather=False</span></div></foreignobject></g></g><g transform="translate(115.734375, 279.828125)" data-id="CA_a" data-node="true" id="flowchart-CA_a-21" class="node default default flowchart-label"><rect height="37.09375" width="171.3828125" y="-18.546875" x="-85.69140625" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-78.19140625, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="156.3828125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">CoreAttention 各head独立</span></div></foreignobject></g></g><g transform="translate(115.734375, 366.921875)" data-id="OP_a" data-node="true" id="flowchart-OP_a-22" class="node default default flowchart-label"><rect height="37.09375" width="231.46875" y="-18.546875" x="-115.734375" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-108.234375, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="216.46875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">RowParallel O_proj input_is_parallel</span></div></foreignobject></g></g><g transform="translate(115.734375, 454.015625)" data-id="G2_a" data-node="true" id="flowchart-G2_a-23" class="node default default flowchart-label"><rect height="37.09375" width="191.3828125" y="-18.546875" x="-95.69140625" ry="0" rx="0" style="fill:#1a2332;stroke:#58a6ff;" class="basic label-container"></rect><g transform="translate(-88.19140625, -11.046875)" style="color:#58a6ff;" class="label"><rect></rect><foreignobject height="22.09375" width="176.3828125"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(88, 166, 255); display: inline-block; white-space: nowrap;"><span style="color:#58a6ff;" class="nodeLabel">g fwd:AllReduce bwd:Identity</span></div></foreignobject></g></g><g transform="translate(115.734375, 541.109375)" data-id="Y2" data-node="true" id="flowchart-Y2-24" class="node default default flowchart-label"><rect height="37.09375" width="112.15625" y="-18.546875" x="-56.078125" ry="0" rx="0" style="fill:#0d1117;stroke:#3fb950;" class="basic label-container"></rect><g transform="translate(-48.578125, -11.046875)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="22.09375" width="97.15625"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel">Output Y [s,b,h]</span></div></foreignobject></g></g></g></g></g></svg></div>
+  <div style="text-align:center;font-size:0.85rem;color:var(--text-muted);margin-top:-8px">
+    <strong style="color:var(--accent)">Attention TP</strong> — heads 天然可分,无跨GPU通信<br>前向 1 次 AllReduce (g) + 反向 1 次 AllReduce (f)
+  </div>
+  </div>
+
+  </div>
+
+  <div class="callout callout-key">
+    <div class="callout-title">Column + Row 配对的通信效率</div>
+    如果 MLP 用两个 ColumnParallel（fc1 和 fc2 都按列切），fc1 的输出需要 AllGather 成完整 tensor 才能给 fc2 用，fc2 的输出又需要 AllGather 才能给残差连接用 —— 前向就要 2 次 AllGather，反向还有 2 次 AllReduce（f 的 backward），总共 4 次通信。而 Column + Row 配对只需要 <strong>前向 1 次 + 反向 1 次 = 2 次通信</strong>，因为 Column 的切分输出恰好是 Row 需要的切分输入，省掉了中间的 AllGather。这就是 Megatron 论文（Shoeybi et al., 2019）的核心贡献之一。
+  </div>
+
+  <details class="collapsible">
+    <summary>为什么激活函数不破坏 Column + Row 的配合？ <span class="badge">可选</span></summary>
+    <div class="collapsible-body">
+      <div class="prose">
+        <p>ColumnParallel fc1 的输出按列切分：GPU i 持有 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="19" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44C TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em; margin-left: -0.182em;"><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi></mjx-script></mjx-msub><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="4"><mjx-c class="mjx-c1D44B TEX-I"></mjx-c></mjx-mi><mjx-msubsup><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44A TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.288em; margin-left: -0.104em;"><mjx-mi class="mjx-i" size="s" style="margin-left: 0.225em;"><mjx-c class="mjx-c1D447 TEX-I"></mjx-c></mjx-mi><mjx-spacer style="margin-top: 0.18em;"></mjx-spacer><mjx-texatom size="s" texclass="ORD"><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c2C"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi></mjx-texatom></mjx-script></mjx-msubsup></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>Y</mi><mi>i</mi></msub><mo>=</mo><mi>X</mi><msubsup><mi>W</mi><mrow data-mjx-texclass="ORD"><mn>1</mn><mo>,</mo><mi>i</mi></mrow><mi>T</mi></msubsup></math></mjx-assistive-mml></mjx-container>，是输出 tensor 的第 i 个分片。SwiGLU/GeLU 等激活函数是<strong>逐元素操作</strong>，作用在每个元素上独立计算，不依赖其他元素的值。所以 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="20" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D70E TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44C TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em; margin-left: -0.182em;"><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D456 TEX-I"></mjx-c></mjx-mi></mjx-script></mjx-msub><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>σ</mi><mo stretchy="false">(</mo><msub><mi>Y</mi><mi>i</mi></msub><mo stretchy="false">)</mo></math></mjx-assistive-mml></mjx-container> 就是 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="21" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D70E TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44C TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>σ</mi><mo stretchy="false">(</mo><mi>Y</mi><mo stretchy="false">)</mo></math></mjx-assistive-mml></mjx-container> 的第 i 个分片，<strong>激活后的切分状态不变</strong>。</p>
+        <p>这个性质对所有逐元素操作都成立：Dropout、残差加法（如果两个加数都按同一维度切分）、逐元素乘法等。只有 LayerNorm、Softmax 这类需要<strong>跨元素归约</strong>的操作不能在切分维度上独立计算。</p>
+      </div>
+    </div>
+  </details>
+</section>
+
+<!-- ==================== 6. Sequence Parallelism ==================== -->
+<section id="sequence-parallel">
+  <div class="section-header">
+    <span class="section-num">06</span>
+    <h2>Sequence Parallelism</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">layers.py</span>
+    <span class="tag tag-purple">mappings.py</span>
+    <span class="tag tag-green">激活内存优化</span>
+  </div>
+
+  <div class="prose">
+    <p><strong>问题</strong>：在纯 TP 模式下，LayerNorm、Dropout、残差连接等非 TP 区域的操作在每个 GPU 上处理<strong>完整的</strong> [s, b, h] 激活值。这些操作不参与 TP 切分，每个 GPU 上冗余地持有完整激活，浪费显存。</p>
+    <p><strong>SP 方案</strong>：在 TP 区域外，改为按<strong>序列维度</strong>切分激活值。每个 GPU 只持有 [s/N, b, h]。进入 TP 区域（Attention、MLP）前用 AllGather 拼回完整序列，离开 TP 区域后用 ReduceScatter 切回分片。</p>
+    <p><strong>通信量不变</strong>：AllReduce = AllGather + ReduceScatter。SP 只是把 AllReduce 拆成了两个半量操作，分别放在 TP 区域的入口和出口。总通信量完全相同，但激活内存减少到 1/N。</p>
+  </div>
+
+  <table class="data-table">
+    <thead>
+      <tr><th>位置</th><th>方向</th><th>TP-only（f/g）</th><th>TP+SP（替代品）</th></tr>
+    </thead>
+    <tbody>
+      <tr><td rowspan="2"><strong>TP 入口</strong><br>(ColumnParallel 前)</td><td>前向</td><td><code>f</code>: Identity (0)</td><td>AllGather (D)</td></tr>
+      <tr><td>反向</td><td><code>f.bwd</code>: AllReduce (2D)</td><td>AG.bwd = ReduceScatter (D)</td></tr>
+      <tr><td rowspan="2"><strong>TP 出口</strong><br>(RowParallel 后)</td><td>前向</td><td><code>g</code>: AllReduce (2D)</td><td>ReduceScatter (D)</td></tr>
+      <tr><td>反向</td><td><code>g.bwd</code>: Identity (0)</td><td>RS.bwd = AllGather (D)</td></tr>
+      <tr style="border-top: 2px solid var(--accent)"><td><strong>每子层合计</strong></td><td>前向+反向</td><td>0 + 2D + 2D + 0 = <strong>4D</strong></td><td>D + D + D + D = <strong>4D</strong></td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-info">
+    <div class="callout-title">代码中是 if/else 二选一，不是叠加</div>
+    ColumnParallel.forward 中：<code>if sequence_parallel: AllGather(...) else: f(...)</code><br>
+    RowParallel.forward 中：<code>if sequence_parallel: ReduceScatter(...) else: g(...)</code><br>
+    SP 模式下 f 和 g <strong>不存在</strong>，被 AG 和 RS 完全替代。反向通信由 autograd 自动处理（AG 的 backward 是 RS，RS 的 backward 是 AG）。TP 区域内部的计算完全相同。
+  </div>
+
+  <div class="prose">
+    <p>下面两张图展示同一个 TransformerLayer 在两种模式下的<strong>完整数据流</strong>。六边形节点是通信算子，标注了前向和反向各自的操作与通信量（D = s×b×h）。虚线框标记非 TP 区域（LayerNorm、Dropout、残差连接）。</p>
+  </div>
+
+  <div style="display:flex;gap:20px;align-items:flex-start;margin:20px 0">
+
+  <div style="flex:1;min-width:0">
+  <div class="mermaid" data-processed="true"><svg aria-roledescription="flowchart-v2" role="graphics-document document" viewBox="-8 -8 145.75 1359.5" style="max-width: 145.75px;" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="100%" id="mermaid-1783857372789"><style>#mermaid-1783857372789{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;fill:#e6edf3;}#mermaid-1783857372789 .error-icon{fill:#0d1117;}#mermaid-1783857372789 .error-text{fill:#f2eee8;stroke:#f2eee8;}#mermaid-1783857372789 .edge-thickness-normal{stroke-width:2px;}#mermaid-1783857372789 .edge-thickness-thick{stroke-width:3.5px;}#mermaid-1783857372789 .edge-pattern-solid{stroke-dasharray:0;}#mermaid-1783857372789 .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-1783857372789 .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-1783857372789 .marker{fill:#58a6ff;stroke:#58a6ff;}#mermaid-1783857372789 .marker.cross{stroke:#58a6ff;}#mermaid-1783857372789 svg{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;}#mermaid-1783857372789 .label{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:#e6edf3;}#mermaid-1783857372789 .cluster-label text{fill:#e6edf3;}#mermaid-1783857372789 .cluster-label span,#mermaid-1783857372789 p{color:#e6edf3;}#mermaid-1783857372789 .label text,#mermaid-1783857372789 span,#mermaid-1783857372789 p{fill:#e6edf3;color:#e6edf3;}#mermaid-1783857372789 .node rect,#mermaid-1783857372789 .node circle,#mermaid-1783857372789 .node ellipse,#mermaid-1783857372789 .node polygon,#mermaid-1783857372789 .node path{fill:#161b22;stroke:#30363d;stroke-width:1px;}#mermaid-1783857372789 .flowchart-label text{text-anchor:middle;}#mermaid-1783857372789 .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#mermaid-1783857372789 .node .label{text-align:center;}#mermaid-1783857372789 .node.clickable{cursor:pointer;}#mermaid-1783857372789 .arrowheadPath{fill:#e3ded6;}#mermaid-1783857372789 .edgePath .path{stroke:#58a6ff;stroke-width:2.0px;}#mermaid-1783857372789 .flowchart-link{stroke:#58a6ff;fill:none;}#mermaid-1783857372789 .edgeLabel{background-color:#1c2129;text-align:center;}#mermaid-1783857372789 .edgeLabel rect{opacity:0.5;background-color:#1c2129;fill:#1c2129;}#mermaid-1783857372789 .labelBkg{background-color:rgba(28, 33, 41, 0.5);}#mermaid-1783857372789 .cluster rect{fill:rgba(88,166,255,0.05);stroke:#30363d;stroke-width:1px;}#mermaid-1783857372789 .cluster text{fill:#e6edf3;}#mermaid-1783857372789 .cluster span,#mermaid-1783857372789 p{color:#e6edf3;}#mermaid-1783857372789 div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:12px;background:#0d1117;border:1px solid hsl(216, 0%, 17.0588235294%);border-radius:2px;pointer-events:none;z-index:100;}#mermaid-1783857372789 .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#e6edf3;}#mermaid-1783857372789 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="6" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857372789_flowchart-pointEnd"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 0 L 10 5 L 0 10 z"></path></marker><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="4.5" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857372789_flowchart-pointStart"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 5 L 10 10 L 10 0 z"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="11" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857372789_flowchart-circleEnd"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="-1" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857372789_flowchart-circleStart"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="12" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783857372789_flowchart-crossEnd"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="-1" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783857372789_flowchart-crossStart"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><g class="root"><g class="clusters"></g><g class="edgePaths"><path marker-end="url(#mermaid-1783857372789_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-H LE-LN1" id="L-H-LN1-0" d="M64.875,37.094L64.875,41.26C64.875,45.427,64.875,53.76,64.875,61.21C64.875,68.66,64.875,75.227,64.875,78.51L64.875,81.794"></path><path marker-end="url(#mermaid-1783857372789_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-LN1 LE-F1" id="L-LN1-F1-0" d="M64.875,124.188L64.875,128.354C64.875,132.521,64.875,140.854,64.875,148.304C64.875,155.754,64.875,162.321,64.875,165.604L64.875,168.888"></path><path marker-end="url(#mermaid-1783857372789_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-F1 LE-QKV" id="L-F1-QKV-0" d="M64.875,211.281L64.875,215.448C64.875,219.615,64.875,227.948,64.875,235.398C64.875,242.848,64.875,249.415,64.875,252.698L64.875,255.981"></path><path marker-end="url(#mermaid-1783857372789_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-QKV LE-CA" id="L-QKV-CA-0" d="M64.875,298.375L64.875,302.542C64.875,306.708,64.875,315.042,64.875,322.492C64.875,329.942,64.875,336.508,64.875,339.792L64.875,343.075"></path><path marker-end="url(#mermaid-1783857372789_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-CA LE-OP" id="L-CA-OP-0" d="M64.875,385.469L64.875,389.635C64.875,393.802,64.875,402.135,64.875,409.585C64.875,417.035,64.875,423.602,64.875,426.885L64.875,430.169"></path><path marker-end="url(#mermaid-1783857372789_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-OP LE-G1" id="L-OP-G1-0" d="M64.875,472.563L64.875,476.729C64.875,480.896,64.875,489.229,64.875,496.679C64.875,504.129,64.875,510.696,64.875,513.979L64.875,517.263"></path><path marker-end="url(#mermaid-1783857372789_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-G1 LE-BDA1" id="L-G1-BDA1-0" d="M64.875,559.656L64.875,563.823C64.875,567.99,64.875,576.323,64.875,583.773C64.875,591.223,64.875,597.79,64.875,601.073L64.875,604.356"></path><path marker-end="url(#mermaid-1783857372789_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-BDA1 LE-LN2" id="L-BDA1-LN2-0" d="M64.875,646.75L64.875,650.917C64.875,655.083,64.875,663.417,64.875,670.867C64.875,678.317,64.875,684.883,64.875,688.167L64.875,691.45"></path><path marker-end="url(#mermaid-1783857372789_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-LN2 LE-F2" id="L-LN2-F2-0" d="M64.875,733.844L64.875,738.01C64.875,742.177,64.875,750.51,64.875,757.96C64.875,765.41,64.875,771.977,64.875,775.26L64.875,778.544"></path><path marker-end="url(#mermaid-1783857372789_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-F2 LE-FC1" id="L-F2-FC1-0" d="M64.875,820.938L64.875,825.104C64.875,829.271,64.875,837.604,64.875,845.054C64.875,852.504,64.875,859.071,64.875,862.354L64.875,865.638"></path><path marker-end="url(#mermaid-1783857372789_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-FC1 LE-ACT" id="L-FC1-ACT-0" d="M64.875,908.031L64.875,912.198C64.875,916.365,64.875,924.698,64.875,932.148C64.875,939.598,64.875,946.165,64.875,949.448L64.875,952.731"></path><path marker-end="url(#mermaid-1783857372789_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-ACT LE-FC2" id="L-ACT-FC2-0" d="M64.875,995.125L64.875,999.292C64.875,1003.458,64.875,1011.792,64.875,1019.242C64.875,1026.692,64.875,1033.258,64.875,1036.542L64.875,1039.825"></path><path marker-end="url(#mermaid-1783857372789_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-FC2 LE-G2" id="L-FC2-G2-0" d="M64.875,1082.219L64.875,1086.385C64.875,1090.552,64.875,1098.885,64.875,1106.335C64.875,1113.785,64.875,1120.352,64.875,1123.635L64.875,1126.919"></path><path marker-end="url(#mermaid-1783857372789_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-G2 LE-BDA2" id="L-G2-BDA2-0" d="M64.875,1169.313L64.875,1173.479C64.875,1177.646,64.875,1185.979,64.875,1193.429C64.875,1200.879,64.875,1207.446,64.875,1210.729L64.875,1214.013"></path><path marker-end="url(#mermaid-1783857372789_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-BDA2 LE-OUT" id="L-BDA2-OUT-0" d="M64.875,1256.406L64.875,1260.573C64.875,1264.74,64.875,1273.073,64.875,1280.523C64.875,1287.973,64.875,1294.54,64.875,1297.823L64.875,1301.106"></path></g><g class="edgeLabels"><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g></g><g class="nodes"><g transform="translate(64.875, 18.546875)" data-id="H" data-node="true" id="flowchart-H-36" class="node default default flowchart-label"><rect height="37.09375" width="110.0078125" y="-18.546875" x="-55.00390625" ry="0" rx="0" style="fill:#0d1117;stroke:#3fb950;" class="basic label-container"></rect><g transform="translate(-47.50390625, -11.046875)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="22.09375" width="95.0078125"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel">[s,b,h] 完整副本</span></div></foreignobject></g></g><g transform="translate(64.875, 105.640625)" data-id="LN1" data-node="true" id="flowchart-LN1-37" class="node default default flowchart-label"><rect height="37.09375" width="111.1015625" y="-18.546875" x="-55.55078125" ry="0" rx="0" style="fill:#161b22;stroke:#30363d;stroke-dasharray:5 5;" class="basic label-container"></rect><g transform="translate(-48.05078125, -11.046875)" style="color:#8b949e;" class="label"><rect></rect><foreignobject height="22.09375" width="96.1015625"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(139, 148, 158); display: inline-block; white-space: nowrap;"><span style="color:#8b949e;" class="nodeLabel">LayerNorm 冗余</span></div></foreignobject></g></g><g transform="translate(64.875, 192.734375)" data-id="F1" data-node="true" id="flowchart-F1-38" class="node default default flowchart-label"><rect height="37.09375" width="107.25" y="-18.546875" x="-53.625" ry="0" rx="0" style="fill:#1a2332;stroke:#58a6ff;" class="basic label-container"></rect><g transform="translate(-46.125, -11.046875)" style="color:#58a6ff;" class="label"><rect></rect><foreignobject height="22.09375" width="92.25"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(88, 166, 255); display: inline-block; white-space: nowrap;"><span style="color:#58a6ff;" class="nodeLabel">f fwd:0 bwd:2D</span></div></foreignobject></g></g><g transform="translate(64.875, 279.828125)" data-id="QKV" data-node="true" id="flowchart-QKV-39" class="node default default flowchart-label"><rect height="37.09375" width="109.734375" y="-18.546875" x="-54.8671875" ry="0" rx="0" style="fill:#161b22;stroke:#58a6ff;" class="basic label-container"></rect><g transform="translate(-47.3671875, -11.046875)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="22.09375" width="94.734375"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel">ColParallel QKV</span></div></foreignobject></g></g><g transform="translate(64.875, 366.921875)" data-id="CA" data-node="true" id="flowchart-CA-40" class="node default default flowchart-label"><rect height="37.09375" width="98.875" y="-18.546875" x="-49.4375" ry="0" rx="0" style="fill:#161b22;stroke:#58a6ff;" class="basic label-container"></rect><g transform="translate(-41.9375, -11.046875)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="22.09375" width="83.875"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel">CoreAttention</span></div></foreignobject></g></g><g transform="translate(64.875, 454.015625)" data-id="OP" data-node="true" id="flowchart-OP-41" class="node default default flowchart-label"><rect height="37.09375" width="128.4296875" y="-18.546875" x="-64.21484375" ry="0" rx="0" style="fill:#161b22;stroke:#58a6ff;" class="basic label-container"></rect><g transform="translate(-56.71484375, -11.046875)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="22.09375" width="113.4296875"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel">RowParallel O_proj</span></div></foreignobject></g></g><g transform="translate(64.875, 541.109375)" data-id="G1" data-node="true" id="flowchart-G1-42" class="node default default flowchart-label"><rect height="37.09375" width="110.46875" y="-18.546875" x="-55.234375" ry="0" rx="0" style="fill:#1a2332;stroke:#58a6ff;" class="basic label-container"></rect><g transform="translate(-47.734375, -11.046875)" style="color:#58a6ff;" class="label"><rect></rect><foreignobject height="22.09375" width="95.46875"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(88, 166, 255); display: inline-block; white-space: nowrap;"><span style="color:#58a6ff;" class="nodeLabel">g fwd:2D bwd:0</span></div></foreignobject></g></g><g transform="translate(64.875, 628.203125)" data-id="BDA1" data-node="true" id="flowchart-BDA1-43" class="node default default flowchart-label"><rect height="37.09375" width="129.75" y="-18.546875" x="-64.875" ry="0" rx="0" style="fill:#161b22;stroke:#30363d;stroke-dasharray:5 5;" class="basic label-container"></rect><g transform="translate(-57.375, -11.046875)" style="color:#8b949e;" class="label"><rect></rect><foreignobject height="22.09375" width="114.75"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(139, 148, 158); display: inline-block; white-space: nowrap;"><span style="color:#8b949e;" class="nodeLabel">BDA+Residual 冗余</span></div></foreignobject></g></g><g transform="translate(64.875, 715.296875)" data-id="LN2" data-node="true" id="flowchart-LN2-44" class="node default default flowchart-label"><rect height="37.09375" width="111.1015625" y="-18.546875" x="-55.55078125" ry="0" rx="0" style="fill:#161b22;stroke:#30363d;stroke-dasharray:5 5;" class="basic label-container"></rect><g transform="translate(-48.05078125, -11.046875)" style="color:#8b949e;" class="label"><rect></rect><foreignobject height="22.09375" width="96.1015625"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(139, 148, 158); display: inline-block; white-space: nowrap;"><span style="color:#8b949e;" class="nodeLabel">LayerNorm 冗余</span></div></foreignobject></g></g><g transform="translate(64.875, 802.390625)" data-id="F2" data-node="true" id="flowchart-F2-45" class="node default default flowchart-label"><rect height="37.09375" width="107.25" y="-18.546875" x="-53.625" ry="0" rx="0" style="fill:#1a2332;stroke:#58a6ff;" class="basic label-container"></rect><g transform="translate(-46.125, -11.046875)" style="color:#58a6ff;" class="label"><rect></rect><foreignobject height="22.09375" width="92.25"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(88, 166, 255); display: inline-block; white-space: nowrap;"><span style="color:#58a6ff;" class="nodeLabel">f fwd:0 bwd:2D</span></div></foreignobject></g></g><g transform="translate(64.875, 889.484375)" data-id="FC1" data-node="true" id="flowchart-FC1-46" class="node default default flowchart-label"><rect height="37.09375" width="100.109375" y="-18.546875" x="-50.0546875" ry="0" rx="0" style="fill:#161b22;stroke:#58a6ff;" class="basic label-container"></rect><g transform="translate(-42.5546875, -11.046875)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="22.09375" width="85.109375"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel">ColParallel fc1</span></div></foreignobject></g></g><g transform="translate(64.875, 976.578125)" data-id="ACT" data-node="true" id="flowchart-ACT-47" class="node default default flowchart-label"><rect height="37.09375" width="62.46875" y="-18.546875" x="-31.234375" ry="0" rx="0" style="fill:#161b22;stroke:#58a6ff;" class="basic label-container"></rect><g transform="translate(-23.734375, -11.046875)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="22.09375" width="47.46875"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel">SwiGLU</span></div></foreignobject></g></g><g transform="translate(64.875, 1063.671875)" data-id="FC2" data-node="true" id="flowchart-FC2-48" class="node default default flowchart-label"><rect height="37.09375" width="107.4453125" y="-18.546875" x="-53.72265625" ry="0" rx="0" style="fill:#161b22;stroke:#58a6ff;" class="basic label-container"></rect><g transform="translate(-46.22265625, -11.046875)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="22.09375" width="92.4453125"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel">RowParallel fc2</span></div></foreignobject></g></g><g transform="translate(64.875, 1150.765625)" data-id="G2" data-node="true" id="flowchart-G2-49" class="node default default flowchart-label"><rect height="37.09375" width="110.46875" y="-18.546875" x="-55.234375" ry="0" rx="0" style="fill:#1a2332;stroke:#58a6ff;" class="basic label-container"></rect><g transform="translate(-47.734375, -11.046875)" style="color:#58a6ff;" class="label"><rect></rect><foreignobject height="22.09375" width="95.46875"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(88, 166, 255); display: inline-block; white-space: nowrap;"><span style="color:#58a6ff;" class="nodeLabel">g fwd:2D bwd:0</span></div></foreignobject></g></g><g transform="translate(64.875, 1237.859375)" data-id="BDA2" data-node="true" id="flowchart-BDA2-50" class="node default default flowchart-label"><rect height="37.09375" width="129.75" y="-18.546875" x="-64.875" ry="0" rx="0" style="fill:#161b22;stroke:#30363d;stroke-dasharray:5 5;" class="basic label-container"></rect><g transform="translate(-57.375, -11.046875)" style="color:#8b949e;" class="label"><rect></rect><foreignobject height="22.09375" width="114.75"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(139, 148, 158); display: inline-block; white-space: nowrap;"><span style="color:#8b949e;" class="nodeLabel">BDA+Residual 冗余</span></div></foreignobject></g></g><g transform="translate(64.875, 1324.953125)" data-id="OUT" data-node="true" id="flowchart-OUT-51" class="node default default flowchart-label"><rect height="37.09375" width="54.4296875" y="-18.546875" x="-27.21484375" ry="0" rx="0" style="fill:#0d1117;stroke:#3fb950;" class="basic label-container"></rect><g transform="translate(-19.71484375, -11.046875)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="22.09375" width="39.4296875"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel">[s,b,h]</span></div></foreignobject></g></g></g></g></g></svg></div>
+  <div style="text-align:center;font-size:0.85rem;color:var(--accent4);margin-top:-8px">
+    <strong>TP-only</strong><br>
+    前向: 0+2D+0+2D = 4D<br>
+    反向: 2D+0+2D+0 = 4D<br>
+    激活内存: s*b*h / GPU
+  </div>
+  </div>
+
+  <div style="flex:1;min-width:0">
+  <div class="mermaid" data-processed="true"><svg aria-roledescription="flowchart-v2" role="graphics-document document" viewBox="-8 -8 165.9375 1359.5" style="max-width: 165.9375px;" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="100%" id="mermaid-1783857372812"><style>#mermaid-1783857372812{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;fill:#e6edf3;}#mermaid-1783857372812 .error-icon{fill:#0d1117;}#mermaid-1783857372812 .error-text{fill:#f2eee8;stroke:#f2eee8;}#mermaid-1783857372812 .edge-thickness-normal{stroke-width:2px;}#mermaid-1783857372812 .edge-thickness-thick{stroke-width:3.5px;}#mermaid-1783857372812 .edge-pattern-solid{stroke-dasharray:0;}#mermaid-1783857372812 .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-1783857372812 .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-1783857372812 .marker{fill:#58a6ff;stroke:#58a6ff;}#mermaid-1783857372812 .marker.cross{stroke:#58a6ff;}#mermaid-1783857372812 svg{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;}#mermaid-1783857372812 .label{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:#e6edf3;}#mermaid-1783857372812 .cluster-label text{fill:#e6edf3;}#mermaid-1783857372812 .cluster-label span,#mermaid-1783857372812 p{color:#e6edf3;}#mermaid-1783857372812 .label text,#mermaid-1783857372812 span,#mermaid-1783857372812 p{fill:#e6edf3;color:#e6edf3;}#mermaid-1783857372812 .node rect,#mermaid-1783857372812 .node circle,#mermaid-1783857372812 .node ellipse,#mermaid-1783857372812 .node polygon,#mermaid-1783857372812 .node path{fill:#161b22;stroke:#30363d;stroke-width:1px;}#mermaid-1783857372812 .flowchart-label text{text-anchor:middle;}#mermaid-1783857372812 .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#mermaid-1783857372812 .node .label{text-align:center;}#mermaid-1783857372812 .node.clickable{cursor:pointer;}#mermaid-1783857372812 .arrowheadPath{fill:#e3ded6;}#mermaid-1783857372812 .edgePath .path{stroke:#58a6ff;stroke-width:2.0px;}#mermaid-1783857372812 .flowchart-link{stroke:#58a6ff;fill:none;}#mermaid-1783857372812 .edgeLabel{background-color:#1c2129;text-align:center;}#mermaid-1783857372812 .edgeLabel rect{opacity:0.5;background-color:#1c2129;fill:#1c2129;}#mermaid-1783857372812 .labelBkg{background-color:rgba(28, 33, 41, 0.5);}#mermaid-1783857372812 .cluster rect{fill:rgba(88,166,255,0.05);stroke:#30363d;stroke-width:1px;}#mermaid-1783857372812 .cluster text{fill:#e6edf3;}#mermaid-1783857372812 .cluster span,#mermaid-1783857372812 p{color:#e6edf3;}#mermaid-1783857372812 div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:12px;background:#0d1117;border:1px solid hsl(216, 0%, 17.0588235294%);border-radius:2px;pointer-events:none;z-index:100;}#mermaid-1783857372812 .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#e6edf3;}#mermaid-1783857372812 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="6" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857372812_flowchart-pointEnd"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 0 L 10 5 L 0 10 z"></path></marker><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="4.5" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857372812_flowchart-pointStart"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 5 L 10 10 L 10 0 z"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="11" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857372812_flowchart-circleEnd"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="-1" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857372812_flowchart-circleStart"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="12" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783857372812_flowchart-crossEnd"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="-1" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783857372812_flowchart-crossStart"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><g class="root"><g class="clusters"></g><g class="edgePaths"><path marker-end="url(#mermaid-1783857372812_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-H2 LE-LN3" id="L-H2-LN3-0" d="M74.969,37.094L74.969,41.26C74.969,45.427,74.969,53.76,74.969,61.21C74.969,68.66,74.969,75.227,74.969,78.51L74.969,81.794"></path><path marker-end="url(#mermaid-1783857372812_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-LN3 LE-AG1" id="L-LN3-AG1-0" d="M74.969,124.188L74.969,128.354C74.969,132.521,74.969,140.854,74.969,148.304C74.969,155.754,74.969,162.321,74.969,165.604L74.969,168.888"></path><path marker-end="url(#mermaid-1783857372812_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-AG1 LE-QKV2" id="L-AG1-QKV2-0" d="M74.969,211.281L74.969,215.448C74.969,219.615,74.969,227.948,74.969,235.398C74.969,242.848,74.969,249.415,74.969,252.698L74.969,255.981"></path><path marker-end="url(#mermaid-1783857372812_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-QKV2 LE-CA2" id="L-QKV2-CA2-0" d="M74.969,298.375L74.969,302.542C74.969,306.708,74.969,315.042,74.969,322.492C74.969,329.942,74.969,336.508,74.969,339.792L74.969,343.075"></path><path marker-end="url(#mermaid-1783857372812_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-CA2 LE-OP2" id="L-CA2-OP2-0" d="M74.969,385.469L74.969,389.635C74.969,393.802,74.969,402.135,74.969,409.585C74.969,417.035,74.969,423.602,74.969,426.885L74.969,430.169"></path><path marker-end="url(#mermaid-1783857372812_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-OP2 LE-RS1" id="L-OP2-RS1-0" d="M74.969,472.563L74.969,476.729C74.969,480.896,74.969,489.229,74.969,496.679C74.969,504.129,74.969,510.696,74.969,513.979L74.969,517.263"></path><path marker-end="url(#mermaid-1783857372812_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-RS1 LE-BDA3" id="L-RS1-BDA3-0" d="M74.969,559.656L74.969,563.823C74.969,567.99,74.969,576.323,74.969,583.773C74.969,591.223,74.969,597.79,74.969,601.073L74.969,604.356"></path><path marker-end="url(#mermaid-1783857372812_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-BDA3 LE-LN4" id="L-BDA3-LN4-0" d="M74.969,646.75L74.969,650.917C74.969,655.083,74.969,663.417,74.969,670.867C74.969,678.317,74.969,684.883,74.969,688.167L74.969,691.45"></path><path marker-end="url(#mermaid-1783857372812_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-LN4 LE-AG2" id="L-LN4-AG2-0" d="M74.969,733.844L74.969,738.01C74.969,742.177,74.969,750.51,74.969,757.96C74.969,765.41,74.969,771.977,74.969,775.26L74.969,778.544"></path><path marker-end="url(#mermaid-1783857372812_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-AG2 LE-FC3" id="L-AG2-FC3-0" d="M74.969,820.938L74.969,825.104C74.969,829.271,74.969,837.604,74.969,845.054C74.969,852.504,74.969,859.071,74.969,862.354L74.969,865.638"></path><path marker-end="url(#mermaid-1783857372812_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-FC3 LE-ACT2" id="L-FC3-ACT2-0" d="M74.969,908.031L74.969,912.198C74.969,916.365,74.969,924.698,74.969,932.148C74.969,939.598,74.969,946.165,74.969,949.448L74.969,952.731"></path><path marker-end="url(#mermaid-1783857372812_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-ACT2 LE-FC4" id="L-ACT2-FC4-0" d="M74.969,995.125L74.969,999.292C74.969,1003.458,74.969,1011.792,74.969,1019.242C74.969,1026.692,74.969,1033.258,74.969,1036.542L74.969,1039.825"></path><path marker-end="url(#mermaid-1783857372812_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-FC4 LE-RS2" id="L-FC4-RS2-0" d="M74.969,1082.219L74.969,1086.385C74.969,1090.552,74.969,1098.885,74.969,1106.335C74.969,1113.785,74.969,1120.352,74.969,1123.635L74.969,1126.919"></path><path marker-end="url(#mermaid-1783857372812_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-RS2 LE-BDA4" id="L-RS2-BDA4-0" d="M74.969,1169.313L74.969,1173.479C74.969,1177.646,74.969,1185.979,74.969,1193.429C74.969,1200.879,74.969,1207.446,74.969,1210.729L74.969,1214.013"></path><path marker-end="url(#mermaid-1783857372812_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-BDA4 LE-OUT2" id="L-BDA4-OUT2-0" d="M74.969,1256.406L74.969,1260.573C74.969,1264.74,74.969,1273.073,74.969,1280.523C74.969,1287.973,74.969,1294.54,74.969,1297.823L74.969,1301.106"></path></g><g class="edgeLabels"><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g></g><g class="nodes"><g transform="translate(74.96875, 18.546875)" data-id="H2" data-node="true" id="flowchart-H2-84" class="node default default flowchart-label"><rect height="37.09375" width="116.875" y="-18.546875" x="-58.4375" ry="0" rx="0" style="fill:#0d1117;stroke:#3fb950;" class="basic label-container"></rect><g transform="translate(-50.9375, -11.046875)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="22.09375" width="101.875"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel">[s/N,b,h] 1/N序列</span></div></foreignobject></g></g><g transform="translate(74.96875, 105.640625)" data-id="LN3" data-node="true" id="flowchart-LN3-85" class="node default default flowchart-label"><rect height="37.09375" width="131.2890625" y="-18.546875" x="-65.64453125" ry="0" rx="0" style="fill:#161b22;stroke:#3fb950;" class="basic label-container"></rect><g transform="translate(-58.14453125, -11.046875)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="22.09375" width="116.2890625"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel">LayerNorm 只算s/N</span></div></foreignobject></g></g><g transform="translate(74.96875, 192.734375)" data-id="AG1" data-node="true" id="flowchart-AG1-86" class="node default default flowchart-label"><rect height="37.09375" width="144.5390625" y="-18.546875" x="-72.26953125" ry="0" rx="0" style="fill:#1a2332;stroke:#3fb950;" class="basic label-container"></rect><g transform="translate(-64.76953125, -11.046875)" style="color:#3fb950;" class="label"><rect></rect><foreignobject height="22.09375" width="129.5390625"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(63, 185, 80); display: inline-block; white-space: nowrap;"><span style="color:#3fb950;" class="nodeLabel">AG替代f fwd:D bwd:D</span></div></foreignobject></g></g><g transform="translate(74.96875, 279.828125)" data-id="QKV2" data-node="true" id="flowchart-QKV2-87" class="node default default flowchart-label"><rect height="37.09375" width="109.734375" y="-18.546875" x="-54.8671875" ry="0" rx="0" style="fill:#161b22;stroke:#58a6ff;" class="basic label-container"></rect><g transform="translate(-47.3671875, -11.046875)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="22.09375" width="94.734375"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel">ColParallel QKV</span></div></foreignobject></g></g><g transform="translate(74.96875, 366.921875)" data-id="CA2" data-node="true" id="flowchart-CA2-88" class="node default default flowchart-label"><rect height="37.09375" width="98.875" y="-18.546875" x="-49.4375" ry="0" rx="0" style="fill:#161b22;stroke:#58a6ff;" class="basic label-container"></rect><g transform="translate(-41.9375, -11.046875)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="22.09375" width="83.875"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel">CoreAttention</span></div></foreignobject></g></g><g transform="translate(74.96875, 454.015625)" data-id="OP2" data-node="true" id="flowchart-OP2-89" class="node default default flowchart-label"><rect height="37.09375" width="128.4296875" y="-18.546875" x="-64.21484375" ry="0" rx="0" style="fill:#161b22;stroke:#58a6ff;" class="basic label-container"></rect><g transform="translate(-56.71484375, -11.046875)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="22.09375" width="113.4296875"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel">RowParallel O_proj</span></div></foreignobject></g></g><g transform="translate(74.96875, 541.109375)" data-id="RS1" data-node="true" id="flowchart-RS1-90" class="node default default flowchart-label"><rect height="37.09375" width="146.515625" y="-18.546875" x="-73.2578125" ry="0" rx="0" style="fill:#1a2332;stroke:#3fb950;" class="basic label-container"></rect><g transform="translate(-65.7578125, -11.046875)" style="color:#3fb950;" class="label"><rect></rect><foreignobject height="22.09375" width="131.515625"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(63, 185, 80); display: inline-block; white-space: nowrap;"><span style="color:#3fb950;" class="nodeLabel">RS替代g fwd:D bwd:D</span></div></foreignobject></g></g><g transform="translate(74.96875, 628.203125)" data-id="BDA3" data-node="true" id="flowchart-BDA3-91" class="node default default flowchart-label"><rect height="37.09375" width="149.9375" y="-18.546875" x="-74.96875" ry="0" rx="0" style="fill:#161b22;stroke:#3fb950;" class="basic label-container"></rect><g transform="translate(-67.46875, -11.046875)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="22.09375" width="134.9375"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel">BDA+Residual 只算s/N</span></div></foreignobject></g></g><g transform="translate(74.96875, 715.296875)" data-id="LN4" data-node="true" id="flowchart-LN4-92" class="node default default flowchart-label"><rect height="37.09375" width="131.2890625" y="-18.546875" x="-65.64453125" ry="0" rx="0" style="fill:#161b22;stroke:#3fb950;" class="basic label-container"></rect><g transform="translate(-58.14453125, -11.046875)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="22.09375" width="116.2890625"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel">LayerNorm 只算s/N</span></div></foreignobject></g></g><g transform="translate(74.96875, 802.390625)" data-id="AG2" data-node="true" id="flowchart-AG2-93" class="node default default flowchart-label"><rect height="37.09375" width="144.5390625" y="-18.546875" x="-72.26953125" ry="0" rx="0" style="fill:#1a2332;stroke:#3fb950;" class="basic label-container"></rect><g transform="translate(-64.76953125, -11.046875)" style="color:#3fb950;" class="label"><rect></rect><foreignobject height="22.09375" width="129.5390625"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(63, 185, 80); display: inline-block; white-space: nowrap;"><span style="color:#3fb950;" class="nodeLabel">AG替代f fwd:D bwd:D</span></div></foreignobject></g></g><g transform="translate(74.96875, 889.484375)" data-id="FC3" data-node="true" id="flowchart-FC3-94" class="node default default flowchart-label"><rect height="37.09375" width="100.109375" y="-18.546875" x="-50.0546875" ry="0" rx="0" style="fill:#161b22;stroke:#58a6ff;" class="basic label-container"></rect><g transform="translate(-42.5546875, -11.046875)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="22.09375" width="85.109375"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel">ColParallel fc1</span></div></foreignobject></g></g><g transform="translate(74.96875, 976.578125)" data-id="ACT2" data-node="true" id="flowchart-ACT2-95" class="node default default flowchart-label"><rect height="37.09375" width="62.46875" y="-18.546875" x="-31.234375" ry="0" rx="0" style="fill:#161b22;stroke:#58a6ff;" class="basic label-container"></rect><g transform="translate(-23.734375, -11.046875)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="22.09375" width="47.46875"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel">SwiGLU</span></div></foreignobject></g></g><g transform="translate(74.96875, 1063.671875)" data-id="FC4" data-node="true" id="flowchart-FC4-96" class="node default default flowchart-label"><rect height="37.09375" width="107.4453125" y="-18.546875" x="-53.72265625" ry="0" rx="0" style="fill:#161b22;stroke:#58a6ff;" class="basic label-container"></rect><g transform="translate(-46.22265625, -11.046875)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="22.09375" width="92.4453125"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel">RowParallel fc2</span></div></foreignobject></g></g><g transform="translate(74.96875, 1150.765625)" data-id="RS2" data-node="true" id="flowchart-RS2-97" class="node default default flowchart-label"><rect height="37.09375" width="146.515625" y="-18.546875" x="-73.2578125" ry="0" rx="0" style="fill:#1a2332;stroke:#3fb950;" class="basic label-container"></rect><g transform="translate(-65.7578125, -11.046875)" style="color:#3fb950;" class="label"><rect></rect><foreignobject height="22.09375" width="131.515625"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(63, 185, 80); display: inline-block; white-space: nowrap;"><span style="color:#3fb950;" class="nodeLabel">RS替代g fwd:D bwd:D</span></div></foreignobject></g></g><g transform="translate(74.96875, 1237.859375)" data-id="BDA4" data-node="true" id="flowchart-BDA4-98" class="node default default flowchart-label"><rect height="37.09375" width="149.9375" y="-18.546875" x="-74.96875" ry="0" rx="0" style="fill:#161b22;stroke:#3fb950;" class="basic label-container"></rect><g transform="translate(-67.46875, -11.046875)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="22.09375" width="134.9375"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel">BDA+Residual 只算s/N</span></div></foreignobject></g></g><g transform="translate(74.96875, 1324.953125)" data-id="OUT2" data-node="true" id="flowchart-OUT2-99" class="node default default flowchart-label"><rect height="37.09375" width="67.8828125" y="-18.546875" x="-33.94140625" ry="0" rx="0" style="fill:#0d1117;stroke:#3fb950;" class="basic label-container"></rect><g transform="translate(-26.44140625, -11.046875)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="22.09375" width="52.8828125"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel">[s/N,b,h]</span></div></foreignobject></g></g></g></g></g></svg></div>
+  <div style="text-align:center;font-size:0.85rem;color:var(--accent2);margin-top:-8px">
+    <strong>TP + SP</strong><br>
+    前向: D+D+D+D = 4D<br>
+    反向: D+D+D+D = 4D<br>
+    激活内存: s/N*b*h / GPU
+  </div>
+  </div>
+
+  </div>
+
+  <div class="callout callout-key">
+    <div class="callout-title">SP 的本质：免费的内存优化</div>
+    SP 不增加任何通信开销（AllReduce 本身就等于 AllGather + ReduceScatter），只是把一个原子操作拆成两个半量操作，分别放在 TP 区域的入口和出口。拆开后，中间的非 TP 区域可以在 s/N 的激活值上计算，<strong>每个 GPU 的激活内存减少到 1/N</strong>。这就是为什么 Megatron 默认同时开启 TP 和 SP。
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>tensor_parallel/layers.py — SP 对 ColumnParallel 的影响</span>
+      <span class="lines">L998-1015</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># ColumnParallelLinear.forward 中的 SP 分支</span>
+<span class="hljs-keyword">if</span> self.sequence_parallel:
+    <span class="hljs-comment"># SP：输入是 [s/tp, b, h]，先 AllGather 拼回完整序列</span>
+    <span class="hljs-comment"># 用的是 _GatherFromSequenceParallelRegion</span>
+    <span class="hljs-comment">#   forward:  AllGather [s/tp, b, h] → [s, b, h]</span>
+    <span class="hljs-comment">#   backward: ReduceScatter [s, b, h] → [s/tp, b, h]</span>
+    input_parallel = gather_from_sequence_parallel_region(
+        input_, tensor_parallel_output_grad=...
+    )
+<span class="hljs-keyword">else</span>:
+    <span class="hljs-comment"># 普通 TP：f 算子 — Identity</span>
+    input_parallel = copy_to_tensor_model_parallel_region(input_)</code></pre>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>tensor_parallel/layers.py — SP 对 RowParallel 的影响</span>
+      <span class="lines">L1300-1315</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># RowParallelLinear.forward 中的 SP 分支</span>
+<span class="hljs-keyword">if</span> self.sequence_parallel:
+    <span class="hljs-comment"># SP：AllReduce 拆成 ReduceScatter</span>
+    <span class="hljs-comment"># 用的是 _ReduceScatterToSequenceParallelRegion</span>
+    <span class="hljs-comment">#   forward:  ReduceScatter [s, b, h] → [s/tp, b, h]</span>
+    <span class="hljs-comment">#   backward: AllGather [s/tp, b, h] → [s, b, h]</span>
+    output_ = reduce_scatter_to_sequence_parallel_region(output_parallel, ...)
+<span class="hljs-keyword">else</span>:
+    <span class="hljs-comment"># 普通 TP：g 算子 — AllReduce</span>
+    output_ = reduce_from_tensor_model_parallel_region(output_parallel)</code></pre>
+  </div>
+
+  <details class="collapsible">
+    <summary>SP 下 LayerNorm 如何在 s/N 上工作 <span class="badge">可选</span></summary>
+    <div class="collapsible-body">
+      <div class="prose">
+        <p>LayerNorm 沿 hidden 维度做归一化：对每个 token 位置计算 mean 和 variance。它不需要跨 token 位置的信息，所以可以在 [s/N, b, h] 上独立计算。每个 GPU 处理自己负责的 s/N 个 token 位置，结果和在完整 [s, b, h] 上计算完全一致。</p>
+        <p>Dropout 同理 — 每个元素独立地以概率 p 置零，不依赖其他元素。残差连接也是逐元素加法。这些操作都天然支持序列维度切分。</p>
+      </div>
+    </div>
+  </details>
+</section>
+
+<!-- ==================== 7. Vocab Parallel ==================== -->
+<section id="vocab-parallel">
+  <div class="section-header">
+    <span class="section-num">07</span>
+    <h2>词表并行</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">layers.py</span>
+    <span class="tag tag-purple">cross_entropy.py</span>
+    <span class="tag tag-orange">VocabParallelEmbedding</span>
+  </div>
+
+  <div class="prose">
+    <p>词表（Vocabulary）通常很大（32K~256K），Embedding 层和最终的 Output Linear 层的权重维度为 [V, h]。TP 同样按列切分词表维度：每个 GPU 持有 [V/N, h] 的 Embedding 分片。</p>
+  </div>
+
+  <div class="diagram"><span class="hl">VocabParallelEmbedding：词表按 TP 切分</span>
+
+词表大小 V = 8, TP = 2
+
+GPU 0 持有: E[0:4, :]    词 0, 1, 2, 3 的 embedding
+GPU 1 持有: E[4:8, :]    词 4, 5, 6, 7 的 embedding
+
+<span class="hl2">查询 token_id = 5</span>:
+  GPU 0: 5 不在 [0, 4) 范围内 → 输出 <span class="hl4">[0, 0, 0]</span>（零向量）
+  GPU 1: 5 在 [4, 8) 范围内  → 输出 <span class="hl2">E[5] = [0.3, 0.1, 0.7]</span>
+
+  AllReduce(SUM):
+    [0, 0, 0] + [0.3, 0.1, 0.7] = <span class="hl2">[0.3, 0.1, 0.7]</span>  ← 正确的 embedding
+
+<span class="hl3">原理</span>：每个 GPU 对不属于自己范围的 token 输出零向量，
+AllReduce 后只有持有该 token 的 GPU 贡献非零值，
+等价于在完整词表上查询。</div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>tensor_parallel/layers.py — VocabParallelEmbedding.forward</span>
+      <span class="lines">L282-315</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">def</span> <span class="hljs-title function_">forward</span>(<span class="hljs-params">self, input_</span>):
+    <span class="hljs-comment"># ① 确定本 GPU 负责的词表范围</span>
+    <span class="hljs-comment"># vocab_start_index = tp_rank * vocab_per_partition</span>
+    <span class="hljs-comment"># vocab_end_index   = vocab_start_index + vocab_per_partition</span>
+
+    <span class="hljs-comment"># ② 把超出范围的 token ID 映射到 0（避免越界）</span>
+    input_mask = (input_ &lt; self.vocab_start_index) | \
+                 (input_ &gt;= self.vocab_end_index)
+    masked_input = input_.clone() - self.vocab_start_index
+    masked_input[input_mask] = <span class="hljs-number">0</span>
+
+    <span class="hljs-comment"># ③ 查表：用局部偏移后的 ID 查本 GPU 的 embedding 分片</span>
+    output_parallel = self.weight[masked_input]
+
+    <span class="hljs-comment"># ④ 把不属于自己的 token 的输出置零</span>
+    output_parallel[input_mask, :] = <span class="hljs-number">0.0</span>
+
+    <span class="hljs-comment"># ⑤ AllReduce：所有 GPU 的输出求和 → 正确结果</span>
+    output = reduce_from_tensor_model_parallel_region(output_parallel)
+    <span class="hljs-keyword">return</span> output</code></pre>
+  </div>
+
+  <div class="prose">
+    <p><strong>并行 CrossEntropy</strong>：如果最后一层是 ColumnParallel Linear（输出 logits [s, b, V/N]），计算 CrossEntropy loss 时避免 AllGather 成完整的 [s, b, V] — 这个 tensor 在大词表下非常大。</p>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>cross_entropy.py — _VocabParallelCrossEntropy.forward 核心步骤</span>
+      <span class="lines">L124-189</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">def</span> <span class="hljs-title function_">forward</span>(<span class="hljs-params">ctx, vocab_parallel_logits, target, label_smoothing</span>):
+    <span class="hljs-comment"># vocab_parallel_logits: [s, b, V/tp] — 每个 GPU 只有部分词表的 logits</span>
+
+    <span class="hljs-comment"># ① 数值稳定：求全局 max</span>
+    logits_max = vocab_parallel_logits.<span class="hljs-built_in">max</span>(dim=-<span class="hljs-number">1</span>).values    <span class="hljs-comment"># 本地 max</span>
+    torch.distributed.all_reduce(logits_max,
+        op=torch.distributed.ReduceOp.MAX, group=tp_group)  <span class="hljs-comment"># 全局 max</span>
+    vocab_parallel_logits = vocab_parallel_logits - logits_max.unsqueeze(-<span class="hljs-number">1</span>)
+
+    <span class="hljs-comment"># ② 计算分母：本地 exp 求和，AllReduce 得到全局 sum(exp)</span>
+    exp_logits = vocab_parallel_logits.exp()
+    sum_exp = exp_logits.<span class="hljs-built_in">sum</span>(dim=-<span class="hljs-number">1</span>)                         <span class="hljs-comment"># 本地 sum(exp)</span>
+    torch.distributed.all_reduce(sum_exp, group=tp_group)    <span class="hljs-comment"># 全局 sum(exp)</span>
+
+    <span class="hljs-comment"># ③ 计算分子：只有持有目标 token 的 GPU 贡献 logit 值</span>
+    target_mask = (target &gt;= vocab_start) &amp; (target &lt; vocab_end)
+    masked_target = target.clone() - vocab_start
+    <span class="hljs-comment"># 查表获取 target 对应的 logit（不持有的 GPU 得到 0）</span>
+    predicted_logits = vocab_parallel_logits[..., masked_target] * target_mask
+    torch.distributed.all_reduce(predicted_logits, group=tp_group)
+
+    <span class="hljs-comment"># ④ loss = log(sum_exp) - predicted_logits</span>
+    loss = torch.log(sum_exp) - predicted_logits
+    <span class="hljs-keyword">return</span> loss</code></pre>
+  </div>
+
+  <div class="callout callout-key">
+    <div class="callout-title">避免 AllGather 完整 logits 的意义</div>
+    词表 V=128K、序列长度 s=8192、batch b=4 时，完整 logits tensor = 8192 x 4 x 128K x 2B = <strong>8 GB</strong>。并行 CrossEntropy 只需要通过 3 次小量 AllReduce（标量 max、标量 sum、标量 logit）就能计算 loss，完全避免了 AllGather 这个巨大 tensor。
+  </div>
+</section>
+
+<!-- ==================== 8. Communication Summary ==================== -->
+<section id="comm-summary">
+  <div class="section-header">
+    <span class="section-num">08</span>
+    <h2>通信量总结</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-green">总结</span>
+  </div>
+
+  <div class="prose">
+    <p>下表汇总每个 TransformerLayer 的 TP 通信量。设 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="22" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D440 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="4"><mjx-c class="mjx-c1D460 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-cD7"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="3"><mjx-c class="mjx-c1D44F TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-cD7"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="3"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>M</mi><mo>=</mo><mi>s</mi><mo>×</mo><mi>b</mi><mo>×</mo><mi>h</mi></math></mjx-assistive-mml></mjx-container>（激活值大小），TP 组大小为 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="23" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>N</mi></math></mjx-assistive-mml></mjx-container>。</p>
+  </div>
+
+  <table class="data-table">
+    <thead>
+      <tr><th>子层</th><th>模式</th><th>通信类型</th><th>前向通信量</th><th>反向通信量</th><th>总计</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Attention</strong></td><td>TP-only</td><td>AllReduce (f+g)</td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="24" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mn class="mjx-n"><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D440 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mn>2</mn><mo stretchy="false">(</mo><mi>N</mi><mo>−</mo><mn>1</mn><mo stretchy="false">)</mo></mrow><mi>N</mi></mfrac><mi>M</mi></math></mjx-assistive-mml></mjx-container></td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="25" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mn class="mjx-n"><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D440 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mn>2</mn><mo stretchy="false">(</mo><mi>N</mi><mo>−</mo><mn>1</mn><mo stretchy="false">)</mo></mrow><mi>N</mi></mfrac><mi>M</mi></math></mjx-assistive-mml></mjx-container></td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="26" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mn class="mjx-n"><mjx-c class="mjx-c34"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D440 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mn>4</mn><mo stretchy="false">(</mo><mi>N</mi><mo>−</mo><mn>1</mn><mo stretchy="false">)</mo></mrow><mi>N</mi></mfrac><mi>M</mi></math></mjx-assistive-mml></mjx-container></td></tr>
+      <tr><td><strong>MLP</strong></td><td>TP-only</td><td>AllReduce (f+g)</td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="27" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mn class="mjx-n"><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D440 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mn>2</mn><mo stretchy="false">(</mo><mi>N</mi><mo>−</mo><mn>1</mn><mo stretchy="false">)</mo></mrow><mi>N</mi></mfrac><mi>M</mi></math></mjx-assistive-mml></mjx-container></td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="28" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mn class="mjx-n"><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D440 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mn>2</mn><mo stretchy="false">(</mo><mi>N</mi><mo>−</mo><mn>1</mn><mo stretchy="false">)</mo></mrow><mi>N</mi></mfrac><mi>M</mi></math></mjx-assistive-mml></mjx-container></td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="29" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mn class="mjx-n"><mjx-c class="mjx-c34"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D440 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mn>4</mn><mo stretchy="false">(</mo><mi>N</mi><mo>−</mo><mn>1</mn><mo stretchy="false">)</mo></mrow><mi>N</mi></mfrac><mi>M</mi></math></mjx-assistive-mml></mjx-container></td></tr>
+      <tr><td><strong>Attention</strong></td><td>TP+SP</td><td>AG + RS</td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="30" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mn class="mjx-n"><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D440 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mn>2</mn><mo stretchy="false">(</mo><mi>N</mi><mo>−</mo><mn>1</mn><mo stretchy="false">)</mo></mrow><mi>N</mi></mfrac><mi>M</mi></math></mjx-assistive-mml></mjx-container></td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="31" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mn class="mjx-n"><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D440 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mn>2</mn><mo stretchy="false">(</mo><mi>N</mi><mo>−</mo><mn>1</mn><mo stretchy="false">)</mo></mrow><mi>N</mi></mfrac><mi>M</mi></math></mjx-assistive-mml></mjx-container></td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="32" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mn class="mjx-n"><mjx-c class="mjx-c34"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D440 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mn>4</mn><mo stretchy="false">(</mo><mi>N</mi><mo>−</mo><mn>1</mn><mo stretchy="false">)</mo></mrow><mi>N</mi></mfrac><mi>M</mi></math></mjx-assistive-mml></mjx-container></td></tr>
+      <tr><td><strong>MLP</strong></td><td>TP+SP</td><td>AG + RS</td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="33" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mn class="mjx-n"><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D440 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mn>2</mn><mo stretchy="false">(</mo><mi>N</mi><mo>−</mo><mn>1</mn><mo stretchy="false">)</mo></mrow><mi>N</mi></mfrac><mi>M</mi></math></mjx-assistive-mml></mjx-container></td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="34" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mn class="mjx-n"><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D440 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mn>2</mn><mo stretchy="false">(</mo><mi>N</mi><mo>−</mo><mn>1</mn><mo stretchy="false">)</mo></mrow><mi>N</mi></mfrac><mi>M</mi></math></mjx-assistive-mml></mjx-container></td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="35" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mn class="mjx-n"><mjx-c class="mjx-c34"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D440 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mn>4</mn><mo stretchy="false">(</mo><mi>N</mi><mo>−</mo><mn>1</mn><mo stretchy="false">)</mo></mrow><mi>N</mi></mfrac><mi>M</mi></math></mjx-assistive-mml></mjx-container></td></tr>
+      <tr style="border-top: 2px solid var(--accent)"><td><strong>每层总计</strong></td><td>TP-only</td><td></td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="36" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mn class="mjx-n"><mjx-c class="mjx-c34"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D440 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mn>4</mn><mo stretchy="false">(</mo><mi>N</mi><mo>−</mo><mn>1</mn><mo stretchy="false">)</mo></mrow><mi>N</mi></mfrac><mi>M</mi></math></mjx-assistive-mml></mjx-container></td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="37" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mn class="mjx-n"><mjx-c class="mjx-c34"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D440 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mn>4</mn><mo stretchy="false">(</mo><mi>N</mi><mo>−</mo><mn>1</mn><mo stretchy="false">)</mo></mrow><mi>N</mi></mfrac><mi>M</mi></math></mjx-assistive-mml></mjx-container></td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="38" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mo class="mjx-n"><mjx-c class="mjx-c2248"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="4"><mjx-c class="mjx-c38"></mjx-c></mjx-mn><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D440 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mo>≈</mo><mn>8</mn><mi>M</mi></math></mjx-assistive-mml></mjx-container></td></tr>
+      <tr><td><strong>每层总计</strong></td><td>TP+SP</td><td></td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="39" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mn class="mjx-n"><mjx-c class="mjx-c34"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D440 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mn>4</mn><mo stretchy="false">(</mo><mi>N</mi><mo>−</mo><mn>1</mn><mo stretchy="false">)</mo></mrow><mi>N</mi></mfrac><mi>M</mi></math></mjx-assistive-mml></mjx-container></td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="40" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mn class="mjx-n"><mjx-c class="mjx-c34"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D440 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mn>4</mn><mo stretchy="false">(</mo><mi>N</mi><mo>−</mo><mn>1</mn><mo stretchy="false">)</mo></mrow><mi>N</mi></mfrac><mi>M</mi></math></mjx-assistive-mml></mjx-container></td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="41" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mo class="mjx-n"><mjx-c class="mjx-c2248"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="4"><mjx-c class="mjx-c38"></mjx-c></mjx-mn><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D440 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mo>≈</mo><mn>8</mn><mi>M</mi></math></mjx-assistive-mml></mjx-container></td></tr>
+    </tbody>
+  </table>
+
+  <div class="prose">
+    <p>两种模式的通信量<strong>完全相同</strong>。SP 的优势体现在激活内存：非 TP 区域每个 GPU 只存 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="42" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D440 TEX-I"></mjx-c></mjx-mi></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D441 TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mi>M</mi><mi>N</mi></mfrac></math></mjx-assistive-mml></mjx-container> 而非 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="43" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D440 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>M</mi></math></mjx-assistive-mml></mjx-container>。</p>
+  </div>
+
+  <div class="callout callout-warn">
+    <div class="callout-title">TP 为什么只用在节点内</div>
+    TP 每层需要 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="44" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mo class="mjx-n"><mjx-c class="mjx-c2248"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="4"><mjx-c class="mjx-c38"></mjx-c></mjx-mn><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D440 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mo>≈</mo><mn>8</mn><mi>M</mi></math></mjx-assistive-mml></mjx-container> 通信量，且在前向和反向的关键路径上（不可隐藏）。以 Llama-7B (h=4096, s=4096, b=1) 为例，<mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="45" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D440 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="4"><mjx-c class="mjx-c34"></mjx-c><mjx-c class="mjx-c30"></mjx-c><mjx-c class="mjx-c39"></mjx-c><mjx-c class="mjx-c36"></mjx-c></mjx-mn><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-cD7"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="3"><mjx-c class="mjx-c34"></mjx-c><mjx-c class="mjx-c30"></mjx-c><mjx-c class="mjx-c39"></mjx-c><mjx-c class="mjx-c36"></mjx-c></mjx-mn><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-cD7"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="3"><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D435 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="4"><mjx-c class="mjx-c33"></mjx-c><mjx-c class="mjx-c32"></mjx-c></mjx-mn></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>M</mi><mo>=</mo><mn>4096</mn><mo>×</mo><mn>4096</mn><mo>×</mo><mn>2</mn><mi>B</mi><mo>=</mo><mn>32</mn></math></mjx-assistive-mml></mjx-container> MB，每层通信 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="46" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mo class="mjx-n"><mjx-c class="mjx-c2248"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="4"><mjx-c class="mjx-c32"></mjx-c><mjx-c class="mjx-c35"></mjx-c><mjx-c class="mjx-c36"></mjx-c></mjx-mn></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mo>≈</mo><mn>256</mn></math></mjx-assistive-mml></mjx-container> MB。32 层共 8 GB。
+    <ul style="margin-top:8px">
+      <li><strong>NVLink</strong>（节点内）：带宽 900 GB/s (NVSwitch)，8 GB 通信仅需 ~9 ms</li>
+      <li><strong>InfiniBand</strong>（跨节点）：带宽 50-100 GB/s，8 GB 通信需 80-160 ms</li>
+    </ul>
+    跨节点 TP 会使通信时间增加 10-20 倍，成为严重瓶颈。所以 TP 通常 = 节点内 GPU 数（8），跨节点交给 DP 和 PP（通信量更小或可重叠）。
+  </div>
+
+  <div class="diagram"><span class="hl">各并行策略的通信特性对比</span>
+
+策略      通信量/步        是否在关键路径    通信介质       典型规模
+────────────────────────────────────────────────────────────────────
+<span class="hl2">TP</span>        <span class="hl2">~8M × L</span>          <span class="hl4">是（无法隐藏）</span>    NVLink         8（节点内）
+<span class="hl3">SP</span>        与 TP 相同        <span class="hl4">是</span>               NVLink         与 TP 相同
+<span class="hl4">PP</span>        微批次激活值       <span class="hl4">是（bubble）</span>     NVLink/IB      2-8
+<span class="hl">DP</span>        <span class="hl">~2 × 参数量</span>      <span class="hl2">可重叠</span>           IB/RoCE        8-1024
+DP(分布式) 与 DP 相同        <span class="hl2">可重叠</span>           IB/RoCE        与 DP 相同
+
+TP 和 PP 的通信在前向/反向的关键路径上，无法完全隐藏。
+DP 的通信可以和反向计算重叠（overlap_grad_reduce），理想情况下完全隐藏。</div>
+
+  <div class="callout callout-key" style="margin-top:24px">
+    <div class="callout-title">相关文档</div>
+    <ul style="margin-top:8px">
+      <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/collective_operations.html" style="color:var(--accent)">集合通信操作详解</a> — AllReduce / AllGather / ReduceScatter 的原理与实现</li>
+      <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/rank_and_parallel_groups.html" style="color:var(--accent)">Rank 与并行组</a> — TP 组是如何从全局 rank 中划分出来的</li>
+      <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/transformer_architecture.html" style="color:var(--accent)">GPT 模型架构</a> — TransformerLayer 如何使用 ColumnParallel 和 RowParallel</li>
+    </ul>
+  </div>
+</section>
+
+</div><!-- /.main-content -->
+</div><!-- /.page-body -->
+
+<footer>
+  <p>Megatron-LM 源码精读 · 基于 NVIDIA Megatron-LM 代码库</p>
+</footer>
+
+<script>hljs.highlightAll();</script>
+<script src="./Tensor Parallelism 实现详解 · Megatron-LM 源码精读_files/update-checker.js"></script>
+
+
+<div class="mermaidTooltip" style="opacity: 0;"></div></body></html>

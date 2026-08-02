@@ -1,0 +1,2387 @@
+<!DOCTYPE html>
+<!-- saved from url=(0086)https://xiaolong-li1.github.io/Blogs/megatron-docs/model/transformer_architecture.html -->
+<html lang="zh-CN"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GPT 模型架构 · Megatron-LM 源码精读</title>
+<link rel="stylesheet" href="./GPT 模型架构 · Megatron-LM 源码精读_files/github-dark.min.css">
+<script src="./GPT 模型架构 · Megatron-LM 源码精读_files/highlight.min.js"></script>
+<script src="./GPT 模型架构 · Megatron-LM 源码精读_files/highlight-python.min.js"></script>
+<script>
+MathJax = {
+  tex: { inlineMath: [['\\(','\\)']], displayMath: [['$$','$$']] },
+  svg: { fontCache: 'global' }
+};
+</script>
+<script src="./GPT 模型架构 · Megatron-LM 源码精读_files/tex-chtml.js" async="" defer=""></script>
+<script src="./GPT 模型架构 · Megatron-LM 源码精读_files/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      darkMode: true,
+      background: '#1c2129',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
+      fontSize: '13px',
+      primaryColor: '#1f2937',
+      primaryTextColor: '#e6edf3',
+      primaryBorderColor: '#30363d',
+      lineColor: '#58a6ff',
+      secondaryColor: '#161b22',
+      tertiaryColor: '#0d1117',
+      mainBkg: '#161b22',
+      nodeBorder: '#30363d',
+      clusterBkg: 'rgba(88,166,255,0.05)',
+      clusterBorder: '#30363d',
+      titleColor: '#e6edf3',
+      edgeLabelBackground: '#1c2129',
+      nodeTextColor: '#e6edf3'
+    }
+  });
+</script>
+<link rel="stylesheet" href="./GPT 模型架构 · Megatron-LM 源码精读_files/style.css">
+<style type="text/css">.CtxtMenu_InfoClose {  top:.2em; right:.2em;}
+.CtxtMenu_InfoContent {  overflow:auto; text-align:left; font-size:80%;  padding:.4em .6em; border:1px inset; margin:1em 0px;  max-height:20em; max-width:30em; background-color:#EEEEEE;  white-space:normal;}
+.CtxtMenu_Info.CtxtMenu_MousePost {outline:none;}
+.CtxtMenu_Info {  position:fixed; left:50%; width:auto; text-align:center;  border:3px outset; padding:1em 2em; background-color:#DDDDDD;  color:black;  cursor:default; font-family:message-box; font-size:120%;  font-style:normal; text-indent:0; text-transform:none;  line-height:normal; letter-spacing:normal; word-spacing:normal;  word-wrap:normal; white-space:nowrap; float:none; z-index:201;  border-radius: 15px;                     /* Opera 10.5 and IE9 */  -webkit-border-radius:15px;               /* Safari and Chrome */  -moz-border-radius:15px;                  /* Firefox */  -khtml-border-radius:15px;                /* Konqueror */  box-shadow:0px 10px 20px #808080;         /* Opera 10.5 and IE9 */  -webkit-box-shadow:0px 10px 20px #808080; /* Safari 3 & Chrome */  -moz-box-shadow:0px 10px 20px #808080;    /* Forefox 3.5 */  -khtml-box-shadow:0px 10px 20px #808080;  /* Konqueror */  filter:progid:DXImageTransform.Microsoft.dropshadow(OffX=2, OffY=2, Color="gray", Positive="true"); /* IE */}
+</style><style type="text/css">.CtxtMenu_MenuClose {  position:absolute;  cursor:pointer;  display:inline-block;  border:2px solid #AAA;  border-radius:18px;  -webkit-border-radius: 18px;             /* Safari and Chrome */  -moz-border-radius: 18px;                /* Firefox */  -khtml-border-radius: 18px;              /* Konqueror */  font-family: "Courier New", Courier;  font-size:24px;  color:#F0F0F0}
+.CtxtMenu_MenuClose span {  display:block; background-color:#AAA; border:1.5px solid;  border-radius:18px;  -webkit-border-radius: 18px;             /* Safari and Chrome */  -moz-border-radius: 18px;                /* Firefox */  -khtml-border-radius: 18px;              /* Konqueror */  line-height:0;  padding:8px 0 6px     /* may need to be browser-specific */}
+.CtxtMenu_MenuClose:hover {  color:white!important;  border:2px solid #CCC!important}
+.CtxtMenu_MenuClose:hover span {  background-color:#CCC!important}
+.CtxtMenu_MenuClose:hover:focus {  outline:none}
+</style><style type="text/css">.CtxtMenu_Menu {  position:absolute;  background-color:white;  color:black;  width:auto; padding:5px 0px;  border:1px solid #CCCCCC; margin:0; cursor:default;  font: menu; text-align:left; text-indent:0; text-transform:none;  line-height:normal; letter-spacing:normal; word-spacing:normal;  word-wrap:normal; white-space:nowrap; float:none; z-index:201;  border-radius: 5px;                     /* Opera 10.5 and IE9 */  -webkit-border-radius: 5px;             /* Safari and Chrome */  -moz-border-radius: 5px;                /* Firefox */  -khtml-border-radius: 5px;              /* Konqueror */  box-shadow:0px 10px 20px #808080;         /* Opera 10.5 and IE9 */  -webkit-box-shadow:0px 10px 20px #808080; /* Safari 3 & Chrome */  -moz-box-shadow:0px 10px 20px #808080;    /* Forefox 3.5 */  -khtml-box-shadow:0px 10px 20px #808080;  /* Konqueror */}
+.CtxtMenu_MenuItem {  padding: 1px 2em;  background:transparent;}
+.CtxtMenu_MenuArrow {  position:absolute; right:.5em; padding-top:.25em; color:#666666;  font-family: null; font-size: .75em}
+.CtxtMenu_MenuActive .CtxtMenu_MenuArrow {color:white}
+.CtxtMenu_MenuArrow.CtxtMenu_RTL {left:.5em; right:auto}
+.CtxtMenu_MenuCheck {  position:absolute; left:.7em;  font-family: null}
+.CtxtMenu_MenuCheck.CtxtMenu_RTL { right:.7em; left:auto }
+.CtxtMenu_MenuRadioCheck {  position:absolute; left: .7em;}
+.CtxtMenu_MenuRadioCheck.CtxtMenu_RTL {  right: .7em; left:auto}
+.CtxtMenu_MenuInputBox {  padding-left: 1em; right:.5em; color:#666666;  font-family: null;}
+.CtxtMenu_MenuInputBox.CtxtMenu_RTL {  left: .1em;}
+.CtxtMenu_MenuComboBox {  left:.1em; padding-bottom:.5em;}
+.CtxtMenu_MenuSlider {  left: .1em;}
+.CtxtMenu_SliderValue {  position:absolute; right:.1em; padding-top:.25em; color:#333333;  font-size: .75em}
+.CtxtMenu_SliderBar {  outline: none; background: #d3d3d3}
+.CtxtMenu_MenuLabel {  padding: 1px 2em 3px 1.33em;  font-style:italic}
+.CtxtMenu_MenuRule {  border-top: 1px solid #DDDDDD;  margin: 4px 3px;}
+.CtxtMenu_MenuDisabled {  color:GrayText}
+.CtxtMenu_MenuActive {  background-color: #606872;  color: white;}
+.CtxtMenu_MenuDisabled:focus {  background-color: #E8E8E8}
+.CtxtMenu_MenuLabel:focus {  background-color: #E8E8E8}
+.CtxtMenu_ContextMenu:focus {  outline:none}
+.CtxtMenu_ContextMenu .CtxtMenu_MenuItem:focus {  outline:none}
+.CtxtMenu_SelectionMenu {  position:relative; float:left;  border-bottom: none; -webkit-box-shadow:none; -webkit-border-radius:0px; }
+.CtxtMenu_SelectionItem {  padding-right: 1em;}
+.CtxtMenu_Selection {  right: 40%; width:50%; }
+.CtxtMenu_SelectionBox {  padding: 0em; max-height:20em; max-width: none;  background-color:#FFFFFF;}
+.CtxtMenu_SelectionDivider {  clear: both; border-top: 2px solid #000000;}
+.CtxtMenu_Menu .CtxtMenu_MenuClose {  top:-10px; left:-10px}
+</style><style id="MJX-CHTML-styles">
+mjx-container[jax="CHTML"] {
+  line-height: 0;
+}
+
+mjx-container [space="1"] {
+  margin-left: .111em;
+}
+
+mjx-container [space="2"] {
+  margin-left: .167em;
+}
+
+mjx-container [space="3"] {
+  margin-left: .222em;
+}
+
+mjx-container [space="4"] {
+  margin-left: .278em;
+}
+
+mjx-container [space="5"] {
+  margin-left: .333em;
+}
+
+mjx-container [rspace="1"] {
+  margin-right: .111em;
+}
+
+mjx-container [rspace="2"] {
+  margin-right: .167em;
+}
+
+mjx-container [rspace="3"] {
+  margin-right: .222em;
+}
+
+mjx-container [rspace="4"] {
+  margin-right: .278em;
+}
+
+mjx-container [rspace="5"] {
+  margin-right: .333em;
+}
+
+mjx-container [size="s"] {
+  font-size: 70.7%;
+}
+
+mjx-container [size="ss"] {
+  font-size: 50%;
+}
+
+mjx-container [size="Tn"] {
+  font-size: 60%;
+}
+
+mjx-container [size="sm"] {
+  font-size: 85%;
+}
+
+mjx-container [size="lg"] {
+  font-size: 120%;
+}
+
+mjx-container [size="Lg"] {
+  font-size: 144%;
+}
+
+mjx-container [size="LG"] {
+  font-size: 173%;
+}
+
+mjx-container [size="hg"] {
+  font-size: 207%;
+}
+
+mjx-container [size="HG"] {
+  font-size: 249%;
+}
+
+mjx-container [width="full"] {
+  width: 100%;
+}
+
+mjx-box {
+  display: inline-block;
+}
+
+mjx-block {
+  display: block;
+}
+
+mjx-itable {
+  display: inline-table;
+}
+
+mjx-row {
+  display: table-row;
+}
+
+mjx-row > * {
+  display: table-cell;
+}
+
+mjx-mtext {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-mstyle {
+  display: inline-block;
+}
+
+mjx-merror {
+  display: inline-block;
+  color: red;
+  background-color: yellow;
+}
+
+mjx-mphantom {
+  visibility: hidden;
+}
+
+_::-webkit-full-page-media, _:future, :root mjx-container {
+  will-change: opacity;
+}
+
+mjx-assistive-mml {
+  position: absolute !important;
+  top: 0px;
+  left: 0px;
+  clip: rect(1px, 1px, 1px, 1px);
+  padding: 1px 0px 0px 0px !important;
+  border: 0px !important;
+  display: block !important;
+  width: auto !important;
+  overflow: hidden !important;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+mjx-assistive-mml[display="block"] {
+  width: 100% !important;
+}
+
+mjx-math {
+  display: inline-block;
+  text-align: left;
+  line-height: 0;
+  text-indent: 0;
+  font-style: normal;
+  font-weight: normal;
+  font-size: 100%;
+  font-size-adjust: none;
+  letter-spacing: normal;
+  border-collapse: collapse;
+  word-wrap: normal;
+  word-spacing: normal;
+  white-space: nowrap;
+  direction: ltr;
+  padding: 1px 0;
+}
+
+mjx-container[jax="CHTML"][display="true"] {
+  display: block;
+  text-align: center;
+  margin: 1em 0;
+}
+
+mjx-container[jax="CHTML"][display="true"][width="full"] {
+  display: flex;
+}
+
+mjx-container[jax="CHTML"][display="true"] mjx-math {
+  padding: 0;
+}
+
+mjx-container[jax="CHTML"][justify="left"] {
+  text-align: left;
+}
+
+mjx-container[jax="CHTML"][justify="right"] {
+  text-align: right;
+}
+
+mjx-mfrac {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-frac {
+  display: inline-block;
+  vertical-align: 0.17em;
+  padding: 0 .22em;
+}
+
+mjx-frac[type="d"] {
+  vertical-align: .04em;
+}
+
+mjx-frac[delims] {
+  padding: 0 .1em;
+}
+
+mjx-frac[atop] {
+  padding: 0 .12em;
+}
+
+mjx-frac[atop][delims] {
+  padding: 0;
+}
+
+mjx-dtable {
+  display: inline-table;
+  width: 100%;
+}
+
+mjx-dtable > * {
+  font-size: 2000%;
+}
+
+mjx-dbox {
+  display: block;
+  font-size: 5%;
+}
+
+mjx-num {
+  display: block;
+  text-align: center;
+}
+
+mjx-den {
+  display: block;
+  text-align: center;
+}
+
+mjx-mfrac[bevelled] > mjx-num {
+  display: inline-block;
+}
+
+mjx-mfrac[bevelled] > mjx-den {
+  display: inline-block;
+}
+
+mjx-den[align="right"], mjx-num[align="right"] {
+  text-align: right;
+}
+
+mjx-den[align="left"], mjx-num[align="left"] {
+  text-align: left;
+}
+
+mjx-nstrut {
+  display: inline-block;
+  height: .054em;
+  width: 0;
+  vertical-align: -.054em;
+}
+
+mjx-nstrut[type="d"] {
+  height: .217em;
+  vertical-align: -.217em;
+}
+
+mjx-dstrut {
+  display: inline-block;
+  height: .505em;
+  width: 0;
+}
+
+mjx-dstrut[type="d"] {
+  height: .726em;
+}
+
+mjx-line {
+  display: block;
+  box-sizing: border-box;
+  min-height: 1px;
+  height: .06em;
+  border-top: .06em solid;
+  margin: .06em -.1em;
+  overflow: hidden;
+}
+
+mjx-line[type="d"] {
+  margin: .18em -.1em;
+}
+
+mjx-mrow {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-mi {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-c {
+  display: inline-block;
+}
+
+mjx-utext {
+  display: inline-block;
+  padding: .75em 0 .2em 0;
+}
+
+mjx-mo {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-stretchy-h {
+  display: inline-table;
+  width: 100%;
+}
+
+mjx-stretchy-h > * {
+  display: table-cell;
+  width: 0;
+}
+
+mjx-stretchy-h > * > mjx-c {
+  display: inline-block;
+  transform: scalex(1.0000001);
+}
+
+mjx-stretchy-h > * > mjx-c::before {
+  display: inline-block;
+  width: initial;
+}
+
+mjx-stretchy-h > mjx-ext {
+  /* IE */ overflow: hidden;
+  /* others */ overflow: clip visible;
+  width: 100%;
+}
+
+mjx-stretchy-h > mjx-ext > mjx-c::before {
+  transform: scalex(500);
+}
+
+mjx-stretchy-h > mjx-ext > mjx-c {
+  width: 0;
+}
+
+mjx-stretchy-h > mjx-beg > mjx-c {
+  margin-right: -.1em;
+}
+
+mjx-stretchy-h > mjx-end > mjx-c {
+  margin-left: -.1em;
+}
+
+mjx-stretchy-v {
+  display: inline-block;
+}
+
+mjx-stretchy-v > * {
+  display: block;
+}
+
+mjx-stretchy-v > mjx-beg {
+  height: 0;
+}
+
+mjx-stretchy-v > mjx-end > mjx-c {
+  display: block;
+}
+
+mjx-stretchy-v > * > mjx-c {
+  transform: scaley(1.0000001);
+  transform-origin: left center;
+  overflow: hidden;
+}
+
+mjx-stretchy-v > mjx-ext {
+  display: block;
+  height: 100%;
+  box-sizing: border-box;
+  border: 0px solid transparent;
+  /* IE */ overflow: hidden;
+  /* others */ overflow: visible clip;
+}
+
+mjx-stretchy-v > mjx-ext > mjx-c::before {
+  width: initial;
+  box-sizing: border-box;
+}
+
+mjx-stretchy-v > mjx-ext > mjx-c {
+  transform: scaleY(500) translateY(.075em);
+  overflow: visible;
+}
+
+mjx-mark {
+  display: inline-block;
+  height: 0px;
+}
+
+mjx-mn {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-mspace {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-msup {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-msqrt {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-root {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+mjx-surd {
+  display: inline-block;
+  vertical-align: top;
+}
+
+mjx-sqrt {
+  display: inline-block;
+  padding-top: .07em;
+}
+
+mjx-sqrt > mjx-box {
+  border-top: .07em solid;
+}
+
+mjx-sqrt.mjx-tall > mjx-box {
+  padding-left: .3em;
+  margin-left: -.3em;
+}
+
+mjx-msub {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-TeXAtom {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-c::before {
+  display: block;
+  width: 0;
+}
+
+.MJX-TEX {
+  font-family: MJXZERO, MJXTEX;
+}
+
+.TEX-B {
+  font-family: MJXZERO, MJXTEX-B;
+}
+
+.TEX-I {
+  font-family: MJXZERO, MJXTEX-I;
+}
+
+.TEX-MI {
+  font-family: MJXZERO, MJXTEX-MI;
+}
+
+.TEX-BI {
+  font-family: MJXZERO, MJXTEX-BI;
+}
+
+.TEX-S1 {
+  font-family: MJXZERO, MJXTEX-S1;
+}
+
+.TEX-S2 {
+  font-family: MJXZERO, MJXTEX-S2;
+}
+
+.TEX-S3 {
+  font-family: MJXZERO, MJXTEX-S3;
+}
+
+.TEX-S4 {
+  font-family: MJXZERO, MJXTEX-S4;
+}
+
+.TEX-A {
+  font-family: MJXZERO, MJXTEX-A;
+}
+
+.TEX-C {
+  font-family: MJXZERO, MJXTEX-C;
+}
+
+.TEX-CB {
+  font-family: MJXZERO, MJXTEX-CB;
+}
+
+.TEX-FR {
+  font-family: MJXZERO, MJXTEX-FR;
+}
+
+.TEX-FRB {
+  font-family: MJXZERO, MJXTEX-FRB;
+}
+
+.TEX-SS {
+  font-family: MJXZERO, MJXTEX-SS;
+}
+
+.TEX-SSB {
+  font-family: MJXZERO, MJXTEX-SSB;
+}
+
+.TEX-SSI {
+  font-family: MJXZERO, MJXTEX-SSI;
+}
+
+.TEX-SC {
+  font-family: MJXZERO, MJXTEX-SC;
+}
+
+.TEX-T {
+  font-family: MJXZERO, MJXTEX-T;
+}
+
+.TEX-V {
+  font-family: MJXZERO, MJXTEX-V;
+}
+
+.TEX-VB {
+  font-family: MJXZERO, MJXTEX-VB;
+}
+
+mjx-stretchy-v mjx-c, mjx-stretchy-h mjx-c {
+  font-family: MJXZERO, MJXTEX-S1, MJXTEX-S4, MJXTEX, MJXTEX-A ! important;
+}
+
+@font-face /* 0 */ {
+  font-family: MJXZERO;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Zero.woff") format("woff");
+}
+
+@font-face /* 1 */ {
+  font-family: MJXTEX;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Main-Regular.woff") format("woff");
+}
+
+@font-face /* 2 */ {
+  font-family: MJXTEX-B;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Main-Bold.woff") format("woff");
+}
+
+@font-face /* 3 */ {
+  font-family: MJXTEX-I;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Math-Italic.woff") format("woff");
+}
+
+@font-face /* 4 */ {
+  font-family: MJXTEX-MI;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Main-Italic.woff") format("woff");
+}
+
+@font-face /* 5 */ {
+  font-family: MJXTEX-BI;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Math-BoldItalic.woff") format("woff");
+}
+
+@font-face /* 6 */ {
+  font-family: MJXTEX-S1;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Size1-Regular.woff") format("woff");
+}
+
+@font-face /* 7 */ {
+  font-family: MJXTEX-S2;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Size2-Regular.woff") format("woff");
+}
+
+@font-face /* 8 */ {
+  font-family: MJXTEX-S3;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Size3-Regular.woff") format("woff");
+}
+
+@font-face /* 9 */ {
+  font-family: MJXTEX-S4;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Size4-Regular.woff") format("woff");
+}
+
+@font-face /* 10 */ {
+  font-family: MJXTEX-A;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_AMS-Regular.woff") format("woff");
+}
+
+@font-face /* 11 */ {
+  font-family: MJXTEX-C;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Calligraphic-Regular.woff") format("woff");
+}
+
+@font-face /* 12 */ {
+  font-family: MJXTEX-CB;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Calligraphic-Bold.woff") format("woff");
+}
+
+@font-face /* 13 */ {
+  font-family: MJXTEX-FR;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Fraktur-Regular.woff") format("woff");
+}
+
+@font-face /* 14 */ {
+  font-family: MJXTEX-FRB;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Fraktur-Bold.woff") format("woff");
+}
+
+@font-face /* 15 */ {
+  font-family: MJXTEX-SS;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_SansSerif-Regular.woff") format("woff");
+}
+
+@font-face /* 16 */ {
+  font-family: MJXTEX-SSB;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_SansSerif-Bold.woff") format("woff");
+}
+
+@font-face /* 17 */ {
+  font-family: MJXTEX-SSI;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_SansSerif-Italic.woff") format("woff");
+}
+
+@font-face /* 18 */ {
+  font-family: MJXTEX-SC;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Script-Regular.woff") format("woff");
+}
+
+@font-face /* 19 */ {
+  font-family: MJXTEX-T;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Typewriter-Regular.woff") format("woff");
+}
+
+@font-face /* 20 */ {
+  font-family: MJXTEX-V;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Vector-Regular.woff") format("woff");
+}
+
+@font-face /* 21 */ {
+  font-family: MJXTEX-VB;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Vector-Bold.woff") format("woff");
+}
+
+mjx-c.mjx-c1D45D.TEX-I::before {
+  padding: 0.442em 0.503em 0.194em 0;
+  content: "p";
+}
+
+mjx-c.mjx-c2212::before {
+  padding: 0.583em 0.778em 0.082em 0;
+  content: "\2212";
+}
+
+mjx-c.mjx-c31::before {
+  padding: 0.666em 0.5em 0 0;
+  content: "1";
+}
+
+mjx-c.mjx-c1D45A.TEX-I::before {
+  padding: 0.442em 0.878em 0.011em 0;
+  content: "m";
+}
+
+mjx-c.mjx-c22C5::before {
+  padding: 0.31em 0.278em 0 0;
+  content: "\22C5";
+}
+
+mjx-c.mjx-c1D463.TEX-I::before {
+  padding: 0.443em 0.485em 0.011em 0;
+  content: "v";
+}
+
+mjx-c.mjx-c33::before {
+  padding: 0.665em 0.5em 0.022em 0;
+  content: "3";
+}
+
+mjx-c.mjx-c32::before {
+  padding: 0.666em 0.5em 0 0;
+  content: "2";
+}
+
+mjx-c.mjx-c34::before {
+  padding: 0.677em 0.5em 0 0;
+  content: "4";
+}
+
+mjx-c.mjx-c41::before {
+  padding: 0.716em 0.75em 0 0;
+  content: "A";
+}
+
+mjx-c.mjx-c74::before {
+  padding: 0.615em 0.389em 0.01em 0;
+  content: "t";
+}
+
+mjx-c.mjx-c65::before {
+  padding: 0.448em 0.444em 0.011em 0;
+  content: "e";
+}
+
+mjx-c.mjx-c6E::before {
+  padding: 0.442em 0.556em 0 0;
+  content: "n";
+}
+
+mjx-c.mjx-c69::before {
+  padding: 0.669em 0.278em 0 0;
+  content: "i";
+}
+
+mjx-c.mjx-c6F::before {
+  padding: 0.448em 0.5em 0.01em 0;
+  content: "o";
+}
+
+mjx-c.mjx-c28::before {
+  padding: 0.75em 0.389em 0.25em 0;
+  content: "(";
+}
+
+mjx-c.mjx-c1D444.TEX-I::before {
+  padding: 0.704em 0.791em 0.194em 0;
+  content: "Q";
+}
+
+mjx-c.mjx-c2C::before {
+  padding: 0.121em 0.278em 0.194em 0;
+  content: ",";
+}
+
+mjx-c.mjx-c1D43E.TEX-I::before {
+  padding: 0.683em 0.889em 0 0;
+  content: "K";
+}
+
+mjx-c.mjx-c1D449.TEX-I::before {
+  padding: 0.683em 0.769em 0.022em 0;
+  content: "V";
+}
+
+mjx-c.mjx-c29::before {
+  padding: 0.75em 0.389em 0.25em 0;
+  content: ")";
+}
+
+mjx-c.mjx-c3D::before {
+  padding: 0.583em 0.778em 0.082em 0;
+  content: "=";
+}
+
+mjx-c.mjx-c73::before {
+  padding: 0.448em 0.394em 0.011em 0;
+  content: "s";
+}
+
+mjx-c.mjx-c66::before {
+  padding: 0.705em 0.372em 0 0;
+  content: "f";
+}
+
+mjx-c.mjx-c6D::before {
+  padding: 0.442em 0.833em 0 0;
+  content: "m";
+}
+
+mjx-c.mjx-c61::before {
+  padding: 0.448em 0.5em 0.011em 0;
+  content: "a";
+}
+
+mjx-c.mjx-c78::before {
+  padding: 0.431em 0.528em 0 0;
+  content: "x";
+}
+
+mjx-c.mjx-c28.TEX-S3::before {
+  padding: 1.45em 0.736em 0.949em 0;
+  content: "(";
+}
+
+mjx-c.mjx-c1D447.TEX-I::before {
+  padding: 0.677em 0.704em 0 0;
+  content: "T";
+}
+
+mjx-c.mjx-c221A::before {
+  padding: 0.8em 0.853em 0.2em 0;
+  content: "\221A";
+}
+
+mjx-c.mjx-c1D451.TEX-I::before {
+  padding: 0.694em 0.52em 0.01em 0;
+  content: "d";
+}
+
+mjx-c.mjx-c68::before {
+  padding: 0.694em 0.556em 0 0;
+  content: "h";
+}
+
+mjx-c.mjx-c64::before {
+  padding: 0.694em 0.556em 0.011em 0;
+  content: "d";
+}
+
+mjx-c.mjx-c29.TEX-S3::before {
+  padding: 1.45em 0.736em 0.949em 0;
+  content: ")";
+}
+
+mjx-c.mjx-cD7::before {
+  padding: 0.491em 0.778em 0 0;
+  content: "\D7";
+}
+
+mjx-c.mjx-c210E.TEX-I::before {
+  padding: 0.694em 0.576em 0.011em 0;
+  content: "h";
+}
+
+mjx-c.mjx-c38::before {
+  padding: 0.666em 0.5em 0.022em 0;
+  content: "8";
+}
+
+mjx-c.mjx-c2B::before {
+  padding: 0.583em 0.778em 0.082em 0;
+  content: "+";
+}
+
+mjx-c.mjx-c1D45B.TEX-I::before {
+  padding: 0.442em 0.6em 0.011em 0;
+  content: "n";
+}
+
+mjx-c.mjx-c1D45E.TEX-I::before {
+  padding: 0.442em 0.46em 0.194em 0;
+  content: "q";
+}
+
+mjx-c.mjx-c1D458.TEX-I::before {
+  padding: 0.694em 0.521em 0.011em 0;
+  content: "k";
+}
+
+mjx-c.mjx-c5C::before {
+  padding: 0.75em 0.5em 0.25em 0;
+  content: "\5C";
+}
+
+mjx-c.mjx-c5F::before {
+  padding: 0 0.5em 0.062em 0;
+  content: "_";
+}
+
+mjx-c.mjx-c1D43F.TEX-I::before {
+  padding: 0.683em 0.681em 0 0;
+  content: "L";
+}
+
+mjx-c.mjx-c70::before {
+  padding: 0.442em 0.556em 0.194em 0;
+  content: "p";
+}
+
+mjx-c.mjx-c72::before {
+  padding: 0.442em 0.392em 0 0;
+  content: "r";
+}
+
+mjx-c.mjx-c6C::before {
+  padding: 0.694em 0.278em 0 0;
+  content: "l";
+}
+
+mjx-c.mjx-c79::before {
+  padding: 0.431em 0.528em 0.204em 0;
+  content: "y";
+}
+</style></head>
+<body>
+
+<!-- ==================== HERO ==================== -->
+<div class="hero">
+  <div class="container">
+    <h1><span class="file">GPT</span> 模型架构</h1>
+    <p class="subtitle">Embedding → TransformerBlock → Output Layer — Megatron-LM 中 GPT 模型的分层实现</p>
+    <div class="meta">
+      <span>gpt_model.py</span>
+      <span>transformer_layer.py</span>
+      <span>前置知识：<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/tensor_parallel.html" style="color:var(--accent);text-decoration:none">Tensor Parallelism</a></span>
+    </div>
+  </div>
+</div>
+
+<div class="page-body">
+
+<!-- ==================== TOC ==================== -->
+<aside class="toc-sidebar">
+<nav class="toc">
+  <div id="global-nav"><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/index.html" class="toc-home">← 文档目录</a>
+<div class="toc-group">入口</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/entry/pretrain_gpt.html" class="toc-doc">pretrain_gpt.py</a>
+<div class="toc-group">基础设施</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/pretrain_and_setup.html" class="toc-doc">初始化篇</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/training_loop.html" class="toc-doc">训练循环篇</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/memory_calculator.html" class="toc-doc">GPU 显存计算</a>
+<div class="toc-group">并行策略</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/rank_and_parallel_groups.html" class="toc-doc">Rank 与并行组</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/collective_operations.html" class="toc-doc">集合通信操作</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/tensor_parallel.html" class="toc-doc">Tensor Parallelism</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/pipeline_parallel.html" class="toc-doc">Pipeline Parallelism</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/schedules_deep_dive.html" class="toc-doc">Schedule 深度精读</a>
+<div class="toc-group">模型架构</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/transformer_architecture.html" class="toc-doc active">GPT 模型架构</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/moe_layer.html" class="toc-doc">MoE 层与 EP</a>
+<div class="toc-group">数据</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/data/vpp_data_iterator.html" class="toc-doc">VPP 数据迭代器</a>
+<div class="toc-group">优化器</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/optimizer/distrib_optimizer.html" class="toc-doc">分布式优化器</a>
+</div>
+  <script src="./GPT 模型架构 · Megatron-LM 源码精读_files/nav.js"></script>
+      <div class="toc-divider"></div>
+    <h2>本文目录</h2>
+  <ol>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/transformer_architecture.html#gpt-overview">GPTModel 总览</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/transformer_architecture.html#layer-spec">Layer Spec 模式</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/transformer_architecture.html#transformer-block">TransformerBlock</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/transformer_architecture.html#transformer-layer">TransformerLayer</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/transformer_architecture.html#self-attention">SelfAttention</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/transformer_architecture.html#mlp">MLP</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/transformer_architecture.html#full-data-flow">完整数据流</a></li>
+  </ol>
+</nav>
+</aside>
+
+<!-- ==================== Main Content ==================== -->
+<div class="main-content">
+
+<!-- ==================== 1. GPTModel 总览 ==================== -->
+<section id="gpt-overview">
+  <div class="section-header">
+    <span class="section-num">01</span>
+    <h2>GPTModel 总览</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">gpt_model.py</span>
+    <span class="tag tag-green">GPTModel</span>
+    <span class="tag tag-purple">model_provider</span>
+  </div>
+
+  <div class="prose">
+    <p>Megatron-LM 中的 GPT 模型由 <code>GPTModel</code> 类实现，定义在 <code>megatron/core/models/gpt/gpt_model.py</code> 中。整个模型的结构非常清晰，由<strong>三个核心组件</strong>纵向堆叠而成：</p>
+    <ol>
+      <li><strong>Embedding</strong> -- 将 token ID 和位置信息映射到连续的隐藏空间向量，输出形状为 <code>[s, b, h]</code>。</li>
+      <li><strong>TransformerBlock</strong> (又称 decoder) -- 由 L 个 <code>TransformerLayer</code> 堆叠而成，是模型的主体计算部分，参数量占比超过 95%。</li>
+      <li><strong>Output Layer</strong> -- 一个线性投影层，将隐藏向量映射回词表维度，产生 logits，形状为 <code>[s, b, V]</code>。</li>
+    </ol>
+    <p>Megatron 采用 <strong>model provider</strong> 模式：用户代码（如 <code>pretrain_gpt.py</code>）定义一个 <code>model_provider</code> 函数，传入一个 <code>TransformerConfig</code> 和一个 layer spec，框架负责根据 spec 构建完整模型。这种设计将模型的<strong>声明</strong>（spec）与<strong>实例化</strong>（框架）解耦，使得切换底层实现（例如从纯 PyTorch 切换到 TransformerEngine）只需替换 spec，不改动模型代码。</p>
+  </div>
+
+  <div class="mermaid" data-processed="true"><svg aria-roledescription="flowchart-v2" role="graphics-document document" viewBox="-8 -8 196.0390625 556.125" style="max-width: 196.0390625px;" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="100%" id="mermaid-1783857366017"><style>#mermaid-1783857366017{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;fill:#e6edf3;}#mermaid-1783857366017 .error-icon{fill:#0d1117;}#mermaid-1783857366017 .error-text{fill:#f2eee8;stroke:#f2eee8;}#mermaid-1783857366017 .edge-thickness-normal{stroke-width:2px;}#mermaid-1783857366017 .edge-thickness-thick{stroke-width:3.5px;}#mermaid-1783857366017 .edge-pattern-solid{stroke-dasharray:0;}#mermaid-1783857366017 .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-1783857366017 .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-1783857366017 .marker{fill:#58a6ff;stroke:#58a6ff;}#mermaid-1783857366017 .marker.cross{stroke:#58a6ff;}#mermaid-1783857366017 svg{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;}#mermaid-1783857366017 .label{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:#e6edf3;}#mermaid-1783857366017 .cluster-label text{fill:#e6edf3;}#mermaid-1783857366017 .cluster-label span,#mermaid-1783857366017 p{color:#e6edf3;}#mermaid-1783857366017 .label text,#mermaid-1783857366017 span,#mermaid-1783857366017 p{fill:#e6edf3;color:#e6edf3;}#mermaid-1783857366017 .node rect,#mermaid-1783857366017 .node circle,#mermaid-1783857366017 .node ellipse,#mermaid-1783857366017 .node polygon,#mermaid-1783857366017 .node path{fill:#161b22;stroke:#30363d;stroke-width:1px;}#mermaid-1783857366017 .flowchart-label text{text-anchor:middle;}#mermaid-1783857366017 .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#mermaid-1783857366017 .node .label{text-align:center;}#mermaid-1783857366017 .node.clickable{cursor:pointer;}#mermaid-1783857366017 .arrowheadPath{fill:#e3ded6;}#mermaid-1783857366017 .edgePath .path{stroke:#58a6ff;stroke-width:2.0px;}#mermaid-1783857366017 .flowchart-link{stroke:#58a6ff;fill:none;}#mermaid-1783857366017 .edgeLabel{background-color:#1c2129;text-align:center;}#mermaid-1783857366017 .edgeLabel rect{opacity:0.5;background-color:#1c2129;fill:#1c2129;}#mermaid-1783857366017 .labelBkg{background-color:rgba(28, 33, 41, 0.5);}#mermaid-1783857366017 .cluster rect{fill:rgba(88,166,255,0.05);stroke:#30363d;stroke-width:1px;}#mermaid-1783857366017 .cluster text{fill:#e6edf3;}#mermaid-1783857366017 .cluster span,#mermaid-1783857366017 p{color:#e6edf3;}#mermaid-1783857366017 div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:12px;background:#0d1117;border:1px solid hsl(216, 0%, 17.0588235294%);border-radius:2px;pointer-events:none;z-index:100;}#mermaid-1783857366017 .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#e6edf3;}#mermaid-1783857366017 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="6" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857366017_flowchart-pointEnd"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 0 L 10 5 L 0 10 z"></path></marker><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="4.5" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857366017_flowchart-pointStart"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 5 L 10 10 L 10 0 z"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="11" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857366017_flowchart-circleEnd"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="-1" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857366017_flowchart-circleStart"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="12" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783857366017_flowchart-crossEnd"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="-1" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783857366017_flowchart-crossStart"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><g class="root"><g class="clusters"></g><g class="edgePaths"><path marker-end="url(#mermaid-1783857366017_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-A LE-B" id="L-A-B-0" d="M90.02,59.188L90.02,63.354C90.02,67.521,90.02,75.854,90.02,83.304C90.02,90.754,90.02,97.321,90.02,100.604L90.02,103.888"></path><path marker-end="url(#mermaid-1783857366017_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-B LE-C" id="L-B-C-0" d="M90.02,190.469L90.02,194.635C90.02,198.802,90.02,207.135,90.02,214.585C90.02,222.035,90.02,228.602,90.02,231.885L90.02,235.169"></path><path marker-end="url(#mermaid-1783857366017_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-C LE-D" id="L-C-D-0" d="M90.02,321.75L90.02,325.917C90.02,330.083,90.02,338.417,90.02,345.867C90.02,353.317,90.02,359.883,90.02,363.167L90.02,366.45"></path><path marker-end="url(#mermaid-1783857366017_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-D LE-E" id="L-D-E-0" d="M90.02,453.031L90.02,457.198C90.02,461.365,90.02,469.698,90.02,477.148C90.02,484.598,90.02,491.165,90.02,494.448L90.02,497.731"></path></g><g class="edgeLabels"><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g></g><g class="nodes"><g transform="translate(90.01953125, 29.59375)" data-id="A" data-node="true" id="flowchart-A-0" class="node default default flowchart-label"><rect height="59.1875" width="74.109375" y="-29.59375" x="-37.0546875" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-29.5546875, -22.09375)" style="" class="label"><rect></rect><foreignobject height="44.1875" width="59.109375"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">Token IDs<br>[s, b]</span></div></foreignobject></g></g><g transform="translate(90.01953125, 149.828125)" data-id="B" data-node="true" id="flowchart-B-1" class="node default default flowchart-label"><rect height="81.28125" width="180.0390625" y="-40.640625" x="-90.01953125" ry="0" rx="0" style="fill:#1f2937;stroke:#58a6ff;" class="basic label-container"></rect><g transform="translate(-82.51953125, -33.140625)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="66.28125" width="165.0390625"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel"><b>Embedding</b><br>word_embed + pos_embed<br>[s, b, h]</span></div></foreignobject></g></g><g transform="translate(90.01953125, 281.109375)" data-id="C" data-node="true" id="flowchart-C-3" class="node default default flowchart-label"><rect height="81.28125" width="143.140625" y="-40.640625" x="-71.5703125" ry="0" rx="0" style="fill:#1f2937;stroke:#3fb950;" class="basic label-container"></rect><g transform="translate(-64.0703125, -33.140625)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="66.28125" width="128.140625"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel"><b>TransformerBlock</b><br>L x TransformerLayer<br>[s, b, h]</span></div></foreignobject></g></g><g transform="translate(90.01953125, 412.390625)" data-id="D" data-node="true" id="flowchart-D-5" class="node default default flowchart-label"><rect height="81.28125" width="99.2734375" y="-40.640625" x="-49.63671875" ry="0" rx="0" style="fill:#1f2937;stroke:#d2a8ff;" class="basic label-container"></rect><g transform="translate(-42.13671875, -33.140625)" style="color:#e6edf3;" class="label"><rect></rect><foreignobject height="66.28125" width="84.2734375"><div xmlns="http://www.w3.org/1999/xhtml" style="color: rgb(230, 237, 243); display: inline-block; white-space: nowrap;"><span style="color:#e6edf3;" class="nodeLabel"><b>Output Layer</b><br>Linear(h, V)<br>[s, b, V]</span></div></foreignobject></g></g><g transform="translate(90.01953125, 521.578125)" data-id="E" data-node="true" id="flowchart-E-7" class="node default default flowchart-label"><rect height="37.09375" width="90.796875" y="-18.546875" x="-45.3984375" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-37.8984375, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="75.796875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">Logits / Loss</span></div></foreignobject></g></g></g></g></g></svg></div>
+
+  <table class="data-table">
+    <thead>
+      <tr><th>组件</th><th>类名</th><th>源文件</th><th>关键参数</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Embedding</strong></td>
+        <td><code>LanguageModelEmbedding</code></td>
+        <td><code>language_module.py</code></td>
+        <td><code>vocab_size</code>, <code>hidden_size</code>, <code>max_sequence_length</code></td>
+      </tr>
+      <tr>
+        <td><strong>TransformerBlock</strong></td>
+        <td><code>TransformerBlock</code></td>
+        <td><code>transformer_block.py</code></td>
+        <td><code>num_layers</code>, <code>hidden_size</code>, <code>num_attention_heads</code></td>
+      </tr>
+      <tr>
+        <td><strong>Output Layer</strong></td>
+        <td><code>ColumnParallelLinear</code></td>
+        <td><code>tensor_parallel/layers.py</code></td>
+        <td><code>hidden_size</code>, <code>vocab_size</code>, <code>bias=False</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>gpt_model.py -- GPTModel.__init__ 三大组件初始化</span>
+      <span class="lines">L151-257</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">class</span> <span class="hljs-title class_">GPTModel</span>(<span class="hljs-title class_ inherited__">LanguageModule</span>):
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">__init__</span>(<span class="hljs-params">self, config, transformer_layer_spec, ...</span>):
+        <span class="hljs-built_in">super</span>().__init__(config)
+
+        <span class="hljs-comment"># ---- 1. Embedding ----</span>
+        self.embedding = LanguageModelEmbedding(
+            config=self.config,
+            vocab_size=vocab_size,
+            max_sequence_length=max_sequence_length,
+            position_embedding_type=position_embedding_type,
+        )
+
+        <span class="hljs-comment"># ---- 2. TransformerBlock (Decoder) ----</span>
+        self.decoder = TransformerBlock(
+            config=self.config,
+            spec=transformer_layer_spec,    <span class="hljs-comment"># Layer Spec 决定内部结构</span>
+            pre_process=self.pre_process,   <span class="hljs-comment"># PP first stage?</span>
+            post_process=self.post_process, <span class="hljs-comment"># PP last stage?</span>
+        )
+
+        <span class="hljs-comment"># ---- 3. Output Layer ----</span>
+        self.output_layer = tensor_parallel.ColumnParallelLinear(
+            config.hidden_size,
+            self.vocab_size,
+            config=config,
+            init_method=config.init_method,
+            bias=<span class="hljs-literal">False</span>,
+            skip_bias_add=<span class="hljs-literal">False</span>,
+            gather_output=<span class="hljs-keyword">not</span> self.parallel_output,
+        )</code></pre>
+  </div>
+
+  <div class="callout callout-info">
+    <div class="callout-title">Pipeline Parallelism 与 pre_process / post_process</div>
+    当使用流水线并行（PP）时，模型会被切分到多个 stage 上。<strong>只有第一个 stage</strong> 拥有 Embedding（<code>pre_process=True</code>），<strong>只有最后一个 stage</strong> 拥有 Output Layer（<code>post_process=True</code>）。中间的 stage 只包含若干 TransformerLayer，不会创建 Embedding 和 Output Layer，从而节省显存。
+  </div>
+
+  <div class="diagram"><span class="hl">PP=4 时各 stage 拥有的组件</span>
+
+<span class="hl2">Stage 0</span> (pre_process=True,  post_process=False)
+  +-- <span class="hl2">Embedding</span> (word + position)
+  +-- TransformerLayer 0..7
+
+<span class="hl3">Stage 1</span> (pre_process=False, post_process=False)
+  +-- TransformerLayer 8..15
+
+<span class="hl4">Stage 2</span> (pre_process=False, post_process=False)
+  +-- TransformerLayer 16..23
+
+<span class="hl">Stage 3</span> (pre_process=False, post_process=True)
+  +-- TransformerLayer 24..31
+  +-- Final LayerNorm
+  +-- <span class="hl">Output Layer</span></div>
+
+  <div class="callout callout-warn">
+    <div class="callout-title">Embedding 权重共享</div>
+    许多模型（如 GPT-2）将 Embedding 矩阵和 Output Layer 的权重绑定（tied weights），即 <code>output_layer.weight = embedding.word_embeddings.weight</code>。在 PP 模式下，由于 Embedding 在 Stage 0 而 Output Layer 在最后一个 Stage，权重共享需要跨 stage 同步，Megatron 通过在训练开始前和每步更新后做一次 P2P 通信来保持两端的权重一致。
+  </div>
+</section>
+
+<!-- ==================== 2. Layer Spec 模式 ==================== -->
+<section id="layer-spec">
+  <div class="section-header">
+    <span class="section-num">02</span>
+    <h2>Layer Spec 模式</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">gpt_layer_specs.py</span>
+    <span class="tag tag-purple">ModuleSpec</span>
+    <span class="tag tag-green">声明式定义</span>
+  </div>
+
+  <div class="prose">
+    <p>Megatron 使用 <code>ModuleSpec</code> 数据类实现<strong>声明式模型定义</strong>。核心思想是：用一棵 spec 树来<strong>描述</strong>模型的层级结构，框架在运行时根据 spec 递归地<strong>实例化</strong>各个子模块。</p>
+    <p>这种设计带来的最大好处是<strong>实现可替换</strong>。例如，<code>get_gpt_layer_local_spec()</code> 返回基于纯 Megatron 实现的 spec，而 <code>get_gpt_layer_te_spec()</code> 则返回基于 TransformerEngine 的 spec。两者对外暴露相同的接口，上层 <code>GPTModel</code> 代码不需要做任何修改。</p>
+  </div>
+
+  <div class="diagram"><span class="hl">Layer Spec 树结构：spec 到实例的映射</span>
+
+ModuleSpec(module=<span class="hl">TransformerLayer</span>)
+  |
+  +-- self_attention: ModuleSpec(module=<span class="hl2">SelfAttention</span>)
+  |   |
+  |   +-- core_attention: ModuleSpec(module=<span class="hl3">DotProductAttention</span>)
+  |   +-- linear_qkv:    <span class="hl4">ColumnParallelLinear</span>
+  |   +-- linear_proj:   <span class="hl4">RowParallelLinear</span>
+  |
+  +-- self_attn_bda: <span class="hl4">bias_dropout_add</span> (function)
+  |
+  +-- pre_mlp_layernorm: ModuleSpec(module=<span class="hl2">LNImpl</span>)
+  |
+  +-- mlp: ModuleSpec(module=<span class="hl2">MLP</span>)
+  |   |
+  |   +-- linear_fc1: <span class="hl4">ColumnParallelLinear</span>
+  |   +-- linear_fc2: <span class="hl4">RowParallelLinear</span>
+  |
+  +-- mlp_bda: <span class="hl4">bias_dropout_add</span> (function)</div>
+
+  <div class="prose">
+    <p>每个 <code>ModuleSpec</code> 包含四个字段：<code>module</code>（要实例化的类）、<code>submodules</code>（子模块的 spec）、<code>params</code>（额外构造参数）和 <code>metainfo</code>（元信息）。框架在构建时通过 <code>build_module()</code> 工厂函数遍历这棵 spec 树，逐层实例化各子模块。具体机制见下方<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/transformer_architecture.html#build-mechanism" style="color:var(--accent)">递归构建机制</a>一节。</p>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>gpt_layer_specs.py -- get_gpt_layer_local_spec 关键结构</span>
+      <span class="lines">L40-95</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">def</span> <span class="hljs-title function_">get_gpt_layer_local_spec</span>(<span class="hljs-params">
+    num_experts=<span class="hljs-literal">None</span>, moe_grouped_gemm=<span class="hljs-literal">False</span>, ...
+</span>) -&gt; ModuleSpec:
+    <span class="hljs-string">"""返回基于 Megatron 原生实现的 GPT Layer Spec."""</span>
+    <span class="hljs-keyword">return</span> ModuleSpec(
+        module=TransformerLayer,
+        submodules=TransformerLayerSubmodules(
+            <span class="hljs-comment"># ---- Self Attention ----</span>
+            self_attention=ModuleSpec(
+                module=SelfAttention,
+                params={<span class="hljs-string">"attn_mask_type"</span>: AttnMaskType.causal},
+                submodules=SelfAttentionSubmodules(
+                    linear_qkv=ColumnParallelLinear,    <span class="hljs-comment"># QKV 投影</span>
+                    core_attention=DotProductAttention,  <span class="hljs-comment"># 注意力计算</span>
+                    linear_proj=RowParallelLinear,       <span class="hljs-comment"># 输出投影</span>
+                ),
+            ),
+            self_attn_bda=get_bias_dropout_add,
+
+            <span class="hljs-comment"># ---- MLP ----</span>
+            pre_mlp_layernorm=FusedLayerNorm,
+            mlp=ModuleSpec(
+                module=MLP,
+                submodules=MLPSubmodules(
+                    linear_fc1=ColumnParallelLinear,
+                    linear_fc2=RowParallelLinear,
+                ),
+            ),
+            mlp_bda=get_bias_dropout_add,
+        ),
+    )</code></pre>
+  </div>
+
+  <div class="callout callout-key">
+    <div class="callout-title">Spec 的替换能力</div>
+    如需使用 NVIDIA TransformerEngine 的融合内核（FP8 训练等），只需将 spec 中的 <code>ColumnParallelLinear</code> 替换为 TE 版本的 <code>TEColumnParallelLinear</code>，以及将 <code>DotProductAttention</code> 替换为 <code>TEDotProductAttention</code>。上层 <code>GPTModel</code> 和 <code>TransformerBlock</code> 的代码完全不需要修改。这是 Megatron 框架设计中最优雅的部分之一。
+  </div>
+
+  <table class="data-table">
+    <thead>
+      <tr><th>Spec 类型</th><th>函数名</th><th>Linear 实现</th><th>Attention 实现</th><th>适用场景</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Local</strong></td>
+        <td><code>get_gpt_layer_local_spec()</code></td>
+        <td>Megatron ColumnParallel / RowParallel</td>
+        <td><code>DotProductAttention</code></td>
+        <td>纯 PyTorch，无额外依赖</td>
+      </tr>
+      <tr>
+        <td><strong>TE</strong></td>
+        <td><code>get_gpt_layer_te_spec()</code></td>
+        <td>TransformerEngine Linear</td>
+        <td><code>TEDotProductAttention</code></td>
+        <td>FP8 训练、融合 kernel 加速</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ---- ModuleSpec 与递归构建机制 ---- -->
+  <h3 id="build-mechanism" style="font-size: 1.15rem; margin: 36px 0 16px; padding-bottom: 10px; border-bottom: 1px dashed var(--border); color: var(--accent);">ModuleSpec 数据结构</h3>
+
+  <div class="prose">
+    <p><code>ModuleSpec</code> 是声明式构建模式的核心数据类，定义在 <code>megatron/core/transformer/spec_utils.py</code> 中：</p>
+  </div>
+
+  <table class="data-table">
+    <thead>
+      <tr><th>字段</th><th>类型</th><th>含义</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>module</code></td>
+        <td><code>Union[Tuple, type]</code></td>
+        <td><strong>要实例化的类</strong>，如 <code>MLP</code>、<code>SelfAttention</code>；或动态导入路径元组 <code>(module_path, ClassName)</code></td>
+      </tr>
+      <tr>
+        <td><code>params</code></td>
+        <td><code>dict</code></td>
+        <td>传给构造函数的<strong>额外参数</strong>，如 <code>{"attn_mask_type": AttnMaskType.causal}</code></td>
+      </tr>
+      <tr>
+        <td><code>submodules</code></td>
+        <td><code>type | None</code></td>
+        <td><strong>子模块的 spec</strong>，是一个 dataclass 实例（如 <code>MLPSubmodules</code>）；叶子节点为 <code>None</code></td>
+      </tr>
+      <tr>
+        <td><code>metainfo</code></td>
+        <td><code>dict</code></td>
+        <td>附加元信息，不参与构建过程</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="prose">
+    <p>每一级的 <code>submodules</code> 都由一个<strong>专门的 dataclass</strong> 定义。其字段名对应父模块 <code>__init__</code> 中的属性名，值可以是裸类、函数或嵌套的 <code>ModuleSpec</code>：</p>
+  </div>
+
+  <table class="data-table">
+    <thead>
+      <tr><th>Submodules Dataclass</th><th>所属模块</th><th>关键字段</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>TransformerLayerSubmodules</code></td>
+        <td><code>TransformerLayer</code></td>
+        <td><code>input_layernorm</code>, <code>self_attention</code>, <code>self_attn_bda</code>, <code>pre_mlp_layernorm</code>, <code>mlp</code>, <code>mlp_bda</code></td>
+      </tr>
+      <tr>
+        <td><code>SelfAttentionSubmodules</code></td>
+        <td><code>SelfAttention</code></td>
+        <td><code>linear_qkv</code>, <code>core_attention</code>, <code>linear_proj</code>, <code>q_layernorm</code>, <code>k_layernorm</code></td>
+      </tr>
+      <tr>
+        <td><code>MLPSubmodules</code></td>
+        <td><code>MLP</code></td>
+        <td><code>linear_fc1</code>（h→4h 升维）, <code>linear_fc2</code>（4h→h 降维）, <code>activation_func</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 style="font-size: 1.15rem; margin: 36px 0 16px; padding-bottom: 10px; border-bottom: 1px dashed var(--border); color: var(--accent);">build_module：通用工厂函数</h3>
+
+  <div class="prose">
+    <p><code>build_module</code> 定义在 <code>spec_utils.py:68-117</code>，负责将一个 <code>ModuleSpec</code>（或裸类/函数）转化为实际的 PyTorch 模块实例。它的逻辑分为<strong>五步</strong>：</p>
+  </div>
+
+  <div class="flow-steps">
+    <div class="flow-step">
+      <div class="flow-line">
+        <div class="flow-dot"></div>
+        <div class="flow-connector"></div>
+      </div>
+      <div class="flow-content">
+        <h4>Step 1: 函数检测</h4>
+        <p>如果传入的是一个函数（如 <code>get_bias_dropout_add</code>），直接返回，不做实例化。这是<strong>递归终止条件之一</strong>。</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line">
+        <div class="flow-dot green"></div>
+        <div class="flow-connector"></div>
+      </div>
+      <div class="flow-content">
+        <h4>Step 2: 解析出实际的类</h4>
+        <p>如果是裸类（<code>isinstance(spec, type)</code>），直接用该类。如果是 <code>ModuleSpec</code>，取出 <code>spec.module</code>。如果 <code>module</code> 是元组，则通过 <code>import_module()</code> 动态导入。</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line">
+        <div class="flow-dot purple"></div>
+        <div class="flow-connector"></div>
+      </div>
+      <div class="flow-content">
+        <h4>Step 3: 注入 submodules（关键！）</h4>
+        <p>如果 spec 有 <code>submodules</code> 字段且不为 <code>None</code>，将其<strong>注入到 kwargs 中</strong>：<code>kwargs["submodules"] = spec.submodules</code>。这一步是递归传递的枢纽 -- 子模块 spec 被作为构造函数参数传递下去。</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line">
+        <div class="flow-dot orange"></div>
+        <div class="flow-connector"></div>
+      </div>
+      <div class="flow-content">
+        <h4>Step 4: 合并 params</h4>
+        <p>将 <code>spec.params</code>（如 <code>{"attn_mask_type": causal}</code>）与外部传入的 <code>**kwargs</code>（如 <code>config</code>、<code>layer_number</code>）合并。</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line">
+        <div class="flow-dot"></div>
+      </div>
+      <div class="flow-content">
+        <h4>Step 5: 实例化</h4>
+        <p>调用 <code>module(*args, **params, **kwargs)</code> 创建模块实例并返回。被实例化的类如果在 <code>__init__</code> 中对 <code>submodules</code> 的各字段再次调用 <code>build_module</code>，递归就此展开。</p>
+      </div>
+    </div>
+  </div>
+
+  <details class="collapsible">
+    <summary>build_module 完整源码（带注释） <span class="badge">spec_utils.py:68-117</span></summary>
+    <div class="collapsible-body">
+      <div class="code-block">
+        <div class="code-title">
+          <span>spec_utils.py -- build_module</span>
+          <span class="lines">L68-117</span>
+        </div>
+        <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">def</span> <span class="hljs-title function_">build_module</span>(<span class="hljs-params">spec_or_module, *args, **kwargs</span>):
+    <span class="hljs-comment"># ---- 终止条件 1: 传入的就是函数，直接返回 ----</span>
+    <span class="hljs-keyword">if</span> <span class="hljs-built_in">isinstance</span>(spec_or_module, types.FunctionType):
+        <span class="hljs-keyword">return</span> spec_or_module
+
+    <span class="hljs-comment"># ---- 终止条件 2: ModuleSpec 的 module 字段是函数 ----</span>
+    <span class="hljs-keyword">if</span> <span class="hljs-built_in">isinstance</span>(spec_or_module, ModuleSpec) <span class="hljs-keyword">and</span> <span class="hljs-built_in">isinstance</span>(
+        spec_or_module.module, types.FunctionType
+    ):
+        <span class="hljs-keyword">return</span> spec_or_module.module
+
+    <span class="hljs-comment"># ---- 解析出实际的类 ----</span>
+    <span class="hljs-keyword">if</span> <span class="hljs-built_in">isinstance</span>(spec_or_module, <span class="hljs-built_in">type</span>):
+        module = spec_or_module                    <span class="hljs-comment"># 裸类，如 ColumnParallelLinear</span>
+    <span class="hljs-keyword">elif</span> <span class="hljs-built_in">hasattr</span>(spec_or_module, <span class="hljs-string">"module"</span>) <span class="hljs-keyword">and</span> <span class="hljs-built_in">isinstance</span>(spec_or_module.module, <span class="hljs-built_in">type</span>):
+        module = spec_or_module.module             <span class="hljs-comment"># 从 ModuleSpec 中取出类</span>
+    <span class="hljs-keyword">else</span>:
+        module = import_module(spec_or_module.module)  <span class="hljs-comment"># 动态导入</span>
+
+    <span class="hljs-keyword">if</span> <span class="hljs-built_in">isinstance</span>(module, types.FunctionType):
+        <span class="hljs-keyword">return</span> module
+
+    <span class="hljs-comment"># ---- 关键一步：注入 submodules 到 kwargs ----</span>
+    <span class="hljs-keyword">if</span> <span class="hljs-built_in">hasattr</span>(spec_or_module, <span class="hljs-string">"submodules"</span>) <span class="hljs-keyword">and</span> spec_or_module.submodules <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span>:
+        kwargs[<span class="hljs-string">"submodules"</span>] = spec_or_module.submodules
+
+    <span class="hljs-comment"># ---- 实例化：class(*args, **params, **kwargs) ----</span>
+    <span class="hljs-keyword">return</span> module(
+        *args,
+        **spec_or_module.params <span class="hljs-keyword">if</span> <span class="hljs-built_in">hasattr</span>(spec_or_module, <span class="hljs-string">"params"</span>) <span class="hljs-keyword">else</span> {},
+        **kwargs
+    )</code></pre>
+      </div>
+    </div>
+  </details>
+
+  <h3 style="font-size: 1.15rem; margin: 36px 0 16px; padding-bottom: 10px; border-bottom: 1px dashed var(--border); color: var(--accent);">递归构建的协作模式</h3>
+
+  <div class="callout callout-key">
+    <div class="callout-title">核心洞察：递归不在 build_module 内部</div>
+    <code>build_module</code> 本身<strong>不是</strong>递归函数。递归是通过一种<strong>协作模式</strong>实现的：<code>build_module</code> 把 submodules 注入 kwargs 并调用构造函数 → 构造函数（如 <code>MLP.__init__</code>）在内部对 submodules 的每个字段<strong>再次调用</strong> <code>build_module</code>。每一层的 <code>__init__</code> 才是递归展开的驱动者。
+  </div>
+
+  <div class="diagram"><span class="hl">协作递归模式</span>
+
+build_module(spec)
+    │
+    ├── 从 spec 取出 class            <span class="hl3">── Step 2</span>
+    ├── kwargs["submodules"] = spec.submodules   <span class="hl3">── Step 3</span>
+    └── class.__init__(submodules=..., **kwargs)  <span class="hl3">── Step 5</span>
+              │
+              │  <span class="hl4">__init__ 内部：</span>
+              ├── self.child_a = <span class="hl">build_module</span>(submodules.child_a, ...)  ──┐
+              ├── self.child_b = <span class="hl">build_module</span>(submodules.child_b, ...)  ──┤ <span class="hl2">递归展开</span>
+              └── self.child_c = <span class="hl">build_module</span>(submodules.child_c, ...)  ──┘</div>
+
+  <div class="prose">
+    <p>递归在以下三种情况下<strong>自然终止</strong>：</p>
+  </div>
+
+  <table class="data-table">
+    <thead>
+      <tr><th>spec 类型</th><th>build_module 行为</th><th>递归</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>函数</strong>（如 <code>get_bias_dropout_add</code>）</td>
+        <td>直接返回函数本身，不做实例化</td>
+        <td style="color:var(--accent2)"><strong>终止</strong></td>
+      </tr>
+      <tr>
+        <td><strong>裸类</strong>（如 <code>ColumnParallelLinear</code>）</td>
+        <td><code>isinstance(spec, type)</code> 为 True，无 submodules 可注入，直接 <code>class(**kwargs)</code></td>
+        <td style="color:var(--accent2)"><strong>终止</strong> -- 叶子节点</td>
+      </tr>
+      <tr>
+        <td><strong>ModuleSpec 带 submodules</strong></td>
+        <td>取出 class，注入 submodules → <code>class.__init__(submodules=...)</code></td>
+        <td style="color:var(--accent4)"><strong>继续</strong> -- <code>__init__</code> 会再调 <code>build_module</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="prose">
+    <p>以 <code>get_gpt_layer_local_spec()</code> 为例，完整的递归构建树如下。树的深度为 3 层，共 9 个叶子节点，3 个中间节点（<code>TransformerLayer</code>、<code>SelfAttention</code>、<code>MLP</code>）的 <code>__init__</code> 驱动递归展开：</p>
+  </div>
+
+  <div class="diagram"><span class="hl">完整递归构建树</span>
+
+TransformerBlock.<span class="hl2">_build_layers()</span>
+│  <span class="hl3">transformer_block.py:370-375</span>
+│  for each layer_spec in layer_specs:
+│      build_module(layer_spec)
+│
+└── <span class="hl2">TransformerLayer</span>.__init__(submodules=TransformerLayerSubmodules)
+    │  <span class="hl3">transformer_layer.py:264-376</span>
+    │
+    ├── build_module(input_layernorm)
+    │   └── <span class="hl4">FusedLayerNorm</span>(...)                    <span class="hl2">■ 叶子（裸类）</span>
+    │
+    ├── build_module(self_attention)
+    │   └── <span class="hl">SelfAttention</span>.__init__(submodules=SelfAttentionSubmodules)
+    │       │  <span class="hl3">attention.py</span>
+    │       │
+    │       ├── build_module(linear_qkv)
+    │       │   └── <span class="hl4">ColumnParallelLinear</span>(...)        <span class="hl2">■ 叶子</span>
+    │       │
+    │       ├── build_module(core_attention)
+    │       │   └── <span class="hl4">DotProductAttention</span>(...)         <span class="hl2">■ 叶子</span>
+    │       │
+    │       └── build_module(linear_proj)
+    │           └── <span class="hl4">RowParallelLinear</span>(...)           <span class="hl2">■ 叶子</span>
+    │
+    ├── build_module(self_attn_bda)
+    │   └── <span class="hl4">get_bias_dropout_add</span>                   <span class="hl2">■ 叶子（函数）</span>
+    │
+    ├── build_module(pre_mlp_layernorm)
+    │   └── <span class="hl4">FusedLayerNorm</span>(...)                    <span class="hl2">■ 叶子</span>
+    │
+    ├── build_module(mlp)
+    │   └── <span class="hl">MLP</span>.__init__(submodules=MLPSubmodules)
+    │       │  <span class="hl3">mlp.py:76-139</span>
+    │       │
+    │       ├── build_module(linear_fc1)
+    │       │   └── <span class="hl4">ColumnParallelLinear</span>(...)        <span class="hl2">■ 叶子</span>
+    │       │
+    │       └── build_module(linear_fc2)
+    │           └── <span class="hl4">RowParallelLinear</span>(...)           <span class="hl2">■ 叶子</span>
+    │
+    └── build_module(mlp_bda)
+        └── <span class="hl4">get_bias_dropout_add</span>                   <span class="hl2">■ 叶子（函数）</span></div>
+
+  <details class="collapsible">
+    <summary>各层 __init__ 中的 build_module 调用详解 <span class="badge">源码追踪</span></summary>
+    <div class="collapsible-body">
+      <div class="prose">
+        <p><strong>Layer 0: TransformerBlock._build_layers</strong>（入口点）</p>
+        <p><code>transformer_block.py:370-375</code> 遍历 <code>layer_specs</code> 列表，对每个 spec 调用 <code>build_module</code>：</p>
+      </div>
+      <div class="code-block">
+        <div class="code-title"><span>transformer_block.py -- _build_layers</span><span class="lines">L370-375</span></div>
+        <pre><code class="language-python hljs" data-highlighted="yes">self.layers = torch.nn.ModuleList([
+    build_layer(layer_spec, i + <span class="hljs-number">1</span>)
+    <span class="hljs-keyword">for</span> i, layer_spec <span class="hljs-keyword">in</span> <span class="hljs-built_in">enumerate</span>(self.submodules.layer_specs)
+])
+<span class="hljs-comment"># build_layer 内部调用:</span>
+<span class="hljs-comment">#   build_module(layer_spec, config=..., layer_number=..., pg_collection=..., ...)</span></code></pre>
+      </div>
+      <div class="prose">
+        <p><code>build_module</code> 取出 <code>module=TransformerLayer</code>，注入 <code>submodules=TransformerLayerSubmodules(...)</code>，调用构造函数。</p>
+      </div>
+
+      <div class="prose" style="margin-top: 24px;">
+        <p><strong>Layer 1: TransformerLayer.__init__</strong></p>
+        <p><code>transformer_layer.py:264-376</code> 接收 <code>submodules: TransformerLayerSubmodules</code>，对其<strong>每个字段</strong>逐一调用 <code>build_module</code>：</p>
+      </div>
+      <div class="code-block">
+        <div class="code-title"><span>transformer_layer.py -- TransformerLayer.__init__ 关键片段</span><span class="lines">L288-376</span></div>
+        <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># [Module 1] Input LayerNorm -- 裸类，终止</span>
+self.input_layernorm = build_module(
+    submodules.input_layernorm,       <span class="hljs-comment"># FusedLayerNorm</span>
+    config=self.config, hidden_size=..., eps=...
+)
+
+<span class="hljs-comment"># [Module 2] Self Attention -- ModuleSpec，触发下一层递归</span>
+self.self_attention = build_module(
+    submodules.self_attention,        <span class="hljs-comment"># ModuleSpec(module=SelfAttention, submodules=...)</span>
+    config=self.config, layer_number=...,
+)
+
+<span class="hljs-comment"># [Module 3] BDA -- 函数，终止</span>
+self.self_attn_bda = build_module(submodules.self_attn_bda)
+
+<span class="hljs-comment"># [Module 7] Pre-MLP LayerNorm -- 裸类，终止</span>
+self.pre_mlp_layernorm = build_module(
+    submodules.pre_mlp_layernorm,     <span class="hljs-comment"># FusedLayerNorm</span>
+    config=self.config, hidden_size=..., eps=...
+)
+
+<span class="hljs-comment"># [Module 8] MLP -- ModuleSpec，触发下一层递归</span>
+self.mlp = build_module(
+    submodules.mlp,                   <span class="hljs-comment"># ModuleSpec(module=MLP, submodules=MLPSubmodules(...))</span>
+    config=self.config, ...
+)
+
+<span class="hljs-comment"># [Module 9] MLP BDA -- 函数，终止</span>
+self.mlp_bda = build_module(submodules.mlp_bda)</code></pre>
+      </div>
+
+      <div class="prose" style="margin-top: 24px;">
+        <p><strong>Layer 2a: SelfAttention.__init__</strong></p>
+        <p><code>attention.py</code> 中，<code>SelfAttention</code> 及其父类 <code>Attention</code> 的 <code>__init__</code> 对 <code>SelfAttentionSubmodules</code> 的三个核心字段调用 <code>build_module</code>（全部为裸类，递归终止）：</p>
+      </div>
+      <div class="code-block">
+        <div class="code-title"><span>attention.py -- SelfAttention 与 Attention.__init__</span></div>
+        <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># QKV 投影 -- ColumnParallelLinear（裸类）→ 终止</span>
+self.linear_qkv = build_module(
+    submodules.linear_qkv,            <span class="hljs-comment"># ColumnParallelLinear</span>
+    self.config.hidden_size, self.linear_qkv_out_dim, ...
+)
+
+<span class="hljs-comment"># 核心注意力 -- DotProductAttention（裸类）→ 终止</span>
+self.core_attention = build_module(
+    submodules.core_attention,        <span class="hljs-comment"># DotProductAttention</span>
+    config=self.config, layer_number=..., ...
+)
+
+<span class="hljs-comment"># 输出投影 -- RowParallelLinear（裸类）→ 终止</span>
+self.linear_proj = build_module(
+    submodules.linear_proj,           <span class="hljs-comment"># RowParallelLinear</span>
+    self.query_projection_size, self.config.hidden_size, ...
+)</code></pre>
+      </div>
+
+      <div class="prose" style="margin-top: 24px;">
+        <p><strong>Layer 2b: MLP.__init__</strong></p>
+        <p><code>mlp.py:108-139</code> 对 <code>MLPSubmodules</code> 的两个线性层调用 <code>build_module</code>（全部为裸类，递归终止）：</p>
+      </div>
+      <div class="code-block">
+        <div class="code-title"><span>mlp.py -- MLP.__init__</span><span class="lines">L108-139</span></div>
+        <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># fc1: h → ffn_hidden（升维）-- ColumnParallelLinear（裸类）→ 终止</span>
+self.linear_fc1 = build_module(
+    submodules.linear_fc1,
+    self.input_size, ffn_hidden_size,
+    config=self.config, init_method=..., gather_output=<span class="hljs-literal">False</span>, ...
+)
+
+<span class="hljs-comment"># fc2: ffn_hidden → h（降维）-- RowParallelLinear（裸类）→ 终止</span>
+self.linear_fc2 = build_module(
+    submodules.linear_fc2,
+    self.config.ffn_hidden_size, self.config.hidden_size,
+    config=self.config, init_method=..., input_is_parallel=<span class="hljs-literal">True</span>, ...
+)</code></pre>
+      </div>
+    </div>
+  </details>
+
+  <div class="callout callout-info">
+    <div class="callout-title">设计优势：最小化替换成本</div>
+    这种 spec 树 + 协作递归的设计带来了极低的替换成本。例如要将 MLP 中的 <code>ColumnParallelLinear</code> 替换为 TransformerEngine 的 <code>TEColumnParallelLinear</code>，只需修改 spec 树中的一行：<code>MLPSubmodules(linear_fc1=TEColumnParallelLinear, ...)</code>。<code>build_module</code>、<code>MLP.__init__</code>、<code>TransformerLayer</code> 的代码<strong>完全不需要改动</strong>。这就是声明式配置与命令式构建解耦的威力。
+  </div>
+</section>
+
+<!-- ==================== 3. TransformerBlock ==================== -->
+<section id="transformer-block">
+  <div class="section-header">
+    <span class="section-num">03</span>
+    <h2>TransformerBlock</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">transformer_block.py</span>
+    <span class="tag tag-green">TransformerBlock</span>
+    <span class="tag tag-orange">PP / VPP 分层</span>
+  </div>
+
+  <div class="prose">
+    <p><code>TransformerBlock</code> 的核心职责是将 L 个 <code>TransformerLayer</code> 堆叠在一起，并负责在 Pipeline Parallelism（PP）下正确分配每个 stage 应构建的层数。它在初始化时通过 <code>get_num_layers_to_build()</code> 计算本 rank 需要构建哪些层，只实例化属于自己的那部分。</p>
+  </div>
+
+  <div class="prose">
+    <p><strong>PP 层分布</strong>：普通 PP 模式下，层按<strong>连续区间</strong>分配。例如 PP=4、总层数=32 时，每个 stage 分到 8 层：</p>
+  </div>
+
+  <div class="diagram"><span class="hl">PP 连续分配（PP=4, 总层数=32）</span>
+
+<span class="hl2">Stage 0</span>: layers [ 0,  1,  2,  3,  4,  5,  6,  7]
+<span class="hl3">Stage 1</span>: layers [ 8,  9, 10, 11, 12, 13, 14, 15]
+<span class="hl4">Stage 2</span>: layers [16, 17, 18, 19, 20, 21, 22, 23]
+<span class="hl">Stage 3</span>: layers [24, 25, 26, 27, 28, 29, 30, 31]
+
+每个 stage 得到连续的 32/4 = 8 层</div>
+
+  <div class="prose">
+    <p><strong>VPP（Virtual Pipeline Parallelism）</strong>引入了<strong>非连续</strong>层分配。VPP 将每个 stage 的层拆成多个"virtual chunk"，交错分布在整个模型中。这样每个 micro-batch 在 stage 间的一次"旅行"只需穿过更少的层，从而减小 pipeline bubble。</p>
+  </div>
+
+  <div class="diagram"><span class="hl">VPP 非连续分配（PP=4, VPP=2, 总层数=32）</span>
+
+每个 stage 有 2 个 virtual chunk，每个 chunk 有 32/(4*2) = 4 层
+
+<span class="hl2">Stage 0</span>: chunk 0 = layers [ 0,  1,  2,  3]    chunk 1 = layers [16, 17, 18, 19]
+<span class="hl3">Stage 1</span>: chunk 0 = layers [ 4,  5,  6,  7]    chunk 1 = layers [20, 21, 22, 23]
+<span class="hl4">Stage 2</span>: chunk 0 = layers [ 8,  9, 10, 11]    chunk 1 = layers [24, 25, 26, 27]
+<span class="hl">Stage 3</span>: chunk 0 = layers [12, 13, 14, 15]    chunk 1 = layers [28, 29, 30, 31]
+
+前向路径: S0.c0 -&gt; S1.c0 -&gt; S2.c0 -&gt; S3.c0 -&gt; S3.c1 -&gt; S2.c1 -&gt; S1.c1 -&gt; S0.c1
+        折返路径使每个 micro-batch 穿过 <span class="hl2">4 层/stage</span> 而非 8 层/stage</div>
+
+  <div class="callout callout-warn">
+    <div class="callout-title">VPP 的代价与约束</div>
+    VPP 减小了 pipeline bubble 比率（从 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="0" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D45D TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D45A TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mi>p</mi><mo>−</mo><mn>1</mn></mrow><mi>m</mi></mfrac></math></mjx-assistive-mml></mjx-container> 降到 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="1" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mrow size="s"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D45D TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2212"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mrow size="s"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D45A TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D463 TEX-I"></mjx-c></mjx-mi></mjx-mrow></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><mi>p</mi><mo>−</mo><mn>1</mn></mrow><mrow><mi>m</mi><mo>⋅</mo><mi>v</mi></mrow></mfrac></math></mjx-assistive-mml></mjx-container>，其中 v = virtual stages），但代价是 P2P 通信量翻倍（每个 micro-batch 要经过 2v 个 stage 而非 v 个）。此外，总层数必须能被 <code>PP * VPP</code> 整除。
+  </div>
+
+  <table class="data-table">
+    <thead>
+      <tr><th>配置</th><th>PP</th><th>VPP</th><th>总层数</th><th>每 stage 层数</th><th>Bubble 比率</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>无 VPP</td><td>4</td><td>1</td><td>32</td><td>8 (连续)</td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="2" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mn class="mjx-n" size="s"><mjx-c class="mjx-c33"></mjx-c></mjx-mn></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D45A TEX-I"></mjx-c></mjx-mi></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mn>3</mn><mi>m</mi></mfrac></math></mjx-assistive-mml></mjx-container></td></tr>
+      <tr><td>VPP=2</td><td>4</td><td>2</td><td>32</td><td>4+4 (两段)</td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="3" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mn class="mjx-n" size="s"><mjx-c class="mjx-c33"></mjx-c></mjx-mn></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mrow size="s"><mjx-mn class="mjx-n"><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D45A TEX-I"></mjx-c></mjx-mi></mjx-mrow></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mn>3</mn><mrow><mn>2</mn><mi>m</mi></mrow></mfrac></math></mjx-assistive-mml></mjx-container></td></tr>
+      <tr><td>VPP=4</td><td>4</td><td>4</td><td>32</td><td>2+2+2+2 (四段)</td><td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="4" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mfrac><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mn class="mjx-n" size="s"><mjx-c class="mjx-c33"></mjx-c></mjx-mn></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mrow size="s"><mjx-mn class="mjx-n"><mjx-c class="mjx-c34"></mjx-c></mjx-mn><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D45A TEX-I"></mjx-c></mjx-mi></mjx-mrow></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mn>3</mn><mrow><mn>4</mn><mi>m</mi></mrow></mfrac></math></mjx-assistive-mml></mjx-container></td></tr>
+    </tbody>
+  </table>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>transformer_block.py -- TransformerBlock.__init__ 核心逻辑</span>
+      <span class="lines">L67-120</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">class</span> <span class="hljs-title class_">TransformerBlock</span>(<span class="hljs-title class_ inherited__">MegatronModule</span>):
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">__init__</span>(<span class="hljs-params">self, config, spec, ...</span>):
+        <span class="hljs-built_in">super</span>().__init__(config=config)
+
+        <span class="hljs-comment"># 计算本 stage 应构建多少层</span>
+        self.num_layers_per_pipeline_rank = get_num_layers_to_build(config)
+
+        <span class="hljs-comment"># 根据 spec 构建层列表</span>
+        self._build_layers(spec)
+
+        <span class="hljs-comment"># 最后一个 PP stage 的最后加一个 Final LayerNorm</span>
+        <span class="hljs-keyword">if</span> self.post_process <span class="hljs-keyword">and</span> self.post_layer_norm:
+            self.final_layernorm = build_module(
+                spec.submodules.final_layernorm,
+                config=self.config,
+                hidden_size=self.config.hidden_size,
+            )</code></pre>
+  </div>
+</section>
+
+<!-- ==================== 4. TransformerLayer ==================== -->
+<section id="transformer-layer">
+  <div class="section-header">
+    <span class="section-num">04</span>
+    <h2>TransformerLayer（核心）</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">transformer_layer.py</span>
+    <span class="tag tag-green">Pre-LN</span>
+    <span class="tag tag-purple">BDA</span>
+    <span class="tag tag-orange">Residual</span>
+  </div>
+
+  <div class="prose">
+    <p><code>TransformerLayer</code> 是 GPT 模型中<strong>最核心的计算单元</strong>。Megatron 使用 <strong>Pre-LayerNorm</strong> 架构（GPT-2 以来的标准做法）：先做 LayerNorm，再做 Attention 或 MLP。每个子层（Attention 和 MLP）都被残差连接包裹，并通过一个融合的 <strong>BDA（bias_dropout_add）</strong> 操作完成残差相加。</p>
+    <p>每个 TransformerLayer 的计算流程可以表示为：</p>
+    <ul>
+      <li><code>output = LN(x) -&gt; SelfAttention -&gt; BDA(output, residual=x)</code></li>
+      <li><code>output = LN(output) -&gt; MLP -&gt; BDA(output, residual=prev_output)</code></li>
+    </ul>
+    <p>其中 BDA 是一个融合 kernel，将 bias 加法、dropout 和残差加法合并为一次操作，减少显存读写和 kernel 启动开销。</p>
+  </div>
+
+  <div class="diagram"><span class="hl">TransformerLayer 数据流（Pre-LN 架构）</span>
+
+hidden_states <span class="hl">[s, b, h]</span>
+    |
+    +------------------------------+ <span class="hl4">(residual)</span>
+    v                              |
+  <span class="hl2">LayerNorm</span>                        |
+    |                              |
+  <span class="hl2">SelfAttention</span>                    |
+    |   <span class="hl3">[TP: f/g 或 AG/RS]</span>        |
+    v                              |
+  <span class="hl4">bias_dropout_add</span> &lt;--------------+
+    |
+    +------------------------------+ <span class="hl4">(residual)</span>
+    v                              |
+  <span class="hl2">LayerNorm</span>                        |
+    |                              |
+  <span class="hl2">MLP</span>                              |
+    |   <span class="hl3">[TP: f/g 或 AG/RS]</span>        |
+    v                              |
+  <span class="hl4">bias_dropout_add</span> &lt;--------------+
+    |
+    v
+output <span class="hl">[s, b, h]</span></div>
+
+  <div class="prose">
+    <p>上图中的 <strong>[TP: f/g 或 AG/RS]</strong> 标记了 Tensor Parallelism 通信发生的位置。在不使用 Sequence Parallelism 时，通信原语是 <code>f</code>（前向 identity / 反向 AllReduce）和 <code>g</code>（前向 AllReduce / 反向 identity）。启用 SP 后则变为 <code>AllGather / ReduceScatter</code>。具体原理参见 <a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/tensor_parallel.html" style="color:var(--accent)">Tensor Parallelism</a> 文档。</p>
+  </div>
+
+  <div class="callout callout-key">
+    <div class="callout-title">Tensor Shape 全程不变</div>
+    TransformerLayer 的输入和输出形状都是 <code>[s, b, h]</code>（sequence_length, batch_size, hidden_size）。这意味着所有 L 层可以串联堆叠，每层的 hidden_size 不变。改变 hidden_size 是 Attention 和 MLP 内部的事情 -- 它们内部会投影到不同维度，但最终输出都会投影回 <code>h</code> 维。
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>transformer_layer.py -- TransformerLayer.forward</span>
+      <span class="lines">L210-280</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">def</span> <span class="hljs-title function_">forward</span>(<span class="hljs-params">self, hidden_states, attention_mask, ...</span>):
+    <span class="hljs-comment"># ============ Self Attention Block ============</span>
+    <span class="hljs-comment"># 保存残差</span>
+    residual = hidden_states
+
+    <span class="hljs-comment"># Pre-LN: 先 LayerNorm</span>
+    hidden_states = self.input_layernorm(hidden_states)
+
+    <span class="hljs-comment"># Self Attention</span>
+    attention_output_with_bias = self.self_attention(
+        hidden_states, attention_mask=attention_mask, ...
+    )
+
+    <span class="hljs-comment"># BDA: bias + dropout + residual add</span>
+    <span class="hljs-comment"># training 时用融合 kernel，inference 时用普通实现</span>
+    <span class="hljs-keyword">with</span> self.bias_dropout_add_exec_handler():
+        hidden_states = self.self_attn_bda(
+            self.training, self.config.bias_dropout_fusion
+        )(attention_output_with_bias, residual, self.hidden_dropout)
+
+    <span class="hljs-comment"># ============ MLP Block ============</span>
+    residual = hidden_states
+
+    <span class="hljs-comment"># Pre-LN</span>
+    hidden_states = self.pre_mlp_layernorm(hidden_states)
+
+    <span class="hljs-comment"># MLP</span>
+    mlp_output_with_bias = self.mlp(hidden_states)
+
+    <span class="hljs-comment"># BDA: bias + dropout + residual add</span>
+    <span class="hljs-keyword">with</span> self.bias_dropout_add_exec_handler():
+        hidden_states = self.mlp_bda(
+            self.training, self.config.bias_dropout_fusion
+        )(mlp_output_with_bias, residual, self.hidden_dropout)
+
+    <span class="hljs-keyword">return</span> hidden_states</code></pre>
+  </div>
+
+  <div class="callout callout-info">
+    <div class="callout-title">bias_dropout_add 融合操作</div>
+    BDA 将三步操作合成一个 CUDA kernel：<code>output = dropout(attention_output + bias) + residual</code>。分开做的话需要三次显存读写（bias add、dropout、residual add），融合后只读写一次。在大模型训练中，这类"显存带宽受限"（memory-bound）的操作优化非常重要，因为 Attention 和 MLP 之间的连接操作看似简单，但显存吞吐量往往成为瓶颈。
+  </div>
+
+  <details class="collapsible">
+    <summary>Pre-LN vs Post-LN 架构对比 <span class="badge">背景</span></summary>
+    <div class="collapsible-body">
+      <div class="prose">
+        <p>原始 Transformer 论文（Vaswani et al., 2017）使用 <strong>Post-LN</strong> 架构：<code>output = LN(x + Attention(x))</code>。GPT-2 之后，大多数大语言模型改用 <strong>Pre-LN</strong> 架构：<code>output = x + Attention(LN(x))</code>。</p>
+        <p>Pre-LN 的优势在于<strong>训练稳定性</strong>。Post-LN 中残差连接在 LayerNorm 之前，梯度需要穿过 LayerNorm 才能沿残差路径传播，这在深层网络中容易导致梯度消失或爆炸。Pre-LN 将 LayerNorm 放在子层之前，残差路径上没有任何非线性操作，梯度可以直接"高速通过"残差连接，从输出层一路传到输入层。</p>
+      </div>
+
+      <div class="diagram"><span class="hl">Pre-LN vs Post-LN 的残差路径</span>
+
+<span class="hl2">Pre-LN</span>（Megatron 使用）:
+  x ─────────────────────+───&gt; output
+  |                      ^
+  +─&gt; LN ─&gt; Attention ──-+
+
+  残差路径上<span class="hl2">无 LN</span>，梯度直通
+
+<span class="hl4">Post-LN</span>（原始 Transformer）:
+  x ──&gt; + ──&gt; <span class="hl4">LN</span> ──&gt; output
+        ^
+        |
+   Attention
+
+  残差路径上<span class="hl4">有 LN</span>，梯度受 LN 调节</div>
+
+      <div class="prose">
+        <p>Pre-LN 的代价是模型最后一层的输出没有经过 LayerNorm，因此需要在 TransformerBlock 末尾额外加一个 Final LayerNorm。此外，一些研究表明 Post-LN 在充分调参后可能达到更好的最终精度，但 Pre-LN 的训练稳定性优势使其成为工业界的默认选择。</p>
+      </div>
+    </div>
+  </details>
+</section>
+
+<!-- ==================== 5. SelfAttention ==================== -->
+<section id="self-attention">
+  <div class="section-header">
+    <span class="section-num">05</span>
+    <h2>SelfAttention</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">attention.py</span>
+    <span class="tag tag-green">QKV Projection</span>
+    <span class="tag tag-purple">GQA</span>
+    <span class="tag tag-orange">Core Attention</span>
+  </div>
+
+  <div class="prose">
+    <p>SelfAttention 模块实现了完整的多头注意力机制。Megatron 的实现有几个关键设计决策：</p>
+    <ul>
+      <li><strong>QKV 合并投影</strong>：使用单个 <code>ColumnParallelLinear</code> 同时生成 Q、K、V 三个张量（而非三个独立的线性层），减少 kernel 启动次数并提高 GPU 利用率。</li>
+      <li><strong>GQA（Grouped Query Attention）</strong>支持：允许 KV head 数量少于 Q head 数量，多个 Q head 共享同一组 KV head，显著减少 KV cache 的显存占用。</li>
+      <li><strong>TP 切分</strong>：QKV 投影使用 <code>ColumnParallelLinear</code>（按 head 维度切分），输出投影使用 <code>RowParallelLinear</code>（按 head 维度切分输入，AllReduce 输出）。</li>
+    </ul>
+  </div>
+
+  <div class="prose">
+    <p><strong>QKV 投影</strong>：单个 <code>ColumnParallelLinear</code> 产生 Q、K、V 的拼接输出。输出形状为 <code>[s, b, (n_q + 2 * n_kv) * d_head]</code>，其中 <code>n_q</code> 是 query head 数量，<code>n_kv</code> 是 key/value head 数量，<code>d_head = h / n_q</code> 是每个 head 的维度。</p>
+  </div>
+
+  <div class="diagram"><span class="hl">QKV 投影与拆分</span>
+
+hidden_states <span class="hl">[s, b, h]</span>
+      |
+      v
+<span class="hl2">ColumnParallelLinear</span> (linear_qkv)
+      |
+      v
+mixed_qkv <span class="hl">[s, b, (n_q + 2*n_kv) * d_head]</span>
+      |
+      split
+      |
+      +----&gt; Q <span class="hl2">[s, b, n_q * d_head]</span>     --&gt; reshape --&gt; <span class="hl2">[s, b, n_q, d_head]</span>
+      |
+      +----&gt; K <span class="hl3">[s, b, n_kv * d_head]</span>    --&gt; reshape --&gt; <span class="hl3">[s, b, n_kv, d_head]</span>
+      |
+      +----&gt; V <span class="hl4">[s, b, n_kv * d_head]</span>    --&gt; reshape --&gt; <span class="hl4">[s, b, n_kv, d_head]</span></div>
+
+  <div class="prose">
+    <p><strong>GQA（Grouped Query Attention）</strong>：在 GQA 中，<code>n_kv &lt; n_q</code>，多个 query head 共享同一对 key/value head。例如 LLaMA-2 70B 使用 64 个 query head 但只有 8 个 KV head（每 8 个 Q head 共享 1 个 KV head）。这将 KV cache 大小减少了 8 倍。</p>
+  </div>
+
+  <div class="op-vis">
+    <div class="op-title">GQA 在 TP 下的 Head 分配（n_q=32, n_kv=8, TP=4）</div>
+    <table class="op-table">
+      <thead><tr><th>TP Rank</th><th>Q Heads</th><th>KV Heads</th><th>Group 关系</th></tr></thead>
+      <tbody>
+        <tr><td class="rank-card"><span class="rank-id">Rank 0</span></td><td class="rank-card hl-blue"><span class="val">Q0-Q7 (8个)</span></td><td class="rank-card out"><span class="val">KV0, KV1 (2个)</span></td><td class="rank-card"><span class="val">Q0-Q3 -&gt; KV0, Q4-Q7 -&gt; KV1</span></td></tr>
+        <tr><td class="rank-card"><span class="rank-id">Rank 1</span></td><td class="rank-card hl-blue"><span class="val">Q8-Q15 (8个)</span></td><td class="rank-card out"><span class="val">KV2, KV3 (2个)</span></td><td class="rank-card"><span class="val">Q8-Q11 -&gt; KV2, Q12-Q15 -&gt; KV3</span></td></tr>
+        <tr><td class="rank-card"><span class="rank-id">Rank 2</span></td><td class="rank-card hl-blue"><span class="val">Q16-Q23 (8个)</span></td><td class="rank-card out"><span class="val">KV4, KV5 (2个)</span></td><td class="rank-card"><span class="val">Q16-Q19 -&gt; KV4, Q20-Q23 -&gt; KV5</span></td></tr>
+        <tr><td class="rank-card"><span class="rank-id">Rank 3</span></td><td class="rank-card hl-blue"><span class="val">Q24-Q31 (8个)</span></td><td class="rank-card out"><span class="val">KV6, KV7 (2个)</span></td><td class="rank-card"><span class="val">Q24-Q27 -&gt; KV6, Q28-Q31 -&gt; KV7</span></td></tr>
+      </tbody>
+    </table>
+    <div class="op-note">每个 TP rank 分到 n_q/TP=8 个 Q head 和 n_kv/TP=2 个 KV head，GQA group 关系在每个 rank 内保持一致</div>
+  </div>
+
+  <div class="prose">
+    <p><strong>Core Attention</strong>：标准的缩放点积注意力（Scaled Dot-Product Attention），计算公式为：</p>
+  </div>
+
+  <div class="prose" style="text-align:center; margin: 16px 0;">
+    <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" display="true" tabindex="0" ctxtmenu_counter="5" style="font-size: 119.1%; position: relative;"><mjx-math display="true" class="MJX-TEX" aria-hidden="true" style="margin-left: 0px; margin-right: 0px;"><mjx-mtext class="mjx-n"><mjx-c class="mjx-c41"></mjx-c><mjx-c class="mjx-c74"></mjx-c><mjx-c class="mjx-c74"></mjx-c><mjx-c class="mjx-c65"></mjx-c><mjx-c class="mjx-c6E"></mjx-c><mjx-c class="mjx-c74"></mjx-c><mjx-c class="mjx-c69"></mjx-c><mjx-c class="mjx-c6F"></mjx-c><mjx-c class="mjx-c6E"></mjx-c></mjx-mtext><mjx-mo class="mjx-n"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D444 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2C"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="2"><mjx-c class="mjx-c1D43E TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c2C"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="2"><mjx-c class="mjx-c1D449 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mtext class="mjx-n" space="4"><mjx-c class="mjx-c73"></mjx-c><mjx-c class="mjx-c6F"></mjx-c><mjx-c class="mjx-c66"></mjx-c><mjx-c class="mjx-c74"></mjx-c><mjx-c class="mjx-c6D"></mjx-c><mjx-c class="mjx-c61"></mjx-c><mjx-c class="mjx-c78"></mjx-c></mjx-mtext><mjx-mstyle style="width: 0px; margin-right: -0.167em;"><mjx-mspace style="margin-right: -0.167em;"></mjx-mspace></mjx-mstyle><mjx-mrow space="2"><mjx-mo class="mjx-s3"><mjx-c class="mjx-c28 TEX-S3"></mjx-c></mjx-mo><mjx-mfrac><mjx-frac type="d"><mjx-num><mjx-nstrut type="d"></mjx-nstrut><mjx-mrow><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D444 TEX-I"></mjx-c></mjx-mi><mjx-msup><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D43E TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: 0.363em; margin-left: 0.052em;"><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D447 TEX-I"></mjx-c></mjx-mi></mjx-script></mjx-msup></mjx-mrow></mjx-num><mjx-dbox><mjx-dtable><mjx-line type="d"></mjx-line><mjx-row><mjx-den><mjx-dstrut type="d"></mjx-dstrut><mjx-msqrt><mjx-sqrt><mjx-surd><mjx-mo class="mjx-n"><mjx-c class="mjx-c221A"></mjx-c></mjx-mo></mjx-surd><mjx-box style="padding-top: 0.082em;"><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D451 TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em;"><mjx-texatom size="s" texclass="ORD"><mjx-mtext class="mjx-n"><mjx-c class="mjx-c68"></mjx-c><mjx-c class="mjx-c65"></mjx-c><mjx-c class="mjx-c61"></mjx-c><mjx-c class="mjx-c64"></mjx-c></mjx-mtext></mjx-texatom></mjx-script></mjx-msub></mjx-box></mjx-sqrt></mjx-msqrt></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mo class="mjx-s3"><mjx-c class="mjx-c29 TEX-S3"></mjx-c></mjx-mo></mjx-mrow><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D449 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="block"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><mtext>Attention</mtext><mo stretchy="false">(</mo><mi>Q</mi><mo>,</mo><mi>K</mi><mo>,</mo><mi>V</mi><mo stretchy="false">)</mo><mo>=</mo><mtext>softmax</mtext><mstyle scriptlevel="0"><mspace width="-0.167em"></mspace></mstyle><mrow data-mjx-texclass="INNER"><mo data-mjx-texclass="OPEN">(</mo><mfrac><mrow><mi>Q</mi><msup><mi>K</mi><mi>T</mi></msup></mrow><msqrt><msub><mi>d</mi><mrow data-mjx-texclass="ORD"><mtext>head</mtext></mrow></msub></msqrt></mfrac><mo data-mjx-texclass="CLOSE">)</mo></mrow><mi>V</mi></math></mjx-assistive-mml></mjx-container>
+  </div>
+
+  <div class="prose">
+    <p>Megatron 的 <code>DotProductAttention</code> 支持多种后端实现：FlashAttention（默认，O(N) 显存）、fused attention、以及 unfused 的朴素实现。Causal mask 通过设置 <code>attn_mask_type=causal</code> 来启用，确保每个 token 只能 attend 到它之前的 token。</p>
+    <p><strong>Output Projection</strong>：Attention 的最后一步是通过 <code>RowParallelLinear</code> 将拼接后的多头输出投影回 <code>hidden_size</code> 维度。在 TP 模式下，<code>RowParallelLinear</code> 的输入已经按 head 维度分片（每个 rank 只有部分 head 的输出），<code>RowParallelLinear</code> 在前向时做 AllReduce 将各 rank 的部分结果求和，得到完整输出。</p>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>attention.py -- SelfAttention: QKV 拆分逻辑</span>
+      <span class="lines">L1327-1366</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">def</span> <span class="hljs-title function_">forward</span>(<span class="hljs-params">self, hidden_states, attention_mask, ...</span>):
+    <span class="hljs-comment"># ---- QKV Projection ----</span>
+    <span class="hljs-comment"># 单个 ColumnParallelLinear 同时产生 Q, K, V</span>
+    mixed_qkv, _ = self.linear_qkv(hidden_states)    <span class="hljs-comment"># [s, b, proj_size]</span>
+
+    <span class="hljs-comment"># 拆分 Q, K, V</span>
+    <span class="hljs-comment"># proj_size = (n_q_per_rank + 2 * n_kv_per_rank) * d_head</span>
+    new_tensor_shape = mixed_qkv.size()[:-<span class="hljs-number">1</span>] + (
+        self.num_query_groups_per_partition,             <span class="hljs-comment"># n_kv per rank</span>
+        (self.num_attention_heads_per_partition           <span class="hljs-comment"># n_q per rank</span>
+         // self.num_query_groups_per_partition + <span class="hljs-number">2</span>),     <span class="hljs-comment"># +2 for K, V</span>
+        self.hidden_size_per_attention_head,              <span class="hljs-comment"># d_head</span>
+    )
+    mixed_qkv = mixed_qkv.view(*new_tensor_shape)
+
+    <span class="hljs-comment"># 沿 group 维度拆分</span>
+    query, key, value = torch.split(
+        mixed_qkv,
+        [self.num_attention_heads_per_partition
+         // self.num_query_groups_per_partition,          <span class="hljs-comment"># Q heads per group</span>
+         <span class="hljs-number">1</span>,                                              <span class="hljs-comment"># 1 K head per group</span>
+         <span class="hljs-number">1</span>],                                             <span class="hljs-comment"># 1 V head per group</span>
+        dim=<span class="hljs-number">3</span>,
+    )
+
+    <span class="hljs-comment"># ---- Core Attention ----</span>
+    core_attn_out = self.core_attention(query, key, value, attention_mask)
+
+    <span class="hljs-comment"># ---- Output Projection ----</span>
+    output, bias = self.linear_proj(core_attn_out)     <span class="hljs-comment"># RowParallelLinear</span>
+    <span class="hljs-keyword">return</span> output, bias</code></pre>
+  </div>
+
+  <div class="callout callout-info">
+    <div class="callout-title">TP 约束：n_kv 必须能被 TP 整除</div>
+    由于 QKV 使用 <code>ColumnParallelLinear</code> 按 head 维度切分，<strong>KV head 数量必须能被 TP size 整除</strong>。例如 TP=8 时，n_kv 至少为 8。如果 n_kv 太小（比如 MQA 中 n_kv=1），就无法直接使用 TP，需要启用 KV head 的复制机制。
+  </div>
+
+  <div class="diagram"><span class="hl">SelfAttention 完整数据流</span>
+
+hidden_states <span class="hl">[s, b, h]</span>
+      |
+      | <span class="hl3">[TP: f 或 AllGather]</span>
+      v
+<span class="hl2">ColumnParallelLinear</span> (linear_qkv)
+      |
+      v  [s, b, (n_q/TP + 2*n_kv/TP) * d_head]
+      |
+      split into Q, K, V
+      |
+      v
+<span class="hl3">DotProductAttention</span>
+      |   Q <span class="hl2">[s, b, n_q/TP, d_head]</span>
+      |   K <span class="hl3">[s, b, n_kv/TP, d_head]</span>
+      |   V <span class="hl4">[s, b, n_kv/TP, d_head]</span>
+      |
+      |   score = Q @ K.T / sqrt(d_head)  -&gt;  causal mask  -&gt;  softmax  -&gt;  @ V
+      |
+      v  [s, b, n_q/TP * d_head]
+      |
+<span class="hl2">RowParallelLinear</span> (linear_proj)
+      |
+      | <span class="hl3">[TP: g 或 ReduceScatter]</span>
+      v
+output <span class="hl">[s, b, h]</span></div>
+</section>
+
+<!-- ==================== 6. MLP ==================== -->
+<section id="mlp">
+  <div class="section-header">
+    <span class="section-num">06</span>
+    <h2>MLP</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">mlp.py</span>
+    <span class="tag tag-green">SwiGLU</span>
+    <span class="tag tag-purple">ColumnParallel + RowParallel</span>
+  </div>
+
+  <div class="prose">
+    <p>现代 GPT 模型的 MLP 层普遍采用 <strong>SwiGLU</strong>（Swish-Gated Linear Unit）激活函数，这是 LLaMA、PaLM 等模型的标准选择。与传统的 GeLU MLP 相比，SwiGLU 引入了一个门控机制，在经验上显示出更好的训练效率。</p>
+    <p>SwiGLU 的核心思想是：<code>fc1</code> 产生<strong>两倍宽度</strong>的输出，然后将输出一分为二 -- 一半作为"gate"经过 SiLU 激活，另一半作为"value"直接使用，两者逐元素相乘后送入 <code>fc2</code>。</p>
+  </div>
+
+  <div class="diagram"><span class="hl">SwiGLU MLP 数据流</span>
+
+Input <span class="hl">[s, b, h]</span>
+    |
+    <span class="hl2">ColumnParallelLinear (fc1)</span>
+    |
+    <span class="hl">[s, b, 2 * ffn_hidden]</span>
+    |
+    chunk(2, dim=-1)
+    |
+    +--- gate <span class="hl3">[s, b, ffn_hidden]</span>
+    |      |
+    |      <span class="hl3">silu()</span>   -- silu(x) = x * sigmoid(x)
+    |      |
+    +------<span class="hl4">*</span> (element-wise multiply)
+           |
+    <span class="hl">[s, b, ffn_hidden]</span>
+           |
+    <span class="hl2">RowParallelLinear (fc2)</span>
+           |
+Output <span class="hl">[s, b, h]</span></div>
+
+  <div class="prose">
+    <p><strong>维度关系</strong>：传统 MLP 的 FFN 隐藏维度通常是 <code>4 * h</code>。SwiGLU 由于拆分成两半，为了保持参数量一致，通常将 <code>ffn_hidden</code> 设为 <code>8/3 * h</code>（约 2.67h），经向上取整到 128 的倍数后再乘以 2 作为 fc1 的输出维度。例如 LLaMA-7B 中 <code>h=4096</code>，<code>ffn_hidden=11008</code>（接近 <code>8/3 * 4096 = 10923</code>，取整到 128 的倍数）。</p>
+    <p><strong>TP 切分</strong>：<code>fc1</code> 使用 <code>ColumnParallelLinear</code> 按列切分（每个 rank 产生 <code>2 * ffn_hidden / TP</code> 的输出），<code>fc2</code> 使用 <code>RowParallelLinear</code> 按行切分（每个 rank 输入 <code>ffn_hidden / TP</code>，AllReduce 后得到完整输出 <code>h</code>）。这和 Attention 的 TP 模式完全一致。</p>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>mlp.py -- SwiGLU 激活与 MLP.forward</span>
+      <span class="lines">L211-222</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">def</span> <span class="hljs-title function_">forward</span>(<span class="hljs-params">self, hidden_states</span>):
+    <span class="hljs-comment"># fc1: [s, b, h] -&gt; [s, b, 2 * ffn_hidden / TP]</span>
+    intermediate_parallel, bias_parallel = self.linear_fc1(hidden_states)
+
+    <span class="hljs-comment"># SwiGLU activation</span>
+    <span class="hljs-keyword">if</span> self.config.gated_linear_unit:
+        <span class="hljs-comment"># 拆成 gate 和 value 两半</span>
+        intermediate_parallel = self.activation_func(intermediate_parallel)
+        <span class="hljs-comment"># activation_func 内部做：</span>
+        <span class="hljs-comment">#   gate, value = chunk(intermediate, 2, dim=-1)</span>
+        <span class="hljs-comment">#   return silu(gate) * value</span>
+
+    <span class="hljs-comment"># fc2: [s, b, ffn_hidden / TP] -&gt; [s, b, h]</span>
+    output, output_bias = self.linear_fc2(intermediate_parallel)
+
+    <span class="hljs-keyword">return</span> output, output_bias</code></pre>
+  </div>
+
+  <div class="callout callout-key">
+    <div class="callout-title">SwiGLU 的参数量影响</div>
+    SwiGLU 的 fc1 输出是传统 MLP 的 2 倍宽度（因为要拆分成 gate 和 value），但 <code>ffn_hidden</code> 本身通常设为 <code>8/3 * h</code> 而非 <code>4 * h</code>，使得总参数量大致持平。具体而言，传统 MLP 参数量为 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="6" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mn class="mjx-n"><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-cD7"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="3"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-cD7"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="3"><mjx-c class="mjx-c34"></mjx-c></mjx-mn><mjx-mi class="mjx-i"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="4"><mjx-c class="mjx-c38"></mjx-c></mjx-mn><mjx-msup><mjx-mi class="mjx-i"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: 0.363em;"><mjx-mn class="mjx-n" size="s"><mjx-c class="mjx-c32"></mjx-c></mjx-mn></mjx-script></mjx-msup></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mn>2</mn><mo>×</mo><mi>h</mi><mo>×</mo><mn>4</mn><mi>h</mi><mo>=</mo><mn>8</mn><msup><mi>h</mi><mn>2</mn></msup></math></mjx-assistive-mml></mjx-container>，SwiGLU 参数量为 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="7" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-cD7"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="3"><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-cD7"></mjx-c></mjx-mo><mjx-mfrac space="3"><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mn class="mjx-n" size="s"><mjx-c class="mjx-c38"></mjx-c></mjx-mn></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mn class="mjx-n" size="s"><mjx-c class="mjx-c33"></mjx-c></mjx-mn></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mi class="mjx-i"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c2B"></mjx-c></mjx-mo><mjx-mfrac space="3"><mjx-frac><mjx-num><mjx-nstrut></mjx-nstrut><mjx-mn class="mjx-n" size="s"><mjx-c class="mjx-c38"></mjx-c></mjx-mn></mjx-num><mjx-dbox><mjx-dtable><mjx-line></mjx-line><mjx-row><mjx-den><mjx-dstrut></mjx-dstrut><mjx-mn class="mjx-n" size="s"><mjx-c class="mjx-c33"></mjx-c></mjx-mn></mjx-den></mjx-row></mjx-dtable></mjx-dbox></mjx-frac></mjx-mfrac><mjx-mi class="mjx-i"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-cD7"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="3"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="4"><mjx-c class="mjx-c38"></mjx-c></mjx-mn><mjx-msup><mjx-mi class="mjx-i"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: 0.363em;"><mjx-mn class="mjx-n" size="s"><mjx-c class="mjx-c32"></mjx-c></mjx-mn></mjx-script></mjx-msup></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>h</mi><mo>×</mo><mn>2</mn><mo>×</mo><mfrac><mn>8</mn><mn>3</mn></mfrac><mi>h</mi><mo>+</mo><mfrac><mn>8</mn><mn>3</mn></mfrac><mi>h</mi><mo>×</mo><mi>h</mi><mo>=</mo><mn>8</mn><msup><mi>h</mi><mn>2</mn></msup></math></mjx-assistive-mml></mjx-container>，基本一致。
+  </div>
+
+  <details class="collapsible">
+    <summary>为什么 SwiGLU 比 GeLU 效果更好？ <span class="badge">可选</span></summary>
+    <div class="collapsible-body">
+      <div class="prose">
+        <p>GLU（Gated Linear Unit）家族的核心思想是引入<strong>乘法门控</strong>。在传统 MLP 中，激活函数（如 GeLU）直接作用于线性变换的输出：<code>output = gelu(xW1) * W2</code>。而 GLU 系列将线性输出一分为二，一半经过激活作为"门"，另一半作为"值"：<code>output = activation(xW_gate) * (xW_value) * W2</code>。</p>
+        <p>这种乘法门控允许模型学习<strong>哪些特征维度应该被激活、哪些应该被抑制</strong>，比单纯的逐元素激活函数表达能力更强。Shazeer (2020) 的实验表明，在固定参数量下，GLU 变体（特别是 SwiGLU 和 GeGLU）在各种 NLP 基准上都优于标准 GeLU/ReLU MLP。</p>
+      </div>
+    </div>
+  </details>
+
+  <div class="diagram"><span class="hl">MLP 的 TP 切分</span>
+
+                  <span class="hl2">TP Rank 0</span>              <span class="hl3">TP Rank 1</span>
+                  ─────────────          ─────────────
+input <span class="hl">[s,b,h]</span>   ─── <span class="hl2">f</span> ───&gt;   input (copy)       input (copy)
+                               |                    |
+                          fc1 (列切分)           fc1 (列切分)
+                               |                    |
+                   [s,b,2*ffn/TP]         [s,b,2*ffn/TP]
+                               |                    |
+                          SwiGLU                SwiGLU
+                               |                    |
+                    [s,b,ffn/TP]          [s,b,ffn/TP]
+                               |                    |
+                          fc2 (行切分)           fc2 (行切分)
+                               |                    |
+                          [s,b,h]              [s,b,h]
+                               |                    |
+                               +────── <span class="hl3">g</span> ──────────+
+                                       |
+                                  AllReduce (求和)
+                                       |
+                               output <span class="hl">[s,b,h]</span>
+
+  <span class="hl2">f</span> = 前向 identity / 反向 AllReduce
+  <span class="hl3">g</span> = 前向 AllReduce / 反向 identity</div>
+</section>
+
+<!-- ==================== 7. 完整数据流 ==================== -->
+<section id="full-data-flow">
+  <div class="section-header">
+    <span class="section-num">07</span>
+    <h2>完整数据流</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">gpt_model.py</span>
+    <span class="tag tag-green">端到端</span>
+    <span class="tag tag-orange">参数量计算</span>
+  </div>
+
+  <div class="prose">
+    <p>最后，我们将前面所有组件串联起来，展示从 token ID 到 logits 的完整前向传播路径。理解这条数据流有助于在调试和性能分析时快速定位问题所在。</p>
+  </div>
+
+  <div class="flow-steps">
+    <div class="flow-step">
+      <div class="flow-line">
+        <div class="flow-dot"></div>
+        <div class="flow-connector"></div>
+      </div>
+      <div class="flow-content">
+        <h4>1. Token Embedding</h4>
+        <p>Token IDs <code>[s, b]</code> 通过词表嵌入矩阵 <code>W_embed [V, h]</code> 查表，得到 <code>[s, b, h]</code> 的连续向量表示。在 TP 模式下，词表按列切分到各 rank（<code>VocabParallelEmbedding</code>），每个 rank 只存储 <code>V/TP</code> 行。</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line">
+        <div class="flow-dot green"></div>
+        <div class="flow-connector"></div>
+      </div>
+      <div class="flow-content">
+        <h4>2. Position Encoding</h4>
+        <p>位置信息通过可学习的 position embedding 加到 token embedding 上。Megatron 也支持 RoPE（Rotary Position Embedding），此时不在 Embedding 层加位置信息，而是在每个 Attention 层对 Q 和 K 做旋转编码。</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line">
+        <div class="flow-dot purple"></div>
+        <div class="flow-connector"></div>
+      </div>
+      <div class="flow-content">
+        <h4>3. L x TransformerLayer</h4>
+        <p>隐藏向量 <code>[s, b, h]</code> 依次通过 L 个 TransformerLayer。每层执行 <code>LN -&gt; Attention -&gt; BDA -&gt; LN -&gt; MLP -&gt; BDA</code>，输入输出形状保持不变。在 PP 模式下，L 层被分配到不同 stage；在 TP+SP 模式下，序列维度 s 也会被切分。</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line">
+        <div class="flow-dot orange"></div>
+        <div class="flow-connector"></div>
+      </div>
+      <div class="flow-content">
+        <h4>4. Final LayerNorm</h4>
+        <p>最后一个 TransformerLayer 的输出经过一个额外的 LayerNorm。这是 Pre-LN 架构的特点 -- 由于每层内部的 LN 在 Attention/MLP 之前，最后一层的输出没有经过 LN，因此需要在 TransformerBlock 末尾补一个。</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line">
+        <div class="flow-dot"></div>
+        <div class="flow-connector"></div>
+      </div>
+      <div class="flow-content">
+        <h4>5. Output Linear</h4>
+        <p>将 <code>[s, b, h]</code> 投影到词表维度 <code>[s, b, V]</code>，得到每个位置的 logits。使用 <code>ColumnParallelLinear</code> 实现，可选与 Embedding 矩阵共享权重（tied weights）以减少参数量。</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line">
+        <div class="flow-dot green"></div>
+      </div>
+      <div class="flow-content">
+        <h4>6. CrossEntropy Loss</h4>
+        <p>Logits 与 label token IDs 计算交叉熵损失。Megatron 使用 <code>VocabParallelCrossEntropyLoss</code>，在 TP 模式下每个 rank 只计算自己负责的 <code>V/TP</code> 个类别的 softmax 分子，然后通过 AllReduce 得到完整分母，避免 gather 完整的 <code>[s, b, V]</code> 张量。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="prose">
+    <p><strong>参数量计算</strong>：下表以 LLaMA-7B 的典型配置（<code>h=4096</code>, <code>L=32</code>, <code>V=32000</code>, <code>n_q=32</code>, <code>n_kv=32</code>, <code>d_head=128</code>, <code>ffn_hidden=11008</code>）为例，分解各组件的参数量。</p>
+  </div>
+
+  <table class="data-table">
+    <thead>
+      <tr><th>组件</th><th>公式</th><th>7B 配置下的参数量</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Embedding</strong></td>
+        <td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="8" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D449 TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-cD7"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="3"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>V</mi><mo>×</mo><mi>h</mi></math></mjx-assistive-mml></mjx-container></td>
+        <td>32000 × 4096 = <strong>131M</strong></td>
+      </tr>
+      <tr>
+        <td>QKV 投影 (每层)</td>
+        <td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="9" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-cD7"></mjx-c></mjx-mo><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c28"></mjx-c></mjx-mo><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D45B TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em;"><mjx-mi class="mjx-i" size="s"><mjx-c class="mjx-c1D45E TEX-I"></mjx-c></mjx-mi></mjx-script></mjx-msub><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c2B"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="3"><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-cD7"></mjx-c></mjx-mo><mjx-msub space="3"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D45B TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em;"><mjx-texatom size="s" texclass="ORD"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D458 TEX-I"></mjx-c></mjx-mi><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D463 TEX-I"></mjx-c></mjx-mi></mjx-texatom></mjx-script></mjx-msub><mjx-mo class="mjx-n"><mjx-c class="mjx-c29"></mjx-c></mjx-mo><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-cD7"></mjx-c></mjx-mo><mjx-msub space="3"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D451 TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.15em;"><mjx-texatom size="s" texclass="ORD"><mjx-mtext class="mjx-n"><mjx-c class="mjx-c68"></mjx-c><mjx-c class="mjx-c65"></mjx-c><mjx-c class="mjx-c61"></mjx-c><mjx-c class="mjx-c64"></mjx-c></mjx-mtext></mjx-texatom></mjx-script></mjx-msub></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>h</mi><mo>×</mo><mo stretchy="false">(</mo><msub><mi>n</mi><mi>q</mi></msub><mo>+</mo><mn>2</mn><mo>×</mo><msub><mi>n</mi><mrow data-mjx-texclass="ORD"><mi>k</mi><mi>v</mi></mrow></msub><mo stretchy="false">)</mo><mo>×</mo><msub><mi>d</mi><mrow data-mjx-texclass="ORD"><mtext>head</mtext></mrow></msub></math></mjx-assistive-mml></mjx-container></td>
+        <td>4096 × (32+64) × 128 / 4096 = 4096 × 3 × 4096 = <strong>50.3M</strong></td>
+      </tr>
+      <tr>
+        <td>O_proj (每层)</td>
+        <td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="10" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-cD7"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="3"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>h</mi><mo>×</mo><mi>h</mi></math></mjx-assistive-mml></mjx-container></td>
+        <td>4096 × 4096 = <strong>16.8M</strong></td>
+      </tr>
+      <tr>
+        <td>fc1 (每层)</td>
+        <td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="11" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-cD7"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="3"><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-cD7"></mjx-c></mjx-mo><mjx-mtext class="mjx-n" space="3"><mjx-c class="mjx-c66"></mjx-c><mjx-c class="mjx-c66"></mjx-c><mjx-c class="mjx-c6E"></mjx-c><mjx-c class="mjx-c5C"></mjx-c><mjx-c class="mjx-c5F"></mjx-c><mjx-c class="mjx-c68"></mjx-c><mjx-c class="mjx-c69"></mjx-c><mjx-c class="mjx-c64"></mjx-c><mjx-c class="mjx-c64"></mjx-c><mjx-c class="mjx-c65"></mjx-c><mjx-c class="mjx-c6E"></mjx-c></mjx-mtext></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>h</mi><mo>×</mo><mn>2</mn><mo>×</mo><mtext>ffn\_hidden</mtext></math></mjx-assistive-mml></mjx-container></td>
+        <td>4096 × 2 × 11008 = <strong>90.2M</strong></td>
+      </tr>
+      <tr>
+        <td>fc2 (每层)</td>
+        <td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="12" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mtext class="mjx-n"><mjx-c class="mjx-c66"></mjx-c><mjx-c class="mjx-c66"></mjx-c><mjx-c class="mjx-c6E"></mjx-c><mjx-c class="mjx-c5C"></mjx-c><mjx-c class="mjx-c5F"></mjx-c><mjx-c class="mjx-c68"></mjx-c><mjx-c class="mjx-c69"></mjx-c><mjx-c class="mjx-c64"></mjx-c><mjx-c class="mjx-c64"></mjx-c><mjx-c class="mjx-c65"></mjx-c><mjx-c class="mjx-c6E"></mjx-c></mjx-mtext><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-cD7"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="3"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mtext>ffn\_hidden</mtext><mo>×</mo><mi>h</mi></math></mjx-assistive-mml></mjx-container></td>
+        <td>11008 × 4096 = <strong>45.1M</strong></td>
+      </tr>
+      <tr>
+        <td>LayerNorm (每层)</td>
+        <td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="13" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mn class="mjx-n"><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-cD7"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="3"><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-cD7"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="3"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mn>2</mn><mo>×</mo><mn>2</mn><mo>×</mo><mi>h</mi></math></mjx-assistive-mml></mjx-container>（2 个 LN，各有 weight 和 bias）</td>
+        <td>2 × 2 × 4096 = <strong>16K</strong></td>
+      </tr>
+      <tr>
+        <td><strong>每层合计</strong></td>
+        <td></td>
+        <td><strong>~202M</strong></td>
+      </tr>
+      <tr>
+        <td><strong>所有层合计</strong></td>
+        <td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="14" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D43F TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-cD7"></mjx-c></mjx-mo><mjx-mtext class="mjx-n" space="3"><mjx-c class="mjx-c70"></mjx-c><mjx-c class="mjx-c65"></mjx-c><mjx-c class="mjx-c72"></mjx-c><mjx-c class="mjx-c5C"></mjx-c><mjx-c class="mjx-c5F"></mjx-c><mjx-c class="mjx-c6C"></mjx-c><mjx-c class="mjx-c61"></mjx-c><mjx-c class="mjx-c79"></mjx-c><mjx-c class="mjx-c65"></mjx-c><mjx-c class="mjx-c72"></mjx-c></mjx-mtext></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>L</mi><mo>×</mo><mtext>per\_layer</mtext></math></mjx-assistive-mml></mjx-container></td>
+        <td>32 × 202M = <strong>~6.5B</strong></td>
+      </tr>
+      <tr>
+        <td><strong>Output Layer</strong></td>
+        <td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="15" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-cD7"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="3"><mjx-c class="mjx-c1D449 TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>h</mi><mo>×</mo><mi>V</mi></math></mjx-assistive-mml></mjx-container></td>
+        <td>4096 × 32000 = <strong>131M</strong></td>
+      </tr>
+      <tr>
+        <td><strong>Final LN</strong></td>
+        <td><mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="16" style="font-size: 119.2%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mn class="mjx-n"><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-cD7"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="3"><mjx-c class="mjx-c210E TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mn>2</mn><mo>×</mo><mi>h</mi></math></mjx-assistive-mml></mjx-container></td>
+        <td>8K</td>
+      </tr>
+      <tr>
+        <td style="background:var(--bg-card)"><strong>总计</strong></td>
+        <td></td>
+        <td style="background:var(--bg-card)"><strong>~6.7B</strong> (若 Embedding 与 Output 共享权重则 ~6.6B)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-info">
+    <div class="callout-title">参数量分布的启示</div>
+    从上表可以看到，<strong>MLP 参数量占比最大</strong>（每层 fc1 + fc2 = 135M，占单层的 67%），其次是 Attention 的 QKV 和 O_proj（每层 67M，占 33%），而 LayerNorm 参数量几乎可以忽略。这也解释了为什么 TP 切分的重点在 <code>ColumnParallelLinear</code>（fc1 和 QKV）和 <code>RowParallelLinear</code>（fc2 和 O_proj）-- 它们覆盖了 99% 以上的参数。
+  </div>
+
+  <div class="callout callout-warn">
+    <div class="callout-title">显存占用远大于参数量</div>
+    7B 参数在 FP16 下只占 ~14GB 显存，但训练时还需要存储：(1) FP32 master weights = 28GB, (2) Adam momentum + variance = 56GB, (3) 梯度 = 14GB, (4) 激活值（取决于 micro-batch 和序列长度）= 数十 GB。总计训练一个 7B 模型至少需要 ~120GB 显存，这正是需要各种并行策略的原因。
+  </div>
+
+  <div class="diagram"><span class="hl">7B 模型训练显存预算（FP16 + Adam）</span>
+
+<span class="hl2">参数</span>（FP16）:                 7B * 2 bytes = <span class="hl2">14 GB</span>
+<span class="hl3">FP32 Master Weights</span>:          7B * 4 bytes = <span class="hl3">28 GB</span>
+<span class="hl4">Adam Momentum (FP32)</span>:          7B * 4 bytes = <span class="hl4">28 GB</span>
+<span class="hl4">Adam Variance (FP32)</span>:           7B * 4 bytes = <span class="hl4">28 GB</span>
+<span class="hl">梯度</span>（FP16）:                 7B * 2 bytes = <span class="hl">14 GB</span>
+─────────────────────────────────────────────
+固定开销合计:                                <span class="hl2">112 GB</span>
+
++ 激活值 (activation memory):    取决于 batch_size * seq_len
+  例如 mbs=1, seq=4096, h=4096:  ~8 GB / layer, 32 层 = ~256 GB
+  使用 activation checkpointing 后:  ~2 GB / layer 的峰值
+
+<span class="hl3">结论</span>: 即使单卡有 80GB（A100），也至少需要 <span class="hl3">2 卡 TP</span> 才能放下 7B
+       13B 以上则必须组合使用 TP + PP + 分布式优化器</div>
+
+  <div class="prose">
+    <p><strong>完整前向代码路径</strong>：</p>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>gpt_model.py -- GPTModel.forward 端到端前向传播</span>
+      <span class="lines">L260-310</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">def</span> <span class="hljs-title function_">forward</span>(<span class="hljs-params">self, input_ids, position_ids, attention_mask, labels=<span class="hljs-literal">None</span>, ...</span>):
+    <span class="hljs-comment"># ---- Stage 1: Embedding (仅 PP first stage) ----</span>
+    <span class="hljs-keyword">if</span> self.pre_process:
+        decoder_input = self.embedding(input_ids, position_ids)
+    <span class="hljs-keyword">else</span>:
+        decoder_input = <span class="hljs-literal">None</span>  <span class="hljs-comment"># 从上一个 PP stage 接收激活值</span>
+
+    <span class="hljs-comment"># ---- Stage 2: TransformerBlock ----</span>
+    hidden_states = self.decoder(
+        hidden_states=decoder_input,
+        attention_mask=attention_mask,
+        ...
+    )
+
+    <span class="hljs-comment"># ---- Stage 3: Output (仅 PP last stage) ----</span>
+    <span class="hljs-keyword">if</span> self.post_process:
+        <span class="hljs-comment"># 线性投影: [s, b, h] -&gt; [s, b, V]</span>
+        logits, _ = self.output_layer(hidden_states)
+
+        <span class="hljs-keyword">if</span> labels <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span>:
+            <span class="hljs-comment"># 计算 cross-entropy loss</span>
+            loss = self.compute_language_model_loss(labels, logits)
+        <span class="hljs-keyword">else</span>:
+            loss = <span class="hljs-literal">None</span>
+
+        <span class="hljs-keyword">return</span> loss
+    <span class="hljs-keyword">else</span>:
+        <span class="hljs-keyword">return</span> hidden_states  <span class="hljs-comment"># 中间 stage，传给下一个 PP stage</span></code></pre>
+  </div>
+
+  <div class="callout callout-key" style="margin-top:24px">
+    <div class="callout-title">相关文档</div>
+    <ul style="margin-top:8px">
+      <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/tensor_parallel.html" style="color:var(--accent)">Tensor Parallelism</a> -- ColumnParallelLinear 和 RowParallelLinear 的切分原理</li>
+      <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/training_loop.html" style="color:var(--accent)">训练循环篇</a> -- GPTModel.forward 如何被训练循环调用</li>
+      <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/collective_operations.html" style="color:var(--accent)">集合通信操作</a> -- AllReduce/AllGather/ReduceScatter 的通信原理</li>
+      <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/rank_and_parallel_groups.html" style="color:var(--accent)">Rank 与并行组</a> -- TP/PP/DP 组的划分方式</li>
+      <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/entry/pretrain_gpt.html" style="color:var(--accent)">pretrain_gpt.py</a> -- model_provider 如何创建 GPTModel</li>
+    </ul>
+  </div>
+
+  <div class="diagram"><span class="hl">GPT 模型架构知识图谱</span>
+
+                            <span class="hl2">pretrain_gpt.py</span>
+                                   |
+                            model_provider()
+                                   |
+                                   v
+                            <span class="hl2">GPTModel</span>
+                       /           |          \
+                      v            v           v
+               <span class="hl3">Embedding</span>   <span class="hl">TransformerBlock</span>   <span class="hl4">OutputLayer</span>
+                                   |
+                          L x <span class="hl">TransformerLayer</span>
+                              /            \
+                             v              v
+                      <span class="hl2">SelfAttention</span>       <span class="hl3">MLP</span>
+                       /    |    \        /     \
+                      v     v     v      v       v
+                     QKV  Core  O_proj  fc1     fc2
+                           Attn        (SwiGLU)
+
+相关并行策略:
+  <span class="hl2">TP</span>  -&gt; QKV, O_proj, fc1, fc2 (按 head/column 切分)
+  <span class="hl3">SP</span>  -&gt; LayerNorm, Dropout 区域 (按序列切分)
+  <span class="hl4">PP</span>  -&gt; TransformerBlock 中的层 (按层分配到不同 stage)
+  <span class="hl">DP</span>  -&gt; 多个 GPTModel 副本 (不同 mini-batch)</div>
+</section>
+
+</div><!-- /.main-content -->
+</div><!-- /.page-body -->
+
+<footer>
+  <p>Megatron-LM 源码精读 · 基于 NVIDIA Megatron-LM 代码库</p>
+</footer>
+
+<script>hljs.highlightAll();</script>
+<script src="./GPT 模型架构 · Megatron-LM 源码精读_files/update-checker.js"></script>
+
+
+<div class="mermaidTooltip" style="opacity: 0;"></div></body></html>

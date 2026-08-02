@@ -1,0 +1,2112 @@
+<!DOCTYPE html>
+<!-- saved from url=(0083)https://xiaolong-li1.github.io/Blogs/megatron-docs/optimizer/distrib_optimizer.html -->
+<html lang="zh-CN"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Megatron-LM distrib_optimizer.py 源码精读</title>
+<link rel="stylesheet" href="./Megatron-LM distrib_optimizer.py 源码精读_files/github-dark.min.css">
+<script src="./Megatron-LM distrib_optimizer.py 源码精读_files/highlight.min.js"></script>
+<script src="./Megatron-LM distrib_optimizer.py 源码精读_files/highlight-python.min.js"></script>
+<script src="./Megatron-LM distrib_optimizer.py 源码精读_files/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      darkMode: true,
+      background: '#1c2129',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
+      fontSize: '13px',
+      primaryColor: '#1f2937',
+      primaryTextColor: '#e6edf3',
+      primaryBorderColor: '#30363d',
+      lineColor: '#58a6ff',
+      secondaryColor: '#161b22',
+      tertiaryColor: '#0d1117',
+      mainBkg: '#161b22',
+      nodeBorder: '#30363d',
+      clusterBkg: 'rgba(88,166,255,0.05)',
+      clusterBorder: '#30363d',
+      titleColor: '#e6edf3',
+      edgeLabelBackground: '#1c2129',
+      nodeTextColor: '#e6edf3'
+    }
+  });
+</script>
+<link rel="stylesheet" href="./Megatron-LM distrib_optimizer.py 源码精读_files/style.css">
+</head>
+<body>
+
+<!-- ==================== HERO ==================== -->
+<div class="hero">
+  <div class="container">
+    <h1>Megatron-LM <span class="file">distrib_optimizer.py</span> 源码精读</h1>
+    <p class="subtitle">ZeRO-1 风格分布式优化器：优化器状态分片、混合精度主参数、Reduce-Scatter + All-Gather 通信策略</p>
+    <div class="meta">
+      <span>Megatron-LM (NVIDIA)</span>
+      <span>~2700 行</span>
+      <span>ZeRO-1 / 分布式优化器</span>
+    </div>
+  </div>
+</div>
+
+<div class="page-body">
+
+<!-- ==================== TOC (Left Sidebar) ==================== -->
+<aside class="toc-sidebar">
+<nav class="toc">
+  <div id="global-nav"><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/index.html" class="toc-home">← 文档目录</a>
+<div class="toc-group">入口</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/entry/pretrain_gpt.html" class="toc-doc">pretrain_gpt.py</a>
+<div class="toc-group">基础设施</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/pretrain_and_setup.html" class="toc-doc">初始化篇</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/training_loop.html" class="toc-doc">训练循环篇</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/memory_calculator.html" class="toc-doc">GPU 显存计算</a>
+<div class="toc-group">并行策略</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/rank_and_parallel_groups.html" class="toc-doc">Rank 与并行组</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/collective_operations.html" class="toc-doc">集合通信操作</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/tensor_parallel.html" class="toc-doc">Tensor Parallelism</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/pipeline_parallel.html" class="toc-doc">Pipeline Parallelism</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/schedules_deep_dive.html" class="toc-doc">Schedule 深度精读</a>
+<div class="toc-group">模型架构</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/transformer_architecture.html" class="toc-doc">GPT 模型架构</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/moe_layer.html" class="toc-doc">MoE 层与 EP</a>
+<div class="toc-group">数据</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/data/vpp_data_iterator.html" class="toc-doc">VPP 数据迭代器</a>
+<div class="toc-group">优化器</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/optimizer/distrib_optimizer.html" class="toc-doc active">分布式优化器</a>
+</div>
+  <script src="./Megatron-LM distrib_optimizer.py 源码精读_files/nav.js"></script>
+  <div class="toc-divider"></div>
+  <h2>本文目录</h2>
+  <ol>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/optimizer/distrib_optimizer.html#sec01">ZeRO-1 思想与 Megatron 定位</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/optimizer/distrib_optimizer.html#sec02">类继承结构</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/optimizer/distrib_optimizer.html#sec03">ParamAndGradBuffer 与 Bucket 划分</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/optimizer/distrib_optimizer.html#sec04">参数分片——每个 DP rank 持有什么</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/optimizer/distrib_optimizer.html#sec05">混合精度主参数分片</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/optimizer/distrib_optimizer.html#sec06">完整训练步骤追踪</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/optimizer/distrib_optimizer.html#sec07">Overlap 与异步优化</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/optimizer/distrib_optimizer.html#sec08">对比与总结</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/optimizer/distrib_optimizer.html#sec09">内存三块全景与 ZeRO 边界</a></li>
+  </ol>
+</nav>
+</aside>
+
+<!-- ==================== MAIN ==================== -->
+<div class="main-content">
+
+<section id="sec01">
+  <div class="section-header">
+    <span class="section-num">01</span>
+    <h2>ZeRO-1 思想与 Megatron 定位</h2>
+  </div>
+  <div class="prose">
+
+    <h3>为什么需要分布式优化器？</h3>
+    <p>
+      在混合精度训练（fp16/bf16）中，模型的前向和反向计算使用低精度参数以节省显存、提高吞吐，
+      但优化器更新必须在 <strong>fp32 精度</strong>上进行，否则小梯度会被舍入为零，导致训练不稳定。
+      这就引入了所谓的 <em>master weight（主参数）</em>机制：优化器在内部维护一套 fp32 副本，
+      更新完毕后再写回 fp16/bf16 模型参数。
+    </p>
+    <p>
+      代价是巨大的。以 Adam 为例，对每个参数，优化器需要同时保存：
+    </p>
+    <ul>
+      <li><strong>fp32 master weight</strong>：模型参数的高精度副本（4 bytes/param）</li>
+      <li><strong>一阶矩 <code>m</code>（动量）</strong>：fp32（4 bytes/param）</li>
+      <li><strong>二阶矩 <code>v</code>（方差）</strong>：fp32（4 bytes/param）</li>
+    </ul>
+    <p>
+      三者合计 <strong>12 bytes/param</strong>，而模型参数本身只占 2 bytes（bf16）。
+      对于一个 7B 参数的模型，优化器状态仅 Adam 部分就需要约 <strong>84 GB 显存</strong>，
+      远超单张 A100 的 80 GB 容量——更别提还要存放激活值和梯度缓冲区。
+    </p>
+
+    <h3>传统数据并行的做法与局限</h3>
+    <p>
+      在标准的数据并行（Data Parallel，DP）训练中，每个 rank 保留完整的模型参数和完整的优化器状态。
+      反向传播结束后，通过一次 <strong>All-Reduce</strong> 在所有 DP rank 之间同步梯度，
+      然后各自独立执行相同的优化器 step。
+    </p>
+    <p>
+      这个方案的问题是：<em>每个 rank 都在做重复的工作，持有重复的状态</em>。
+      增加 DP 数量并不能减少每卡的显存占用。8 台机器 8×8 = 64 个 rank，
+      但每张卡的优化器内存压力和单卡时完全相同。
+    </p>
+
+    <h3>ZeRO-1：分散优化器状态</h3>
+    <p>
+      ZeRO（Zero Redundancy Optimizer）第一阶段（ZeRO-1）的核心思路是：
+      <strong>把优化器状态按 DP rank 切分，每个 rank 只持有并更新 1/DP 的参数分片</strong>。
+      通信方式从 All-Reduce 变成：
+    </p>
+    <ol>
+      <li><strong>Reduce-Scatter</strong>：将各 rank 的梯度汇总，并将结果分散到各 rank，
+        每个 rank 只得到自己"负责"的那段梯度。</li>
+      <li>各 rank 独立更新自己持有的参数分片（优化器 step）。</li>
+      <li><strong>All-Gather</strong>：将更新后的参数分片广播给所有 rank，恢复完整参数。</li>
+    </ol>
+    <p>
+      Megatron-LM 的 <code>DistributedOptimizer</code> 正是实现了这一思路。
+      在 <code>distrib_optimizer.py</code> 的 <code>__init__</code> 注释中也明确说明：
+    </p>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># distrib_optimizer.py, DistributedOptimizer.__init__ docstring</span>
+<span class="hljs-string">"""
+Distributed optimizer, for all data types (fp16, bf16, and fp32).
+
+The steps in this method create the core mapping between param and grad buffers,
+parameters, and parameter shard ranges, that is needed for converting between
+model param indexes and main parameter shard indexes. This method also updates
+the optimizer parameter groups with the newly created shards.
+
+Args:
+    per_model_buffers: the implementation of the distributed optimizer is
+        centered on using a contiguous buffer for communicating grads &amp; params
+        between the model state and the optimizer state.
+    data_parallel_group: data-parallel group to use to
+        all-gather params after optimizer.step().
+"""</span></code></pre>
+
+    <div class="callout callout-key">
+      <div class="callout-title">关键公式：每卡节省的优化器状态显存</div>
+      <p>
+        设模型参数量为 <em>P</em>，数据并行度为 <em>DP</em>，则：
+      </p>
+      <p style="font-family: &#39;SF Mono&#39;, &#39;Fira Code&#39;, monospace; font-size: 0.95em; margin: 8px 0 4px 0;">
+        每卡优化器状态 = (fp32_master + m + v) × P × 4 bytes / DP
+      </p>
+      <p style="font-family: &#39;SF Mono&#39;, &#39;Fira Code&#39;, monospace; font-size: 0.95em; margin: 4px 0 8px 0;">
+        节省量 = (fp32_master + m + v) × P × 4 bytes × (1 − 1/DP)
+      </p>
+      <p>
+        其中 fp32_master、m、v 各占 4 bytes/param，三者合计 12 bytes/param。
+        DP 越大，每卡节省越多，极限情况下（DP → ∞）可接近节省全部 12 bytes/param 的优化器开销。
+      </p>
+    </div>
+
+    <h3>具体数字：7B 模型，DP=8</h3>
+    <p>
+      假设模型参数量 P = 7×10<sup>9</sup>，数据并行度 DP = 8：
+    </p>
+    <ul>
+      <li>传统 DP：每卡优化器状态 ≈ 12 × 7B bytes = <strong>84 GB</strong></li>
+      <li>DistributedOptimizer (ZeRO-1)：每卡优化器状态 ≈ 84 / 8 = <strong>10.5 GB</strong></li>
+      <li>节省 <strong>73.5 GB</strong>（节省率 87.5%）</li>
+    </ul>
+    <p>
+      这意味着单张 A100 (80 GB) 原本无法装下的优化器状态，在 8-way DP 的分布式优化器下
+      每卡只需 10.5 GB，显存空间可以重新分配给更大的批量或更长的序列。
+    </p>
+
+    <div class="callout callout-info">
+      <div class="callout-title">与 ZeRO-2 / ZeRO-3 的区别</div>
+      <p>
+        <code>DistributedOptimizer</code> 仅实现了 <strong>ZeRO-1</strong>（仅分散优化器状态），
+        不做梯度分散（ZeRO-2）或参数分散（ZeRO-3）。Megatron-LM 已通过张量并行（TP）和流水线并行（PP）
+        在正交维度上切分了参数，因此无需完整的 ZeRO-3，ZeRO-1 已足够大幅降低显存压力。
+        这也是 <code>DistributedOptimizer</code> 在模型并行训练中的精确定位。
+      </p>
+    </div>
+
+  </div>
+</section>
+
+<section id="sec02">
+  <div class="section-header">
+    <span class="section-num">02</span>
+    <h2>类继承结构</h2>
+  </div>
+  <div class="prose">
+
+    <h3>三层继承体系</h3>
+    <p>
+      Megatron-LM 的优化器体系由三个核心类构成，形成严格的继承链：
+      <code>MegatronOptimizer</code> → <code>MixedPrecisionOptimizer</code> → <code>DistributedOptimizer</code>。
+      每一层各司其职，职责边界清晰。
+    </p>
+
+    <div class="mermaid" data-processed="true"><svg aria-roledescription="classDiagram" role="graphics-document document" viewBox="0 0 633.5625 1551.78125" style="max-width: 633.5625px;" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="100%" id="mermaid-1783857389250"><style>#mermaid-1783857389250{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;fill:#e6edf3;}#mermaid-1783857389250 .error-icon{fill:#0d1117;}#mermaid-1783857389250 .error-text{fill:#f2eee8;stroke:#f2eee8;}#mermaid-1783857389250 .edge-thickness-normal{stroke-width:2px;}#mermaid-1783857389250 .edge-thickness-thick{stroke-width:3.5px;}#mermaid-1783857389250 .edge-pattern-solid{stroke-dasharray:0;}#mermaid-1783857389250 .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-1783857389250 .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-1783857389250 .marker{fill:#58a6ff;stroke:#58a6ff;}#mermaid-1783857389250 .marker.cross{stroke:#58a6ff;}#mermaid-1783857389250 svg{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;}#mermaid-1783857389250 g.classGroup text{fill:#30363d;stroke:none;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:10px;}#mermaid-1783857389250 g.classGroup text .title{font-weight:bolder;}#mermaid-1783857389250 .nodeLabel,#mermaid-1783857389250 .edgeLabel{color:#e6edf3;}#mermaid-1783857389250 .edgeLabel .label rect{fill:#161b22;}#mermaid-1783857389250 .label text{fill:#e6edf3;}#mermaid-1783857389250 .edgeLabel .label span{background:#161b22;}#mermaid-1783857389250 .classTitle{font-weight:bolder;}#mermaid-1783857389250 .node rect,#mermaid-1783857389250 .node circle,#mermaid-1783857389250 .node ellipse,#mermaid-1783857389250 .node polygon,#mermaid-1783857389250 .node path{fill:#161b22;stroke:#30363d;stroke-width:1px;}#mermaid-1783857389250 .divider{stroke:#30363d;stroke-width:1;}#mermaid-1783857389250 g.clickable{cursor:pointer;}#mermaid-1783857389250 g.classGroup rect{fill:#161b22;stroke:#30363d;}#mermaid-1783857389250 g.classGroup line{stroke:#30363d;stroke-width:1;}#mermaid-1783857389250 .classLabel .box{stroke:none;stroke-width:0;fill:#161b22;opacity:0.5;}#mermaid-1783857389250 .classLabel .label{fill:#30363d;font-size:10px;}#mermaid-1783857389250 .relation{stroke:#58a6ff;stroke-width:1;fill:none;}#mermaid-1783857389250 .dashed-line{stroke-dasharray:3;}#mermaid-1783857389250 .dotted-line{stroke-dasharray:1 2;}#mermaid-1783857389250 #compositionStart,#mermaid-1783857389250 .composition{fill:#58a6ff!important;stroke:#58a6ff!important;stroke-width:1;}#mermaid-1783857389250 #compositionEnd,#mermaid-1783857389250 .composition{fill:#58a6ff!important;stroke:#58a6ff!important;stroke-width:1;}#mermaid-1783857389250 #dependencyStart,#mermaid-1783857389250 .dependency{fill:#58a6ff!important;stroke:#58a6ff!important;stroke-width:1;}#mermaid-1783857389250 #dependencyStart,#mermaid-1783857389250 .dependency{fill:#58a6ff!important;stroke:#58a6ff!important;stroke-width:1;}#mermaid-1783857389250 #extensionStart,#mermaid-1783857389250 .extension{fill:transparent!important;stroke:#58a6ff!important;stroke-width:1;}#mermaid-1783857389250 #extensionEnd,#mermaid-1783857389250 .extension{fill:transparent!important;stroke:#58a6ff!important;stroke-width:1;}#mermaid-1783857389250 #aggregationStart,#mermaid-1783857389250 .aggregation{fill:transparent!important;stroke:#58a6ff!important;stroke-width:1;}#mermaid-1783857389250 #aggregationEnd,#mermaid-1783857389250 .aggregation{fill:transparent!important;stroke:#58a6ff!important;stroke-width:1;}#mermaid-1783857389250 #lollipopStart,#mermaid-1783857389250 .lollipop{fill:#161b22!important;stroke:#58a6ff!important;stroke-width:1;}#mermaid-1783857389250 #lollipopEnd,#mermaid-1783857389250 .lollipop{fill:#161b22!important;stroke:#58a6ff!important;stroke-width:1;}#mermaid-1783857389250 .edgeTerminals{font-size:11px;line-height:initial;}#mermaid-1783857389250 .classTitleText{text-anchor:middle;font-size:18px;fill:#e6edf3;}#mermaid-1783857389250 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><defs><marker orient="auto" markerHeight="240" markerWidth="190" refY="7" refX="18" class="marker aggregation classDiagram" id="mermaid-1783857389250_classDiagram-aggregationStart"><path d="M 18,7 L9,13 L1,7 L9,1 Z"></path></marker></defs><defs><marker orient="auto" markerHeight="28" markerWidth="20" refY="7" refX="1" class="marker aggregation classDiagram" id="mermaid-1783857389250_classDiagram-aggregationEnd"><path d="M 18,7 L9,13 L1,7 L9,1 Z"></path></marker></defs><defs><marker orient="auto" markerHeight="240" markerWidth="190" refY="7" refX="18" class="marker extension classDiagram" id="mermaid-1783857389250_classDiagram-extensionStart"><path d="M 1,7 L18,13 V 1 Z"></path></marker></defs><defs><marker orient="auto" markerHeight="28" markerWidth="20" refY="7" refX="1" class="marker extension classDiagram" id="mermaid-1783857389250_classDiagram-extensionEnd"><path d="M 1,1 V 13 L18,7 Z"></path></marker></defs><defs><marker orient="auto" markerHeight="240" markerWidth="190" refY="7" refX="18" class="marker composition classDiagram" id="mermaid-1783857389250_classDiagram-compositionStart"><path d="M 18,7 L9,13 L1,7 L9,1 Z"></path></marker></defs><defs><marker orient="auto" markerHeight="28" markerWidth="20" refY="7" refX="1" class="marker composition classDiagram" id="mermaid-1783857389250_classDiagram-compositionEnd"><path d="M 18,7 L9,13 L1,7 L9,1 Z"></path></marker></defs><defs><marker orient="auto" markerHeight="240" markerWidth="190" refY="7" refX="6" class="marker dependency classDiagram" id="mermaid-1783857389250_classDiagram-dependencyStart"><path d="M 5,7 L9,13 L1,7 L9,1 Z"></path></marker></defs><defs><marker orient="auto" markerHeight="28" markerWidth="20" refY="7" refX="13" class="marker dependency classDiagram" id="mermaid-1783857389250_classDiagram-dependencyEnd"><path d="M 18,7 L9,13 L14,7 L9,1 Z"></path></marker></defs><defs><marker orient="auto" markerHeight="240" markerWidth="190" refY="7" refX="13" class="marker lollipop classDiagram" id="mermaid-1783857389250_classDiagram-lollipopStart"><circle r="6" cy="7" cx="7" fill="transparent" stroke="black"></circle></marker></defs><defs><marker orient="auto" markerHeight="240" markerWidth="190" refY="7" refX="1" class="marker lollipop classDiagram" id="mermaid-1783857389250_classDiagram-lollipopEnd"><circle r="6" cy="7" cx="7" fill="transparent" stroke="black"></circle></marker></defs><g class="root"><g class="clusters"></g><g class="edgePaths"><path marker-start="url(#mermaid-1783857389250_classDiagram-extensionStart)" style="fill:none" class="edge-pattern-solid relation" id="id_MegatronOptimizer_MixedPrecisionOptimizer_1" d="M332.52,582.875L332.52,584.042C332.52,585.208,332.52,587.542,332.52,592.875C332.52,598.208,332.52,606.542,332.52,610.708L332.52,614.875"></path><path marker-start="url(#mermaid-1783857389250_classDiagram-extensionStart)" style="fill:none" class="edge-pattern-solid relation" id="id_MixedPrecisionOptimizer_DistributedOptimizer_2" d="M174.169,1003.24L172.746,1005.049C171.322,1006.858,168.476,1010.476,167.052,1016.451C165.629,1022.427,165.629,1030.76,165.629,1034.927L165.629,1039.094"></path><path marker-start="url(#mermaid-1783857389250_classDiagram-extensionStart)" style="fill:none" class="edge-pattern-solid relation" id="id_MixedPrecisionOptimizer_Float16OptimizerWithFloat16Params_3" d="M490.87,1003.24L492.294,1005.049C493.717,1006.858,496.564,1010.476,497.987,1044.72C499.41,1078.964,499.41,1143.833,499.41,1176.268L499.41,1208.703"></path></g><g class="edgeLabels"><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g></g><g class="nodes"><g transform="translate(332.51953125, 286.4375)" data-id="MegatronOptimizer" data-node="true" id="classId-MegatronOptimizer-0" class="node default"><rect height="556.875" width="315.2578125" y="-278.4375" x="-157.62890625" class="outer title-state" style=""></rect><line y2="-218.25" y1="-218.25" x2="157.62890625" x1="-157.62890625" class="divider"></line><line y2="-123.96875" y1="-123.96875" x2="157.62890625" x1="-157.62890625" class="divider"></line><g class="label"><foreignobject transform="translate( -33.65625, -270.9375)" height="22.09375" width="67.3125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">«abstract»</span></div></foreignobject><foreignobject transform="translate( -62.8515625, -244.84375)" height="22.09375" width="125.703125" class="classTitle"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">MegatronOptimizer</span></div></foreignobject><foreignobject transform="translate( -150.12890625, -206.75)" height="22.09375" width="203.6328125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+optimizer: torch.optim.Optimizer</span></div></foreignobject><foreignobject transform="translate( -150.12890625, -180.65625)" height="22.09375" width="152.28125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+config: OptimizerConfig</span></div></foreignobject><foreignobject transform="translate( -150.12890625, -154.5625)" height="22.09375" width="139.3125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+init_state_fn: Callable</span></div></foreignobject><foreignobject transform="translate( -150.12890625, -116.46875)" height="22.09375" width="146.9609375"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+get_parameters() : List</span></div></foreignobject><foreignobject transform="translate( -150.12890625, -90.375)" height="22.09375" width="245.9765625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+get_main_grads_for_grad_norm() : List</span></div></foreignobject><foreignobject transform="translate( -150.12890625, -64.28125)" height="22.09375" width="300.2578125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+get_grad_stats_parallel_group() : ProcessGroup</span></div></foreignobject><foreignobject transform="translate( -150.12890625, -38.1875)" height="22.09375" width="206.515625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+clip_grad_norm(clip_grad) : float</span></div></foreignobject><foreignobject transform="translate( -150.12890625, -12.09375)" height="22.09375" width="131.109375"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+count_zeros() : float</span></div></foreignobject><foreignobject transform="translate( -150.12890625, 14)" height="22.09375" width="156.9296875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+scale_loss(loss) : Tensor</span></div></foreignobject><foreignobject transform="translate( -150.12890625, 40.09375)" height="22.09375" width="142.21875"><div xmlns="http://www.w3.org/1999/xhtml" style="font-style: italic; display: inline-block; white-space: nowrap;"><span style="font-style:italic;" class="nodeLabel">+prepare_grads() : bool</span></div></foreignobject><foreignobject transform="translate( -150.12890625, 66.1875)" height="22.09375" width="190.5625"><div xmlns="http://www.w3.org/1999/xhtml" style="font-style: italic; display: inline-block; white-space: nowrap;"><span style="font-style:italic;" class="nodeLabel">+step_with_ready_grads() : bool</span></div></foreignobject><foreignobject transform="translate( -150.12890625, 92.28125)" height="22.09375" width="77.484375"><div xmlns="http://www.w3.org/1999/xhtml" style="font-style: italic; display: inline-block; white-space: nowrap;"><span style="font-style:italic;" class="nodeLabel">+zero_grad()</span></div></foreignobject><foreignobject transform="translate( -150.12890625, 118.375)" height="22.09375" width="156.34375"><div xmlns="http://www.w3.org/1999/xhtml" style="font-style: italic; display: inline-block; white-space: nowrap;"><span style="font-style:italic;" class="nodeLabel">+get_loss_scale() : Tensor</span></div></foreignobject><foreignobject transform="translate( -150.12890625, 144.46875)" height="22.09375" width="150.2421875"><div xmlns="http://www.w3.org/1999/xhtml" style="font-style: italic; display: inline-block; white-space: nowrap;"><span style="font-style:italic;" class="nodeLabel">+reload_model_params()</span></div></foreignobject><foreignobject transform="translate( -150.12890625, 170.5625)" height="22.09375" width="76.7734375"><div xmlns="http://www.w3.org/1999/xhtml" style="font-style: italic; display: inline-block; white-space: nowrap;"><span style="font-style:italic;" class="nodeLabel">+state_dict()</span></div></foreignobject><foreignobject transform="translate( -150.12890625, 196.65625)" height="22.09375" width="108.1640625"><div xmlns="http://www.w3.org/1999/xhtml" style="font-style: italic; display: inline-block; white-space: nowrap;"><span style="font-style:italic;" class="nodeLabel">+load_state_dict()</span></div></foreignobject><foreignobject transform="translate( -150.12890625, 222.75)" height="22.09375" width="44.5234375"><div xmlns="http://www.w3.org/1999/xhtml" style="font-style: italic; display: inline-block; white-space: nowrap;"><span style="font-style:italic;" class="nodeLabel">+step()</span></div></foreignobject><foreignobject transform="translate( -150.12890625, 248.84375)" height="22.09375" width="131.6875"><div xmlns="http://www.w3.org/1999/xhtml" style="font-style: italic; display: inline-block; white-space: nowrap;"><span style="font-style:italic;" class="nodeLabel">+sharded_state_dict()</span></div></foreignobject></g></g><g transform="translate(332.51953125, 801.984375)" data-id="MixedPrecisionOptimizer" data-node="true" id="classId-MixedPrecisionOptimizer-1" class="node default"><rect height="374.21875" width="328.5546875" y="-187.109375" x="-164.27734375" class="outer title-state" style=""></rect><line y2="-153.015625" y1="-153.015625" x2="164.27734375" x1="-164.27734375" class="divider"></line><line y2="-58.734375" y1="-58.734375" x2="164.27734375" x1="-164.27734375" class="divider"></line><g class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel"></span></div></foreignobject><foreignobject transform="translate( -81.11328125, -179.609375)" height="22.09375" width="162.2265625" class="classTitle"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">MixedPrecisionOptimizer</span></div></foreignobject><foreignobject transform="translate( -156.77734375, -141.515625)" height="22.09375" width="212.5234375"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+grad_scaler: MegatronGradScaler</span></div></foreignobject><foreignobject transform="translate( -156.77734375, -115.421875)" height="22.09375" width="113.84375"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+found_inf: Tensor</span></div></foreignobject><foreignobject transform="translate( -156.77734375, -89.328125)" height="22.09375" width="192.8203125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+_dummy_overflow_buf: Tensor</span></div></foreignobject><foreignobject transform="translate( -156.77734375, -51.234375)" height="22.09375" width="160.1328125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+get_loss_scale() : Tensor</span></div></foreignobject><foreignobject transform="translate( -156.77734375, -25.140625)" height="22.09375" width="153.09375"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+reload_model_params()</span></div></foreignobject><foreignobject transform="translate( -156.77734375, 0.953125)" height="22.09375" width="143.375"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+prepare_grads() : bool</span></div></foreignobject><foreignobject transform="translate( -156.77734375, 27.046875)" height="22.09375" width="195.0859375"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+step_with_ready_grads() : bool</span></div></foreignobject><foreignobject transform="translate( -156.77734375, 53.140625)" height="22.09375" width="88.3984375"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+step() : Tuple</span></div></foreignobject><foreignobject transform="translate( -156.77734375, 79.234375)" height="22.09375" width="313.5546875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">#_unscale_main_grads_and_check_for_nan() : bool</span></div></foreignobject><foreignobject transform="translate( -156.77734375, 105.328125)" height="22.09375" width="227.0078125"><div xmlns="http://www.w3.org/1999/xhtml" style="font-style: italic; display: inline-block; white-space: nowrap;"><span style="font-style:italic;" class="nodeLabel">#_copy_model_grads_to_main_grads()</span></div></foreignobject><foreignobject transform="translate( -156.77734375, 131.421875)" height="22.09375" width="249.6171875"><div xmlns="http://www.w3.org/1999/xhtml" style="font-style: italic; display: inline-block; white-space: nowrap;"><span style="font-style:italic;" class="nodeLabel">#_collect_main_grad_data_for_unscaling()</span></div></foreignobject><foreignobject transform="translate( -156.77734375, 157.515625)" height="22.09375" width="249.328125"><div xmlns="http://www.w3.org/1999/xhtml" style="font-style: italic; display: inline-block; white-space: nowrap;"><span style="font-style:italic;" class="nodeLabel">#_copy_main_params_to_model_params()</span></div></foreignobject></g></g><g transform="translate(165.62890625, 1291.4375)" data-id="DistributedOptimizer" data-node="true" id="classId-DistributedOptimizer-2" class="node default"><rect height="504.6875" width="315.2578125" y="-252.34375" x="-157.62890625" class="outer title-state" style=""></rect><line y2="-218.25" y1="-218.25" x2="157.62890625" x1="-157.62890625" class="divider"></line><line y2="-45.6875" y1="-45.6875" x2="157.62890625" x1="-157.62890625" class="divider"></line><g class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel"></span></div></foreignobject><foreignobject transform="translate( -68.24609375, -244.84375)" height="22.09375" width="136.4921875" class="classTitle"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">DistributedOptimizer</span></div></foreignobject><foreignobject transform="translate( -150.12890625, -206.75)" height="22.09375" width="124.921875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+model_chunks: List</span></div></foreignobject><foreignobject transform="translate( -150.12890625, -180.65625)" height="22.09375" width="227.1328125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+buffers: List[_ParamAndGradBuffer]</span></div></foreignobject><foreignobject transform="translate( -150.12890625, -154.5625)" height="22.09375" width="222.046875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+data_parallel_group: ProcessGroup</span></div></foreignobject><foreignobject transform="translate( -150.12890625, -128.46875)" height="22.09375" width="148.2265625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+gbuf_ranges: List[Dict]</span></div></foreignobject><foreignobject transform="translate( -150.12890625, -102.375)" height="22.09375" width="191.71875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+model_param_gbuf_map: Dict</span></div></foreignobject><foreignobject transform="translate( -150.12890625, -76.28125)" height="22.09375" width="240.296875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+shard_fp32_from_float16_groups: List</span></div></foreignobject><foreignobject transform="translate( -150.12890625, -38.1875)" height="22.09375" width="300.2578125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+get_grad_stats_parallel_group() : ProcessGroup</span></div></foreignobject><foreignobject transform="translate( -150.12890625, -12.09375)" height="22.09375" width="195.0859375"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+step_with_ready_grads() : bool</span></div></foreignobject><foreignobject transform="translate( -150.12890625, 14)" height="22.09375" width="237.0234375"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+_copy_model_grads_to_main_grads()</span></div></foreignobject><foreignobject transform="translate( -150.12890625, 40.09375)" height="22.09375" width="259.671875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+_collect_main_grad_data_for_unscaling()</span></div></foreignobject><foreignobject transform="translate( -150.12890625, 66.1875)" height="22.09375" width="258.9140625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+_copy_main_params_to_model_params()</span></div></foreignobject><foreignobject transform="translate( -150.12890625, 92.28125)" height="22.09375" width="78.6171875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+zero_grad()</span></div></foreignobject><foreignobject transform="translate( -150.12890625, 118.375)" height="22.09375" width="113.515625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+state_dict() : Dict</span></div></foreignobject><foreignobject transform="translate( -150.12890625, 144.46875)" height="22.09375" width="252.7265625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+sharded_state_dict() : ShardedStateDict</span></div></foreignobject><foreignobject transform="translate( -150.12890625, 170.5625)" height="22.09375" width="165.6640625"><div xmlns="http://www.w3.org/1999/xhtml" style="text-decoration: underline; display: inline-block; white-space: nowrap;"><span style="text-decoration:underline;" class="nodeLabel">#_build_gbuf_range_map()</span></div></foreignobject><foreignobject transform="translate( -150.12890625, 196.65625)" height="22.09375" width="256.28125"><div xmlns="http://www.w3.org/1999/xhtml" style="text-decoration: underline; display: inline-block; white-space: nowrap;"><span style="text-decoration:underline;" class="nodeLabel">#_build_model_gbuf_param_range_map()</span></div></foreignobject><foreignobject transform="translate( -150.12890625, 222.75)" height="22.09375" width="261.4375"><div xmlns="http://www.w3.org/1999/xhtml" style="text-decoration: underline; display: inline-block; white-space: nowrap;"><span style="text-decoration:underline;" class="nodeLabel">#_build_model_and_main_param_groups()</span></div></foreignobject></g></g><g transform="translate(499.41015625, 1291.4375)" data-id="Float16OptimizerWithFloat16Params" data-node="true" id="classId-Float16OptimizerWithFloat16Params-3" class="node default"><rect height="165.46875" width="252.3046875" y="-82.734375" x="-126.15234375" class="outer title-state" style=""></rect><line y2="-48.640625" y1="-48.640625" x2="126.15234375" x1="-126.15234375" class="divider"></line><line y2="45.640625" y1="45.640625" x2="126.15234375" x1="-126.15234375" class="divider"></line><g class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel"></span></div></foreignobject><foreignobject transform="translate( -118.65234375, -75.234375)" height="22.09375" width="237.3046875" class="classTitle"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">Float16OptimizerWithFloat16Params</span></div></foreignobject><foreignobject transform="translate( -118.65234375, -37.140625)" height="22.09375" width="127.046875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+float16_groups: List</span></div></foreignobject><foreignobject transform="translate( -118.65234375, -11.046875)" height="22.09375" width="198.546875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+fp32_from_float16_groups: List</span></div></foreignobject><foreignobject transform="translate( -118.65234375, 15.046875)" height="22.09375" width="186.1640625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+fp32_from_fp32_groups: List</span></div></foreignobject><foreignobject transform="translate( -118.65234375, 53.140625)" height="22.09375" width="195.0859375"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">+step_with_ready_grads() : bool</span></div></foreignobject></g></g></g></g></g></svg></div>
+
+    <h3>第一层：<code>MegatronOptimizer</code>（抽象基类）</h3>
+    <p>
+      定义于 <code>optimizer.py</code> 第 108 行，是纯抽象基类（继承自 <code>ABC</code>）。
+      它封装了一个底层 <code>torch.optim.Optimizer</code> 实例，并通过 property 将
+      <code>state</code>、<code>param_groups</code> 代理到内部优化器，
+      使外层代码可以像访问标准 PyTorch 优化器一样访问 Megatron 优化器。
+    </p>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># optimizer.py, line 108</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">MegatronOptimizer</span>(<span class="hljs-title class_ inherited__">ABC</span>):
+    <span class="hljs-string">"""
+    Base class for all Megatron optimizers.
+
+    Args:
+        optimizer (torch.optim.Optimizer): base optimizer such as Adam or SGD.
+        config (OptimizerConfig): configuration object for optimizer.
+        init_state_fn (Callable, optional): function to initialize state in the optimizer.
+    """</span>
+
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">__init__</span>(<span class="hljs-params">
+        self,
+        optimizer: torch.optim.Optimizer,
+        config: OptimizerConfig,
+        init_state_fn: <span class="hljs-type">Callable</span> = <span class="hljs-keyword">lambda</span> x: <span class="hljs-literal">None</span>,
+    </span>):
+        self.optimizer = optimizer
+        self.config = config
+        self.init_state_fn = init_state_fn</code></pre>
+    <p>
+      该层定义的抽象方法包括：<code>prepare_grads()</code>、<code>step_with_ready_grads()</code>、
+      <code>zero_grad()</code>、<code>get_loss_scale()</code>、<code>reload_model_params()</code>、
+      <code>state_dict()</code>、<code>load_state_dict()</code>、<code>step()</code>、
+      <code>sharded_state_dict()</code>。所有子类都必须实现这些接口。
+      此外还提供了梯度裁剪（<code>clip_grad_norm</code>）、梯度范数计算（<code>get_grad_norm</code>）、
+      零梯度计数（<code>count_zeros</code>）等通用工具方法，子类无需重复实现。
+    </p>
+
+    <h3>第二层：<code>MixedPrecisionOptimizer</code>（混合精度公共逻辑）</h3>
+    <p>
+      定义于 <code>optimizer.py</code> 第 453 行。它是 <code>DistributedOptimizer</code>
+      和 <code>Float16OptimizerWithFloat16Params</code> 的共同父类，
+      两者的差别在于参数分片方式——前者按 DP rank 切分，后者持有完整参数。
+    </p>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># optimizer.py, line 453</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">MixedPrecisionOptimizer</span>(<span class="hljs-title class_ inherited__">MegatronOptimizer</span>):
+    <span class="hljs-string">"""Base class for both the float-16 and the distributed optimizer.
+
+    Args:
+        optimizer (torch.optim.Optimizer): base optimizer such as Adam or SGD.
+        config (OptimizerConfig): configuration object for optimizer.
+        grad_scaler (MegatronGradScaler): used for scaling gradients. Note that
+            this can be None. This case happens when `bf16 = True` and we don't
+            use any loss scale. Note that for `bf16 = True`, we can have
+            a constant gradient scaler. Also for `bf16 = False`, we
+            always require a grad scaler.
+        init_state_fn (Callable, optional): function to initialize state in the optimizer.
+    """</span></code></pre>
+    <p>
+      该层的核心贡献是实现了完整的 <code>step()</code> 流程骨架：
+    </p>
+    <ol>
+      <li>调用 <code>prepare_grads()</code>：将模型梯度拷贝到 fp32 主梯度，并检测 inf/NaN；</li>
+      <li>调用 <code>clip_grad_norm()</code>（若开启）；</li>
+      <li>调用 <code>step_with_ready_grads()</code>：执行内层优化器 step，将主参数写回模型参数。</li>
+    </ol>
+    <p>
+      同时维护 <code>grad_scaler</code>（梯度缩放器，fp16 训练必须；bf16 可为 <code>None</code>）
+      和 <code>found_inf</code>（溢出检测张量）。
+      子类需要实现三个 hook：<code>_copy_model_grads_to_main_grads()</code>、
+      <code>_collect_main_grad_data_for_unscaling()</code>、
+      <code>_copy_main_params_to_model_params()</code>，
+      分别负责梯度拷贝、unscale 数据收集和参数写回，这正是分布式与非分布式实现的差异所在。
+    </p>
+
+    <h3>第三层：<code>DistributedOptimizer</code>（ZeRO-1 分布式优化器）</h3>
+    <p>
+      定义于 <code>distrib_optimizer.py</code> 第 95 行，这是整个体系的核心实现层。
+    </p>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># distrib_optimizer.py, line 95</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">DistributedOptimizer</span>(<span class="hljs-title class_ inherited__">MixedPrecisionOptimizer</span>):
+    <span class="hljs-string">"""Distributed optimizer, for all data types (fp16, bf16, and fp32).
+
+    See __init__() below for argument details.
+    """</span>
+
+    <span class="hljs-comment"># enumerates fully reshardable optimizer formats (as opposed to formats</span>
+    <span class="hljs-comment"># which depend on the internal optimizer buffers structure)</span>
+    checkpoint_fully_reshardable_formats: <span class="hljs-built_in">set</span>[<span class="hljs-built_in">str</span>] = {
+        <span class="hljs-string">'fully_reshardable'</span>,
+        <span class="hljs-string">'fully_sharded_model_space'</span>,
+        <span class="hljs-string">'fsdp_dtensor'</span>,
+    }</code></pre>
+    <p>
+      该层在 <code>MixedPrecisionOptimizer</code> 的骨架之上，补充了 ZeRO-1 所需的全部分布式逻辑：
+    </p>
+    <ul>
+      <li>
+        <strong>参数范围映射（Range Mapping）</strong>：通过一系列 <code>@classmethod</code>
+        （<code>_build_gbuf_range_map</code>、<code>_build_model_gbuf_param_range_map</code> 等）
+        建立 <em>grad buffer 分片</em> 与 <em>参数</em> 之间的精确映射，
+        为 Reduce-Scatter 和 All-Gather 提供地址索引。
+      </li>
+      <li>
+        <strong>主参数分片（Shard Main Params）</strong>：通过 <code>_build_model_and_main_param_groups()</code>
+        为每个 rank 只创建其"负责"范围内的 fp32 主参数切片（<code>shard_fp32_from_float16_groups</code>），
+        而非复制完整参数。
+      </li>
+      <li>
+        <strong>梯度通信覆盖</strong>：重写 <code>_copy_model_grads_to_main_grads()</code> 等方法，
+        操作对象从完整参数变成 grad buffer 的分片视图。
+      </li>
+      <li>
+        <strong>梯度统计范围扩展</strong>：重写 <code>get_grad_stats_parallel_group()</code>，
+        返回整个分布式优化器实例的通信组（而非仅模型并行组），确保梯度范数在所有 DP rank 间全局归一化。
+      </li>
+    </ul>
+
+    <div class="callout callout-warn">
+      <div class="callout-title">注意：<code>DistributedOptimizer</code> 仅支持 Adam</div>
+      <p>
+        在 <code>__init__</code> 中有明确断言（第 524-530 行）：
+      </p>
+      <pre style="margin:8px 0 0 0;"><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">assert</span> (
+    <span class="hljs-built_in">isinstance</span>(optimizer, (Adam, torch.optim.AdamW, HybridDeviceOptimizer))
+    <span class="hljs-keyword">or</span> optimizer <span class="hljs-keyword">is</span> <span class="hljs-literal">None</span>
+), (
+    <span class="hljs-string">"Only Adam and HybridDeviceOptimizer currently supported, "</span>
+    <span class="hljs-string">"due to checkpointing requirements."</span>
+)</code></pre>
+      <p style="margin-top:8px;">
+        这是因为分布式优化器的 checkpoint 序列化逻辑高度依赖 Adam 优化器状态的具体结构（<code>exp_avg</code>、
+        <code>exp_avg_sq</code>），切换为其他优化器时需重新实现 <code>sharded_state_dict()</code>。
+      </p>
+    </div>
+
+  </div>
+</section>
+
+<!-- ==================== SECTION 03 ==================== -->
+<section id="sec03">
+  <div class="section-header">
+    <span class="section-num">03</span>
+    <h2>ParamAndGradBuffer 与 Bucket 划分</h2>
+  </div>
+  <div class="prose">
+
+    <h3>Buffer 的整体布局</h3>
+    <p>
+      <code>_ParamAndGradBuffer</code> 最核心的设计思想是：<strong>把同一数据类型的所有参数/梯度平铺到一块连续的 GPU 内存</strong>，
+      再在这块内存上按固定大小切出若干 <em>bucket</em>。NCCL 的 AllReduce / ReduceScatter 操作直接接收一个连续的指针和长度，
+      因此这种布局可以让集合通信零拷贝地覆盖整块 grad buffer，避免了把散落各处的梯度张量逐个收集再通信的开销。
+    </p>
+    <p>
+      具体地，<code>param_data</code>（参数存储）和 <code>grad_data</code>（梯度存储）各自是一个独立的
+      <code>torch.Tensor</code>，元素数量均为 <code>self.numel</code>。每个参数通过
+      <code>param_index_map[param] = (start, end, bucket_id)</code> 记录其在这块大 tensor 中的起止偏移，
+      从而让参数 tensor 成为该区间的一个 view，而非独立的内存分配。
+    </p>
+
+    <h3>Bucket 划分算法：逆序遍历 + 尺寸触发</h3>
+    <p>
+      划分过程发生在 <code>_ParamAndGradBuffer.__init__</code> 中，核心逻辑如下：
+    </p>
+
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">for</span> param <span class="hljs-keyword">in</span> params[::-<span class="hljs-number">1</span>]:
+    <span class="hljs-comment"># 逆序遍历——大致与反向传播顺序一致</span>
+
+    this_numel = param.data.nelement()
+    param_start_index = _pad_start_of_param_if_needed(param_start_index)
+
+    <span class="hljs-comment"># 若当前参数需要独占 bucket（如 shared_embedding），先封闭上一个 bucket</span>
+    <span class="hljs-keyword">if</span> _does_param_require_new_bucket(param) <span class="hljs-keyword">and</span> <span class="hljs-built_in">len</span>(bucket_params) &gt; <span class="hljs-number">0</span>:
+        param_start_index = _update_bucket_metadata(param_start_index)
+
+    param_end_index = param_start_index + this_numel
+    self.param_index_map[param] = (param_start_index, param_end_index, bucket_id)
+    bucket_params.add(param)
+
+    <span class="hljs-comment"># 超过 bucket_size 阈值 → 封闭当前 bucket，开启下一个</span>
+    <span class="hljs-keyword">if</span> (
+        bucket_size <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span>
+        <span class="hljs-keyword">and</span> (param_end_index - bucket_start_index) &gt;= bucket_size
+    ) <span class="hljs-keyword">or</span> _does_param_require_new_bucket(param):
+        bucket_end_index = _update_bucket_metadata(param_end_index)
+        param_start_index = bucket_end_index
+    <span class="hljs-keyword">else</span>:
+        param_start_index = param_end_index
+
+<span class="hljs-comment"># 最后一组参数形成尾 bucket</span>
+<span class="hljs-keyword">if</span> <span class="hljs-built_in">len</span>(bucket_params) &gt; <span class="hljs-number">0</span>:
+    bucket_end_index = _update_bucket_metadata(param_end_index)</code></pre>
+
+    <h3>两级 Padding 机制</h3>
+    <p>
+      代码中存在两处对齐填充，各有不同目的：
+    </p>
+    <ol>
+      <li>
+        <strong>参数起始对齐</strong>（<code>_pad_start_of_param_if_needed</code>）：每个参数在 buffer 中的起始偏移必须是 64 的倍数（对应 128-byte 地址对齐，因为 ≥ 16-bit 精度每元素 2 字节）。这是给 DistributedOptimizer 使用的，普通 DDP 不需要。
+      </li>
+      <li>
+        <strong>Bucket 末尾对齐</strong>（<code>_pad_end_of_bucket_if_needed</code>）：DistributedOptimizer 要求每个 bucket 的元素数能被 <code>DP_world_size</code> 整除，以便均等分片。基准 divisor 为 <code>lcm(dp_world_size, 128)</code>；若开启 <code>pad_buckets_for_high_nccl_busbw</code>，则进一步扩大到 <code>lcm(dp_world_size, 128, 2^16)</code>，确保 NCCL ring 算法中每个 rank 的消息块是 2 的幂次，以获得最高总线带宽。
+      </li>
+    </ol>
+
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_pad_end_of_bucket_if_needed</span>(<span class="hljs-params">bucket_end_index: <span class="hljs-built_in">int</span></span>) -&gt; <span class="hljs-built_in">int</span>:
+    <span class="hljs-keyword">if</span> self.ddp_config.use_distributed_optimizer:
+        <span class="hljs-keyword">if</span> self.ddp_config.pad_buckets_for_high_nccl_busbw:
+            <span class="hljs-comment"># NCCL ring 算法：消息大小 = bucket_size / dp_size</span>
+            <span class="hljs-comment"># 需要整除 2^16 才能获得高总线带宽</span>
+            bucket_size_divisor = math.lcm(self.data_parallel_world_size, <span class="hljs-number">128</span>, <span class="hljs-number">2</span>**<span class="hljs-number">16</span>)
+        <span class="hljs-keyword">else</span>:
+            bucket_size_divisor = math.lcm(self.data_parallel_world_size, <span class="hljs-number">128</span>)
+        <span class="hljs-keyword">return</span> _pad(bucket_end_index, bucket_size_divisor)
+    <span class="hljs-keyword">return</span> bucket_end_index
+
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">_pad_start_of_param_if_needed</span>(<span class="hljs-params">param_start_index: <span class="hljs-built_in">int</span></span>) -&gt; <span class="hljs-built_in">int</span>:
+    <span class="hljs-keyword">if</span> self.ddp_config.use_distributed_optimizer:
+        <span class="hljs-comment"># 128-byte 对齐（64 个 &gt;=16-bit 元素）</span>
+        <span class="hljs-keyword">return</span> _pad(param_start_index, <span class="hljs-number">64</span>)
+    <span class="hljs-keyword">return</span> param_start_index</code></pre>
+
+    <h3>Buffer → Buckets → Params 层次结构图</h3>
+
+    <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;margin:20px 0;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;font-size:12px;overflow-x:auto;">
+
+      <div style="color:#8b949e;margin-bottom:10px;font-size:11px;letter-spacing:0.05em;text-transform:uppercase;">grad_data（连续 GPU 内存，numel 个元素）</div>
+
+      <div style="display:flex;height:36px;border-radius:4px;overflow:hidden;border:1px solid #30363d;margin-bottom:6px;">
+        <div style="flex:3;background:#1f3a5f;display:flex;align-items:center;justify-content:center;color:#58a6ff;font-size:11px;border-right:1px solid #30363d;">Bucket 0</div>
+        <div style="width:18px;background:#2d2008;display:flex;align-items:center;justify-content:center;color:#f0883e;font-size:9px;border-right:1px dashed #30363d;">P</div>
+        <div style="flex:4;background:#1f3a5f;display:flex;align-items:center;justify-content:center;color:#58a6ff;font-size:11px;border-right:1px solid #30363d;">Bucket 1</div>
+        <div style="width:18px;background:#2d2008;display:flex;align-items:center;justify-content:center;color:#f0883e;font-size:9px;border-right:1px dashed #30363d;">P</div>
+        <div style="flex:2;background:#1f3a5f;display:flex;align-items:center;justify-content:center;color:#58a6ff;font-size:11px;">Bucket 2 (tail)</div>
+      </div>
+
+      <div style="display:flex;margin-bottom:4px;">
+        <div style="flex:3;display:flex;justify-content:center;"><div style="width:1px;height:16px;background:#30363d;"></div></div>
+        <div style="width:18px;"></div>
+        <div style="flex:4;display:flex;justify-content:center;"><div style="width:1px;height:16px;background:#30363d;"></div></div>
+        <div style="width:18px;"></div>
+        <div style="flex:2;display:flex;justify-content:center;"><div style="width:1px;height:16px;background:#30363d;"></div></div>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-bottom:16px;align-items:flex-start;">
+        <div style="flex:3;">
+          <div style="border:1px solid #30363d;border-radius:4px;overflow:hidden;">
+            <div style="background:#0d2340;color:#58a6ff;font-size:10px;padding:4px 8px;border-bottom:1px solid #30363d;">Bucket 0 · offset=0</div>
+            <div style="display:flex;height:28px;">
+              <div style="flex:1;background:#162032;display:flex;align-items:center;justify-content:center;color:#e6edf3;font-size:10px;border-right:1px solid #30363d;">param_n</div>
+              <div style="width:12px;background:#1a1400;display:flex;align-items:center;justify-content:center;color:#f0883e;font-size:8px;border-right:1px dashed #444;">·</div>
+              <div style="flex:1;background:#162032;display:flex;align-items:center;justify-content:center;color:#e6edf3;font-size:10px;border-right:1px solid #30363d;">param_n-1</div>
+              <div style="width:12px;background:#1a1400;display:flex;align-items:center;justify-content:center;color:#f0883e;font-size:8px;border-right:1px dashed #444;">·</div>
+              <div style="flex:1;background:#162032;display:flex;align-items:center;justify-content:center;color:#e6edf3;font-size:10px;">param_n-2</div>
+            </div>
+            <div style="background:#0f1a28;color:#8b949e;font-size:9px;padding:3px 8px;">bucket_indices[0] = (0, bucket_end_padded)</div>
+          </div>
+        </div>
+
+        <div style="width:18px;"></div>
+
+        <div style="flex:4;">
+          <div style="border:1px solid #30363d;border-radius:4px;overflow:hidden;">
+            <div style="background:#0d2340;color:#58a6ff;font-size:10px;padding:4px 8px;border-bottom:1px solid #30363d;">Bucket 1 · offset=bucket_end_padded</div>
+            <div style="display:flex;height:28px;">
+              <div style="flex:1.5;background:#162032;display:flex;align-items:center;justify-content:center;color:#e6edf3;font-size:10px;border-right:1px solid #30363d;">param_n-3</div>
+              <div style="width:12px;background:#1a1400;display:flex;align-items:center;justify-content:center;color:#f0883e;font-size:8px;border-right:1px dashed #444;">·</div>
+              <div style="flex:1;background:#162032;display:flex;align-items:center;justify-content:center;color:#e6edf3;font-size:10px;border-right:1px solid #30363d;">param_n-4</div>
+              <div style="width:12px;background:#1a1400;display:flex;align-items:center;justify-content:center;color:#f0883e;font-size:8px;border-right:1px dashed #444;">·</div>
+              <div style="flex:1;background:#162032;display:flex;align-items:center;justify-content:center;color:#e6edf3;font-size:10px;border-right:1px solid #30363d;">param_n-5</div>
+              <div style="width:12px;background:#1a1400;display:flex;align-items:center;justify-content:center;color:#f0883e;font-size:8px;">·</div>
+            </div>
+            <div style="background:#0f1a28;color:#8b949e;font-size:9px;padding:3px 8px;">param_index_map[param] = (start, end, bucket_id)</div>
+          </div>
+        </div>
+
+        <div style="width:18px;"></div>
+
+        <div style="flex:2;">
+          <div style="border:1px solid #30363d;border-radius:4px;overflow:hidden;">
+            <div style="background:#0d2340;color:#58a6ff;font-size:10px;padding:4px 8px;border-bottom:1px solid #30363d;">Bucket 2 (tail)</div>
+            <div style="display:flex;height:28px;">
+              <div style="flex:1;background:#162032;display:flex;align-items:center;justify-content:center;color:#e6edf3;font-size:10px;">param_0</div>
+            </div>
+            <div style="background:#0f1a28;color:#8b949e;font-size:9px;padding:3px 8px;">剩余参数自动封桶</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:10px;color:#8b949e;border-top:1px solid #30363d;padding-top:10px;">
+        <div style="display:flex;align-items:center;gap:4px;">
+          <div style="width:12px;height:12px;background:#2d2008;border:1px dashed #f0883e;border-radius:2px;"></div>
+          <span style="color:#f0883e;">P = padding（对齐填充，不属于任何参数）</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:4px;">
+          <div style="width:12px;height:12px;background:#162032;border:1px solid #30363d;border-radius:2px;"></div>
+          <span>实际参数数据</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:4px;">
+          <div style="width:12px;height:12px;background:#1f3a5f;border:1px solid #30363d;border-radius:2px;"></div>
+          <span>Bucket（逆序编排，param_n 对应最后一层）</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout callout-info">
+      <div class="callout-title">为什么逆序遍历参数？</div>
+      <p>
+        反向传播遵循 <strong>LIFO（后进先出）</strong> 顺序：越靠近输出层（模型列表末尾）的参数，其梯度越先计算完成。
+        <code>params[::-1]</code> 的逆序遍历使得最早产生梯度的参数被放入第一个 bucket（索引 0），
+        从而当该 bucket 被填满时，其中的梯度几乎全部已就绪，可以立刻触发 AllReduce / ReduceScatter，
+        与仍在计算中的前层梯度<strong>流水线并行</strong>，显著缩短端到端通信等待时间。
+      </p>
+    </div>
+
+    <h3>最终内存大小断言</h3>
+    <p>
+      所有 bucket 划分完成后，代码做如下验证：
+    </p>
+    <pre><code class="language-python hljs" data-highlighted="yes">self.numel = bucket_end_index           <span class="hljs-comment"># 含 padding 的总元素数</span>
+self.numel_unpadded = <span class="hljs-built_in">sum</span>(per_bucket_numel_unpadded)  <span class="hljs-comment"># 不含 padding</span>
+<span class="hljs-keyword">assert</span> self.numel_unpadded &lt;= self.numel
+
+<span class="hljs-keyword">if</span> self.ddp_config.use_distributed_optimizer:
+    <span class="hljs-comment"># 关键断言：整个 grad buffer 必须能被 DP size 整除</span>
+    <span class="hljs-comment"># 每个 bucket 已对齐，因此全局也自然对齐</span>
+    <span class="hljs-keyword">assert</span> self.numel % self.data_parallel_world_size == <span class="hljs-number">0</span>
+<span class="hljs-keyword">else</span>:
+    <span class="hljs-keyword">assert</span> self.numel == self.numel_unpadded  <span class="hljs-comment"># 非 dist opt 时无 padding</span></code></pre>
+
+  </div>
+</section>
+
+
+<!-- ==================== SECTION 04 ==================== -->
+<section id="sec04">
+  <div class="section-header">
+    <span class="section-num">04</span>
+    <h2>参数分片——每个 DP rank 持有什么</h2>
+  </div>
+  <div class="prose">
+
+    <h3>Bucket 级别的均等切分</h3>
+    <p>
+      DistributedOptimizer 的核心思路是：对每个 bucket 的 grad buffer 做 <strong>ReduceScatter</strong>，
+      每个 DP rank 只接收并持有 <code>1/DP_size</code> 的梯度片段。
+      正是为了让这个切分均匀，前一节才对 bucket 进行对齐 padding。
+    </p>
+    <p>
+      切分在 <code>_build_model_gbuf_range</code> 中完成：
+    </p>
+
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-meta">@classmethod</span>
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">_build_model_gbuf_range</span>(<span class="hljs-params">cls, param_and_grad_buffer, bucket_index</span>):
+    data_parallel_rank = param_and_grad_buffer.data_parallel_group.rank()
+    data_parallel_world_size = param_and_grad_buffer.data_parallel_group.size()
+
+    bucket = param_and_grad_buffer.buckets[bucket_index]
+    gbuf_size = bucket.grad_data.numel()
+    <span class="hljs-keyword">assert</span> gbuf_size % data_parallel_world_size == <span class="hljs-number">0</span>
+    max_gbuf_range_size = gbuf_size // data_parallel_world_size  <span class="hljs-comment"># 每 rank 的片段大小</span>
+
+    <span class="hljs-comment"># 计算所有 DP rank 的世界坐标区间</span>
+    gbuf_world_all_ranges = []
+    <span class="hljs-keyword">for</span> r <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(data_parallel_world_size):
+        gbuf_world_start = r * max_gbuf_range_size
+        gbuf_world_end = <span class="hljs-built_in">min</span>(gbuf_size, gbuf_world_start + max_gbuf_range_size)
+        <span class="hljs-comment"># 加上 bucket 在整个 grad_buffer 中的偏移</span>
+        gbuf_world_range = Range(
+            gbuf_world_start + bucket.offset, gbuf_world_end + bucket.offset
+        )
+        gbuf_world_all_ranges.append(gbuf_world_range)
+
+    <span class="hljs-comment"># 当前 rank 持有的区间</span>
+    gbuf_world_range = gbuf_world_all_ranges[data_parallel_rank]</code></pre>
+
+    <h3>Range 类：四种视角的统一抽象</h3>
+    <p>
+      <code>Range</code> 是 <code>distrib_optimizer.py</code> 中定义的轻量数据类，仅持有 <code>start</code>、<code>end</code>、<code>size</code> 三个字段，
+      并提供 <code>normalize(start)</code> 方法用于坐标系平移：
+    </p>
+
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">class</span> <span class="hljs-title class_">Range</span>:
+    <span class="hljs-string">"""表示从完整张量中索引一个分片的起止区间。"""</span>
+
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">__init__</span>(<span class="hljs-params">self, start: <span class="hljs-built_in">int</span>, end: <span class="hljs-built_in">int</span></span>):
+        self.start = start
+        self.end = end
+        self.size = end - start  <span class="hljs-comment"># 等价于 __len__</span>
+
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">normalize</span>(<span class="hljs-params">self, start: <span class="hljs-built_in">int</span> = <span class="hljs-number">0</span></span>):
+        <span class="hljs-string">"""将区间平移，使新的 start 对齐到指定偏移。"""</span>
+        <span class="hljs-keyword">return</span> Range(start, start + self.size)
+
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">__str__</span>(<span class="hljs-params">self</span>):
+        <span class="hljs-keyword">return</span> <span class="hljs-string">"%d,%d [%d]"</span> % (self.start, self.end, self.size)
+
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">__len__</span>(<span class="hljs-params">self</span>):
+        <span class="hljs-keyword">return</span> self.end - self.start</code></pre>
+
+    <p>
+      对于每个落在本 rank 分片内（或横跨边界）的参数，<code>_build_model_gbuf_param_range_map</code>
+      会建立一个包含四种坐标视角的字典：
+    </p>
+
+    <pre><code class="language-python hljs" data-highlighted="yes">param_range_map[param] = {
+    <span class="hljs-string">"gbuf_world"</span>:           param_world_range,           <span class="hljs-comment"># 视角①</span>
+    <span class="hljs-string">"gbuf_world_in_bucket"</span>: param_world_range_in_bucket, <span class="hljs-comment"># 视角②</span>
+    <span class="hljs-string">"gbuf_local"</span>:           param_local_range,           <span class="hljs-comment"># 视角③</span>
+    <span class="hljs-string">"param"</span>:                sub_param_range,             <span class="hljs-comment"># 视角④</span>
+}</code></pre>
+
+    <h3>四种视角详解</h3>
+
+    <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;margin:20px 0;font-size:13px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+
+        <div style="background:#0d1117;border:1px solid #58a6ff;border-radius:6px;padding:12px;">
+          <div style="color:#58a6ff;font-weight:600;margin-bottom:6px;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;">① gbuf_world</div>
+          <div style="color:#8b949e;font-size:11px;margin-bottom:8px;">全局 grad_data 坐标系</div>
+          <div style="color:#e6edf3;font-size:12px;line-height:1.6;">
+            参数在<strong>整个 grad_data buffer</strong>（跨所有 bucket）中的绝对偏移区间。
+            用于从 <code>grad_data</code> tensor 创建参数梯度 view，以及 copy_main_to_model_params 时的索引。
+          </div>
+          <div style="margin-top:8px;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;font-size:11px;color:#3fb950;">
+            start = param_world_start（在 grad_data 中的全局 offset）
+          </div>
+        </div>
+
+        <div style="background:#0d1117;border:1px solid #3fb950;border-radius:6px;padding:12px;">
+          <div style="color:#3fb950;font-weight:600;margin-bottom:6px;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;">② gbuf_world_in_bucket</div>
+          <div style="color:#8b949e;font-size:11px;margin-bottom:8px;">当前 bucket 坐标系</div>
+          <div style="color:#e6edf3;font-size:12px;line-height:1.6;">
+            将 gbuf_world 的坐标减去 <code>bucket.offset</code>，转换为在<strong>当前 bucket</strong> grad buffer 内的相对偏移。
+            AllGather / ReduceScatter 操作直接在单个 bucket 的 tensor 上执行，因此需要此视角。
+          </div>
+          <div style="margin-top:8px;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;font-size:11px;color:#3fb950;">
+            = Range(gbuf_world.start - bucket.offset, gbuf_world.end - bucket.offset)
+          </div>
+        </div>
+
+        <div style="background:#0d1117;border:1px solid #d2a8ff;border-radius:6px;padding:12px;">
+          <div style="color:#d2a8ff;font-weight:600;margin-bottom:6px;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;">③ gbuf_local</div>
+          <div style="color:#8b949e;font-size:11px;margin-bottom:8px;">本 rank 持有的分片坐标系</div>
+          <div style="color:#e6edf3;font-size:12px;line-height:1.6;">
+            参数在<strong>本 rank 负责的 1/DP_size 区间</strong>内的偏移。ReduceScatter 后每个 rank 拿到的 tensor 从 0 开始，
+            gbuf_local 直接索引这个小 tensor，用于取出本 rank 要更新的梯度片段，传给本地优化器（Adam 等）。
+          </div>
+          <div style="margin-top:8px;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;font-size:11px;color:#d2a8ff;">
+            start = max(0, param_world_start - gbuf_world_range.start)
+          </div>
+        </div>
+
+        <div style="background:#0d1117;border:1px solid #f0883e;border-radius:6px;padding:12px;">
+          <div style="color:#f0883e;font-weight:600;margin-bottom:6px;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;">④ param</div>
+          <div style="color:#8b949e;font-size:11px;margin-bottom:8px;">原始参数 tensor 坐标系</div>
+          <div style="color:#e6edf3;font-size:12px;line-height:1.6;">
+            对应参数 tensor 自身（flatten 后）的哪个子区间被本 rank 持有。
+            由于切分边界不尊重参数边界，一个参数可能被切成两半，分属相邻 rank，
+            <code>sub_param_range</code> 精确描述本 rank 持有的那一段在参数内的位置，
+            用于 model → main param 的拷贝和 AllGather 后写回参数。
+          </div>
+          <div style="margin-top:8px;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;font-size:11px;color:#f0883e;">
+            start = max(0, gbuf_world_range.start - param_world_start)
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <h3>4 个 DP rank 切割 bucket 的示意图</h3>
+
+    <div style="background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:20px;margin:20px 0;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;font-size:12px;overflow-x:auto;">
+
+      <div style="color:#8b949e;margin-bottom:12px;">示例：bucket_size=16，DP=4，每 rank 持有 4 个元素</div>
+
+      <div style="color:#58a6ff;margin-bottom:4px;">Bucket grad_data（offset=32）：</div>
+      <div style="display:flex;height:44px;border:1px solid #30363d;border-radius:4px;overflow:hidden;margin-bottom:2px;">
+        <div style="flex:1;background:#1a2a1a;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#3fb950;font-size:11px;border-right:1px solid #30363d;">
+          <span>rank 0</span><span style="font-size:9px;color:#8b949e;">[0,4) in bucket</span>
+        </div>
+        <div style="flex:1;background:#1a1a2a;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#58a6ff;font-size:11px;border-right:1px solid #30363d;">
+          <span>rank 1</span><span style="font-size:9px;color:#8b949e;">[4,8) in bucket</span>
+        </div>
+        <div style="flex:1;background:#2a1a2a;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#d2a8ff;font-size:11px;border-right:1px solid #30363d;">
+          <span>rank 2</span><span style="font-size:9px;color:#8b949e;">[8,12) in bucket</span>
+        </div>
+        <div style="flex:1;background:#2a1a10;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#f0883e;font-size:11px;">
+          <span>rank 3</span><span style="font-size:9px;color:#8b949e;">[12,16) in bucket</span>
+        </div>
+      </div>
+      <div style="color:#8b949e;font-size:10px;margin-bottom:16px;">全局 grad_data 坐标：[32,36)      [36,40)      [40,44)      [44,48)</div>
+
+      <div style="color:#58a6ff;margin-bottom:8px;">各 rank 的 Range 对象内容（以 param P 跨越 rank 0/1 边界为例，P 在 grad_data 全局位于 [34,39)）：</div>
+
+      <table style="width:100%;border-collapse:collapse;font-size:11px;">
+        <thead>
+          <tr style="color:#8b949e;border-bottom:1px solid #30363d;">
+            <th style="padding:6px 10px;text-align:left;font-weight:normal;">字段</th>
+            <th style="padding:6px 10px;text-align:left;font-weight:normal;color:#3fb950;">rank 0（持有 [32,36)）</th>
+            <th style="padding:6px 10px;text-align:left;font-weight:normal;color:#58a6ff;">rank 1（持有 [36,40)）</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom:1px solid #1c2129;">
+            <td style="padding:6px 10px;color:#e6edf3;font-weight:600;">① gbuf_world</td>
+            <td style="padding:6px 10px;color:#3fb950;">Range(34, 36)  [裁剪到本 rank]</td>
+            <td style="padding:6px 10px;color:#58a6ff;">Range(36, 39)  [裁剪到本 rank]</td>
+          </tr>
+          <tr style="border-bottom:1px solid #1c2129;">
+            <td style="padding:6px 10px;color:#e6edf3;font-weight:600;">② gbuf_world_in_bucket</td>
+            <td style="padding:6px 10px;color:#3fb950;">Range(2, 4)  [减去 bucket.offset=32]</td>
+            <td style="padding:6px 10px;color:#58a6ff;">Range(4, 7)  [减去 bucket.offset=32]</td>
+          </tr>
+          <tr style="border-bottom:1px solid #1c2129;">
+            <td style="padding:6px 10px;color:#e6edf3;font-weight:600;">③ gbuf_local</td>
+            <td style="padding:6px 10px;color:#3fb950;">Range(2, 4)  [在本 rank 4 元素片中]</td>
+            <td style="padding:6px 10px;color:#58a6ff;">Range(0, 3)  [在本 rank 4 元素片中]</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 10px;color:#e6edf3;font-weight:600;">④ param（P 共 5 元素）</td>
+            <td style="padding:6px 10px;color:#3fb950;">Range(0, 2)  [P 的前 2 个元素]</td>
+            <td style="padding:6px 10px;color:#58a6ff;">Range(2, 5)  [P 的后 3 个元素]</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div style="margin-top:14px;color:#8b949e;font-size:10px;line-height:1.8;">
+        注：param P 共 5 个元素，在 grad_data 全局位于 [34, 39)，横跨 rank 0/1 边界（rank 0 持有全局 [32,36)）。<br>
+        rank 0 只拿到 P 的前 2 个元素，rank 1 只拿到 P 的后 3 个元素，两者合并才是完整的 P 梯度。
+      </div>
+    </div>
+
+    <h3>计算四种视角的源码</h3>
+    <p>
+      实际计算逻辑在 <code>_build_model_gbuf_param_range_map</code> 中，逐行解读：
+    </p>
+
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">for</span> param, param_world_indexes <span class="hljs-keyword">in</span> param_world_index_map.items():
+    param_world_start, param_world_end, _ = param_world_indexes
+
+    <span class="hljs-comment"># 计算参数与本 rank 分片的交集（local 坐标，从 0 开始）</span>
+    param_local_start = <span class="hljs-built_in">max</span>(<span class="hljs-number">0</span>, param_world_start - gbuf_world_range.start)
+    param_local_end   = <span class="hljs-built_in">min</span>(gbuf_world_range.size, param_world_end - gbuf_world_range.start)
+
+    <span class="hljs-comment"># 只处理有交集的参数（完全在其他 rank 分片内的参数直接跳过）</span>
+    <span class="hljs-keyword">if</span> param_local_end &gt; param_local_start:
+        <span class="hljs-comment"># ③ gbuf_local：在本 rank 持有的小 tensor 中的偏移（从 0 起算）</span>
+        param_local_range = Range(param_local_start, param_local_end)
+
+        <span class="hljs-comment"># ① gbuf_world：平移回全局 grad_data 坐标</span>
+        param_world_range = param_local_range.normalize(
+            param_local_start + gbuf_world_range.start
+        )
+
+        <span class="hljs-comment"># ② gbuf_world_in_bucket：减去 bucket 的起始偏移</span>
+        param_world_range_in_bucket = Range(
+            param_world_range.start - bucket_offset,
+            param_world_range.end   - bucket_offset,
+        )
+
+        <span class="hljs-comment"># ④ param：在参数自身 tensor 内的起始位置（参数可能被切成两半）</span>
+        sub_param_start = <span class="hljs-built_in">max</span>(<span class="hljs-number">0</span>, gbuf_world_range.start - param_world_start)
+        sub_param_range = param_local_range.normalize(sub_param_start)
+
+        param_range_map[param] = {
+            <span class="hljs-string">"gbuf_world"</span>:           param_world_range,
+            <span class="hljs-string">"gbuf_world_in_bucket"</span>: param_world_range_in_bucket,
+            <span class="hljs-string">"gbuf_local"</span>:           param_local_range,
+            <span class="hljs-string">"param"</span>:                sub_param_range,
+        }</code></pre>
+
+    <div class="callout callout-key">
+      <div class="callout-title">切分边界不对齐参数边界的设计取舍</div>
+      <p>
+        DistributedOptimizer 故意<strong>不按参数边界切分</strong>，而是按 bucket 的 <code>1/DP_size</code> 位置硬切。
+        这样可以保证每个 rank 的工作量完全均等（各持有相同数量的梯度元素，优化器更新步骤负载均衡），
+        代价是一个参数可能被两个相邻 rank 分别持有不同子区间，需要用上面四种 Range 做精确映射。
+        这也是 <code>normalize()</code> 方法存在的核心原因——各坐标系之间的转换本质上是一次偏移量的平移。
+      </p>
+    </div>
+
+  </div>
+</section>
+
+<!-- ==================== SECTION 05 ==================== -->
+<section id="sec05">
+  <div class="section-header">
+    <span class="section-num">05</span>
+    <h2>混合精度主参数分片</h2>
+  </div>
+  <div class="prose">
+
+    <p>
+      DistributedOptimizer 的核心职责之一，是在每个 DP rank 上只为自己
+      <strong>负责更新</strong>的那一小片参数维护 fp32 副本（主参数，main param）。
+      这一小片由 Reduce-Scatter 决定：bucket 大小为 <code>N</code> 个元素，
+      DP world size 为 <code>D</code>，则本 rank 恰好负责 <code>N/D</code> 个元素。
+      fp32 主参数不存储在连续 buffer 中——每个 rank 只需要一小片，
+      独立 clone 成 <code>float32</code> 张量即可；而 param_data / grad_data
+      这两个连续 buffer 是所有 rank 共享的通信介质，不需要也不应该膨胀成 fp32。
+    </p>
+
+    <h3>五组数据结构</h3>
+
+    <p>
+      <code>_build_model_and_main_param_groups()</code>（第 305–467 行）
+      在初始化阶段填充以下五个列表，每个列表按 optimizer param group 分组：
+    </p>
+
+    <div style="overflow-x:auto;margin:16px 0;">
+      <table style="width:100%;border-collapse:collapse;font-size:14px;">
+        <thead>
+          <tr style="background:#1f2937;color:#e6edf3;">
+            <th style="padding:10px 14px;border:1px solid #30363d;text-align:left;white-space:nowrap;">变量名</th>
+            <th style="padding:10px 14px;border:1px solid #30363d;text-align:left;">存储内容</th>
+            <th style="padding:10px 14px;border:1px solid #30363d;text-align:left;">dtype</th>
+            <th style="padding:10px 14px;border:1px solid #30363d;text-align:left;">用途</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="background:#161b22;">
+            <td style="padding:9px 14px;border:1px solid #30363d;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;color:#58a6ff;">model_float16_groups</td>
+            <td style="padding:9px 14px;border:1px solid #30363d;">完整的 fp16/bf16 模型参数（原始对象）</td>
+            <td style="padding:9px 14px;border:1px solid #30363d;color:#58a6ff;">bf16 / fp16</td>
+            <td style="padding:9px 14px;border:1px solid #30363d;">读取 main_grad，写回更新后的参数（通过 shard）</td>
+          </tr>
+          <tr style="background:#0d1117;">
+            <td style="padding:9px 14px;border:1px solid #30363d;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;color:#58a6ff;">model_fp32_groups</td>
+            <td style="padding:9px 14px;border:1px solid #30363d;">完整的 fp32 模型参数（原始对象）</td>
+            <td style="padding:9px 14px;border:1px solid #30363d;color:#f0883e;">fp32</td>
+            <td style="padding:9px 14px;border:1px solid #30363d;">纯 fp32 训练场景；shard 直接是其视图</td>
+          </tr>
+          <tr style="background:#161b22;">
+            <td style="padding:9px 14px;border:1px solid #30363d;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;color:#58a6ff;">shard_float16_groups</td>
+            <td style="padding:9px 14px;border:1px solid #30363d;">bf16 参数展平后的本 rank 分片视图</td>
+            <td style="padding:9px 14px;border:1px solid #30363d;color:#58a6ff;">bf16 / fp16</td>
+            <td style="padding:9px 14px;border:1px solid #30363d;">precision-aware optimizer 模式下直接传入优化器</td>
+          </tr>
+          <tr style="background:#0d1117;">
+            <td style="padding:9px 14px;border:1px solid #30363d;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;color:#58a6ff;">shard_fp32_groups</td>
+            <td style="padding:9px 14px;border:1px solid #30363d;">fp32 参数展平后的本 rank 分片视图</td>
+            <td style="padding:9px 14px;border:1px solid #30363d;color:#f0883e;">fp32</td>
+            <td style="padding:9px 14px;border:1px solid #30363d;">优化器直接更新这个视图（就地写回模型参数）</td>
+          </tr>
+          <tr style="background:#161b22;">
+            <td style="padding:9px 14px;border:1px solid #30363d;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;color:#d2a8ff;">shard_fp32_from_float16_groups</td>
+            <td style="padding:9px 14px;border:1px solid #30363d;">从 bf16 参数对应的 <strong>fp32 主参数副本</strong>（clone）</td>
+            <td style="padding:9px 14px;border:1px solid #30363d;color:#f0883e;">fp32</td>
+            <td style="padding:9px 14px;border:1px solid #30363d;">Adam 实际更新的目标；更新后写回 bf16 buffer</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>分片切片逻辑</h3>
+
+    <p>
+      每个参数对应的本 rank 分片范围由
+      <code>gbuf_range["param_map"][model_param]["param"]</code>
+      给出（一个 <code>Range</code> 对象，含 <code>.start</code> 和 <code>.end</code>）。
+      切片与 clone 过程如下：
+    </p>
+
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># distrib_optimizer.py  L359-L415（bf16 / fp16 参数路径，已删去 FP8 分支）</span>
+<span class="hljs-keyword">if</span> model_param.<span class="hljs-built_in">type</span>() <span class="hljs-keyword">in</span> [<span class="hljs-string">'torch.cuda.HalfTensor'</span>, <span class="hljs-string">'torch.cuda.BFloat16Tensor'</span>]:
+
+    <span class="hljs-comment"># 1. 生成 shard_model_param：bf16 展平视图，截取本 rank 负责的区间</span>
+    shard_model_param = model_param.detach().view(-<span class="hljs-number">1</span>)[
+        param_range.start : param_range.end
+    ]
+    tensor_parallel.copy_tensor_model_parallel_attributes(
+        shard_model_param, model_param
+    )
+
+    <span class="hljs-comment"># 2. 生成 shard_main_param：clone 并升精度到 fp32（真正的"主参数"）</span>
+    shard_main_param = shard_model_param.clone().<span class="hljs-built_in">float</span>()
+    tensor_parallel.copy_tensor_model_parallel_attributes(
+        shard_main_param, model_param
+    )
+
+    <span class="hljs-comment"># 3. 挂载标记属性到原始 bf16 参数对象</span>
+    model_param.main_param = shard_main_param
+    model_param.main_param_sharded = <span class="hljs-literal">True</span>
+
+    <span class="hljs-comment"># 4. 放入对应 group 列表</span>
+    model_float16_params_this_group.append(model_param)
+    shard_float16_params_this_group.append(shard_model_param)
+    shard_fp32_from_float16_params_this_group.append(shard_main_param)</code></pre>
+
+    <p>
+      其中 <code>param_range</code> 是该参数在本 rank 所拥有的 gbuf 本地视图内的子范围——
+      即在 <code>gbuf_local</code>（大小为 <code>bucket_numel / DP_size</code>）内的偏移。
+      由于 grad buffer 分区<strong>不尊重参数边界</strong>，一个参数可能只有一部分落在本 rank 的区间里，
+      <code>param_range</code> 正好记录了这个参数中属于本 rank 的子区间。
+    </p>
+
+    <div class="callout-info">
+      <strong>model_param 上的特殊标记属性</strong>
+      <ul style="margin:8px 0 0 0;padding-left:20px;">
+        <li>
+          <code>model_param.main_param</code>：指向本 rank 对应的 fp32 主参数分片
+          （<code>shard_main_param</code>）。初始化时先在所有 bf16 参数上置为 <code>None</code>
+          （第 593 行），待 <code>_build_model_and_main_param_groups()</code> 执行后，
+          有优化器状态的参数会将其覆盖为真实张量；没有优化器状态的参数（其他 rank 负责的参数）
+          保持 <code>None</code>。grad norm 计算时遍历 <code>main_param</code>
+          而不是 bf16 参数本身，从而得到 fp32 精度的 norm。
+        </li>
+        <li>
+          <code>model_param.main_param_sharded = True</code>：标志该参数的主参数是
+          <em>分片的</em>（只有本 rank 持有自己的那一片），区别于非分布式优化器中
+          每个 rank 持有完整副本的情形。检查点保存 / 加载逻辑通过此标志
+          判断是否需要做 DP 维度的 gather。
+        </li>
+      </ul>
+    </div>
+
+    <h3>fp32 主参数为何不存于连续 buffer</h3>
+
+    <p>
+      <code>param_data</code> 和 <code>grad_data</code> 这两个连续 buffer 以 bf16
+      存储（或 fp32，视配置），所有 DP rank 共享同一套布局，是 All-Gather / Reduce-Scatter
+      通信的载体。如果把 fp32 主参数也放进连续 buffer，则：
+    </p>
+
+    <ul>
+      <li>每个 rank 需要存一份完整 fp32 buffer（内存 × DP_size × 2 倍精度膨胀）；</li>
+      <li>All-Gather / Reduce-Scatter 通信量翻倍；</li>
+      <li>Adam 的 exp_avg / exp_avg_sq 也将跟着膨胀，最终 ZeRO-1 的内存节省完全失去意义。</li>
+    </ul>
+
+    <p>
+      实际上每个 rank 只需要 <code>1/DP_size</code> 的 fp32 主参数，因此直接
+      <code>.clone().float()</code> 产生一个独立的小张量即可，不必对齐到任何连续 buffer。
+      优化器（Adam）在这些小张量上原地更新，更新完成后再按原路写回 bf16 param buffer，
+      随后一次 All-Gather 恢复完整参数。
+    </p>
+
+  </div>
+</section>
+
+<!-- ==================== SECTION 06 ==================== -->
+<section id="sec06">
+  <div class="section-header">
+    <span class="section-num">06</span>
+    <h2>完整训练步骤追踪</h2>
+  </div>
+  <div class="prose">
+
+    <p>
+      以 <strong>DP=4、单个 bucket 含 1024 个 bf16 元素</strong> 为例，
+      追踪从反向传播到下一次前向的完整数据流。
+      每个 rank 拥有 <code>1024 / 4 = 256</code> 个元素的分片。
+    </p>
+
+    <!-- 6-阶段流程卡片 -->
+    <div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:24px 28px;margin:20px 0;font-size:14px;">
+
+      <div style="color:#8b949e;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:18px;">
+        DP=4 &nbsp;·&nbsp; bucket = 1024 bf16 elements &nbsp;·&nbsp; 每 rank 分片 = 256 elements
+      </div>
+
+      <!-- 阶段 1 -->
+      <div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:6px;">
+        <div style="min-width:32px;height:32px;border-radius:50%;background:#1f2937;border:2px solid #58a6ff;display:flex;align-items:center;justify-content:center;font-weight:700;color:#58a6ff;flex-shrink:0;">1</div>
+        <div style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:14px 16px;">
+          <div style="color:#e6edf3;font-weight:600;margin-bottom:6px;">反向传播 → 梯度写入 grad_data buffer</div>
+          <div style="color:#8b949e;margin-bottom:8px;">
+            每个参数的 <code style="background:#1c2129;padding:1px 5px;border-radius:3px;color:#d2a8ff;">param.main_grad</code>
+            是 <code>grad_data</code> buffer 中的一个视图（view），反向传播时梯度直接就地写入连续内存，
+            无需额外拷贝。DDP 的 hook（<code>param.grad_added_to_main_grad</code> 标志控制）
+            确保梯度累加到正确位置。
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <span style="background:#1f2937;border:1px solid #58a6ff;border-radius:4px;padding:3px 10px;color:#58a6ff;font-family:monospace;font-size:13px;">grad_data[0..1023] : bf16</span>
+            <span style="background:#1f2937;border:1px solid #30363d;border-radius:4px;padding:3px 10px;color:#8b949e;font-size:12px;">全部 4 ranks 各自本地计算，数据尚未同步</span>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-left:48px;color:#30363d;font-size:20px;line-height:1;margin-bottom:6px;">▼</div>
+
+      <!-- 阶段 2 -->
+      <div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:6px;">
+        <div style="min-width:32px;height:32px;border-radius:50%;background:#1f2937;border:2px solid #3fb950;display:flex;align-items:center;justify-content:center;font-weight:700;color:#3fb950;flex-shrink:0;">2</div>
+        <div style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:14px 16px;">
+          <div style="color:#e6edf3;font-weight:600;margin-bottom:6px;">Reduce-Scatter 梯度同步</div>
+          <div style="color:#8b949e;margin-bottom:8px;">
+            <code style="background:#1c2129;padding:1px 5px;border-radius:3px;color:#3fb950;">model_chunk.start_grad_sync()</code> +
+            <code style="background:#1c2129;padding:1px 5px;border-radius:3px;color:#3fb950;">finish_grad_sync()</code>
+            触发（位于 distributed_data_parallel.py 第 581/593 行）。
+            每个 rank 的 grad_data buffer（1024 bf16）参与 Reduce-Scatter：
+            对应位置的梯度在 DP=4 个 rank 之间求和，然后分发，
+            每个 rank 得到<strong>属于自己那 256 元素的已归约梯度</strong>。
+          </div>
+          <div style="background:#1c2129;border-radius:6px;padding:12px;margin-bottom:8px;">
+            <div style="display:flex;gap:4px;align-items:center;margin-bottom:8px;">
+              <div style="flex:1;text-align:center;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:4px;font-size:12px;color:#58a6ff;">Rank 0<br><span style="color:#8b949e;">grad[0..1023]</span></div>
+              <div style="flex:1;text-align:center;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:4px;font-size:12px;color:#58a6ff;">Rank 1<br><span style="color:#8b949e;">grad[0..1023]</span></div>
+              <div style="flex:1;text-align:center;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:4px;font-size:12px;color:#58a6ff;">Rank 2<br><span style="color:#8b949e;">grad[0..1023]</span></div>
+              <div style="flex:1;text-align:center;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:4px;font-size:12px;color:#58a6ff;">Rank 3<br><span style="color:#8b949e;">grad[0..1023]</span></div>
+            </div>
+            <div style="text-align:center;color:#3fb950;margin-bottom:8px;">▼ Reduce-Scatter (sum across 4 ranks)</div>
+            <div style="display:flex;gap:4px;align-items:center;">
+              <div style="flex:1;text-align:center;background:#0f2217;border:1px solid #3fb950;border-radius:4px;padding:4px;font-size:12px;color:#3fb950;">Rank 0<br><span style="color:#8b949e;">grad[0..255]</span><br><span style="color:#8b949e;font-size:11px;">sum of 4</span></div>
+              <div style="flex:1;text-align:center;background:#0f2217;border:1px solid #3fb950;border-radius:4px;padding:4px;font-size:12px;color:#3fb950;">Rank 1<br><span style="color:#8b949e;">grad[256..511]</span><br><span style="color:#8b949e;font-size:11px;">sum of 4</span></div>
+              <div style="flex:1;text-align:center;background:#0f2217;border:1px solid #3fb950;border-radius:4px;padding:4px;font-size:12px;color:#3fb950;">Rank 2<br><span style="color:#8b949e;">grad[512..767]</span><br><span style="color:#8b949e;font-size:11px;">sum of 4</span></div>
+              <div style="flex:1;text-align:center;background:#0f2217;border:1px solid #3fb950;border-radius:4px;padding:4px;font-size:12px;color:#3fb950;">Rank 3<br><span style="color:#8b949e;">grad[768..1023]</span><br><span style="color:#8b949e;font-size:11px;">sum of 4</span></div>
+            </div>
+          </div>
+          <div style="color:#8b949e;font-size:13px;">
+            结果原地写回 grad_data buffer 对应分片位置。通信量：每 rank 发送 1024 bf16，接收 256 bf16（已归约）。
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-left:48px;color:#30363d;font-size:20px;line-height:1;margin-bottom:6px;">▼</div>
+
+      <!-- 阶段 3 -->
+      <div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:6px;">
+        <div style="min-width:32px;height:32px;border-radius:50%;background:#1f2937;border:2px solid #f0883e;display:flex;align-items:center;justify-content:center;font-weight:700;color:#f0883e;flex-shrink:0;">3</div>
+        <div style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:14px 16px;">
+          <div style="color:#e6edf3;font-weight:600;margin-bottom:6px;">梯度拷贝到 fp32 主参数（bf16 → fp32）</div>
+          <div style="color:#8b949e;margin-bottom:8px;">
+            <code style="background:#1c2129;padding:1px 5px;border-radius:3px;color:#f0883e;">_copy_model_grads_to_main_grads()</code>
+            由 <code>MixedPrecisionOptimizer.prepare_grads()</code>（optimizer.py 第 550 行）调用。
+            对每个 bf16 参数，从 <code>model_param.main_grad</code>（grad_data buffer 的视图）
+            取本 rank 分片，升精度后赋给 fp32 主参数的 <code>.grad</code>：
+          </div>
+          <pre style="background:#1c2129;border:1px solid #30363d;border-radius:6px;padding:12px;margin:0 0 8px 0;overflow-x:auto;font-size:13px;"><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># distrib_optimizer.py  L2428-L2442</span>
+param_range_map = self._get_model_param_range_map(model_param)
+param_range = param_range_map[<span class="hljs-string">"param"</span>]         <span class="hljs-comment"># 参数内子区间</span>
+
+model_grad = model_param.main_grad             <span class="hljs-comment"># bf16 view into grad_data</span>
+shard_model_grad = model_grad.view(-<span class="hljs-number">1</span>)[
+    param_range.start : param_range.end        <span class="hljs-comment"># 本 rank 对应的 256 个梯度元素</span>
+]
+shard_main_param.grad = shard_model_grad.<span class="hljs-built_in">float</span>()  <span class="hljs-comment"># bf16 -&gt; fp32</span></code></pre>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <span style="background:#1f2937;border:1px solid #58a6ff;border-radius:4px;padding:3px 10px;color:#58a6ff;font-family:monospace;font-size:13px;">grad_data[rank×256 .. (rank+1)×256] : bf16</span>
+            <span style="color:#8b949e;padding:3px 6px;font-size:18px;">→</span>
+            <span style="background:#1f2937;border:1px solid #f0883e;border-radius:4px;padding:3px 10px;color:#f0883e;font-family:monospace;font-size:13px;">shard_main_param.grad [256] : fp32</span>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-left:48px;color:#30363d;font-size:20px;line-height:1;margin-bottom:6px;">▼</div>
+
+      <!-- 阶段 4 -->
+      <div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:6px;">
+        <div style="min-width:32px;height:32px;border-radius:50%;background:#1f2937;border:2px solid #d2a8ff;display:flex;align-items:center;justify-content:center;font-weight:700;color:#d2a8ff;flex-shrink:0;">4</div>
+        <div style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:14px 16px;">
+          <div style="color:#e6edf3;font-weight:600;margin-bottom:6px;">优化器步骤（纯 fp32 域，无通信）</div>
+          <div style="color:#8b949e;margin-bottom:8px;">
+            <code style="background:#1c2129;padding:1px 5px;border-radius:3px;color:#d2a8ff;">clip_grad_norm()</code>
+            计算全局 grad norm（跨 TP/DP rank all-reduce），
+            随后 <code>Adam.step()</code> 在本 rank 的 256 个 fp32 主参数上执行更新。
+            各 rank 完全独立执行，不涉及任何通信。
+          </div>
+          <div style="background:#1c2129;border:1px solid #30363d;border-radius:6px;padding:10px 14px;margin-bottom:8px;">
+            <div style="color:#8b949e;font-size:11px;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em;">本 rank 的优化器状态（以 Rank 0 为例，256 elements）</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <span style="background:#1f2937;border:1px solid #f0883e;border-radius:3px;padding:3px 10px;color:#f0883e;font-family:monospace;font-size:12px;">param [256] fp32</span>
+              <span style="color:#8b949e;align-self:center;">+</span>
+              <span style="background:#1f2937;border:1px solid #f0883e;border-radius:3px;padding:3px 10px;color:#f0883e;font-family:monospace;font-size:12px;">exp_avg [256] fp32</span>
+              <span style="color:#8b949e;align-self:center;">+</span>
+              <span style="background:#1f2937;border:1px solid #f0883e;border-radius:3px;padding:3px 10px;color:#f0883e;font-family:monospace;font-size:12px;">exp_avg_sq [256] fp32</span>
+              <span style="color:#8b949e;align-self:center;font-size:12px;">= 256×3×4 bytes = 3 KB</span>
+            </div>
+            <div style="color:#8b949e;font-size:12px;margin-top:8px;">
+              对比非分布式优化器：每 rank 持有 1024×3×fp32 = 12 KB（多 4×）。
+              DistributedOptimizer 使 Adam 状态随 DP 分片，<strong>总内存节省 DP_size 倍</strong>。
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-left:48px;color:#30363d;font-size:20px;line-height:1;margin-bottom:6px;">▼</div>
+
+      <!-- 阶段 5 -->
+      <div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:6px;">
+        <div style="min-width:32px;height:32px;border-radius:50%;background:#1f2937;border:2px solid #f0883e;display:flex;align-items:center;justify-content:center;font-weight:700;color:#f0883e;flex-shrink:0;">5</div>
+        <div style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:14px 16px;">
+          <div style="color:#e6edf3;font-weight:600;margin-bottom:6px;">fp32 主参数写回 bf16 param buffer（fp32 → bf16）</div>
+          <div style="color:#8b949e;margin-bottom:8px;">
+            <code style="background:#1c2129;padding:1px 5px;border-radius:3px;color:#f0883e;">_copy_main_params_to_model_params()</code>
+            由 <code>MixedPrecisionOptimizer.step_with_ready_grads()</code>（optimizer.py 第 601 行）
+            在 <code>optimizer.step()</code> 之后立即调用。
+          </div>
+          <pre style="background:#1c2129;border:1px solid #30363d;border-radius:6px;padding:12px;margin:0 0 8px 0;overflow-x:auto;font-size:13px;"><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># distrib_optimizer.py  L2483-L2498</span>
+world_range = param_range_map[<span class="hljs-string">"gbuf_world_in_bucket"</span>]  <span class="hljs-comment"># 全局 bucket 视图内偏移</span>
+
+model_param_buffer = self.buffers[gbuf_index].buckets[bucket_id].param_data
+
+shard_model_param = model_param_buffer.view(-<span class="hljs-number">1</span>)[
+    world_range.start : world_range.end   <span class="hljs-comment"># param_data 中本 rank 负责的区间</span>
+]
+shard_model_param.data.copy_(shard_main_param)  <span class="hljs-comment"># fp32 -&gt; bf16（自动截断精度）</span></code></pre>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <span style="background:#1f2937;border:1px solid #f0883e;border-radius:4px;padding:3px 10px;color:#f0883e;font-family:monospace;font-size:13px;">shard_main_param [256] : fp32</span>
+            <span style="color:#8b949e;padding:3px 6px;font-size:18px;">→</span>
+            <span style="background:#1f2937;border:1px solid #58a6ff;border-radius:4px;padding:3px 10px;color:#58a6ff;font-family:monospace;font-size:13px;">param_data[rank×256 .. (rank+1)×256] : bf16</span>
+          </div>
+          <div style="color:#8b949e;font-size:12px;margin-top:8px;">
+            注意坐标系切换：梯度拷贝（阶段 3）使用 <code>param_range</code>（参数内子区间），
+            参数写回（阶段 5）使用 <code>gbuf_world_in_bucket</code>（全局 bucket 内绝对偏移）。
+            两套坐标系由 <code>_build_model_gbuf_param_range_map()</code> 统一预计算。
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-left:48px;color:#30363d;font-size:20px;line-height:1;margin-bottom:6px;">▼</div>
+
+      <!-- 阶段 6 -->
+      <div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:6px;">
+        <div style="min-width:32px;height:32px;border-radius:50%;background:#1f2937;border:2px solid #3fb950;display:flex;align-items:center;justify-content:center;font-weight:700;color:#3fb950;flex-shrink:0;">6</div>
+        <div style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:14px 16px;">
+          <div style="color:#e6edf3;font-weight:600;margin-bottom:6px;">All-Gather 参数 → 所有 rank 得到完整参数</div>
+          <div style="color:#8b949e;margin-bottom:8px;">
+            <code style="background:#1c2129;padding:1px 5px;border-radius:3px;color:#3fb950;">model_chunk.start_param_sync()</code>
+            由 <code>DistributedOptimizer.step_with_ready_grads()</code>（第 2662 行）调用。
+            每个 rank 贡献自己更新好的 256 个 bf16 元素，All-Gather 后所有 rank 的
+            <code>param_data</code> buffer 都恢复为完整的 1024 bf16 元素。
+            模型参数（<code>model_param.data</code>）是 <code>param_data</code> buffer 的视图，
+            因此自动得到更新，无需额外拷贝。
+          </div>
+          <div style="background:#1c2129;border-radius:6px;padding:12px;margin-bottom:8px;">
+            <div style="display:flex;gap:4px;align-items:center;margin-bottom:8px;">
+              <div style="flex:1;text-align:center;background:#0f2217;border:1px solid #3fb950;border-radius:4px;padding:4px;font-size:12px;color:#3fb950;">Rank 0<br><span style="color:#8b949e;">param[0..255]</span><br><span style="color:#8b949e;font-size:11px;">already updated</span></div>
+              <div style="flex:1;text-align:center;background:#0f2217;border:1px solid #3fb950;border-radius:4px;padding:4px;font-size:12px;color:#3fb950;">Rank 1<br><span style="color:#8b949e;">param[256..511]</span><br><span style="color:#8b949e;font-size:11px;">already updated</span></div>
+              <div style="flex:1;text-align:center;background:#0f2217;border:1px solid #3fb950;border-radius:4px;padding:4px;font-size:12px;color:#3fb950;">Rank 2<br><span style="color:#8b949e;">param[512..767]</span><br><span style="color:#8b949e;font-size:11px;">already updated</span></div>
+              <div style="flex:1;text-align:center;background:#0f2217;border:1px solid #3fb950;border-radius:4px;padding:4px;font-size:12px;color:#3fb950;">Rank 3<br><span style="color:#8b949e;">param[768..1023]</span><br><span style="color:#8b949e;font-size:11px;">already updated</span></div>
+            </div>
+            <div style="text-align:center;color:#3fb950;margin-bottom:8px;">▼ All-Gather</div>
+            <div style="display:flex;gap:4px;align-items:center;">
+              <div style="flex:1;text-align:center;background:#0d1117;border:1px solid #58a6ff;border-radius:4px;padding:6px;font-size:12px;color:#58a6ff;">Rank 0<br><span style="color:#8b949e;">param[0..1023] bf16</span></div>
+              <div style="flex:1;text-align:center;background:#0d1117;border:1px solid #58a6ff;border-radius:4px;padding:6px;font-size:12px;color:#58a6ff;">Rank 1<br><span style="color:#8b949e;">param[0..1023] bf16</span></div>
+              <div style="flex:1;text-align:center;background:#0d1117;border:1px solid #58a6ff;border-radius:4px;padding:6px;font-size:12px;color:#58a6ff;">Rank 2<br><span style="color:#8b949e;">param[0..1023] bf16</span></div>
+              <div style="flex:1;text-align:center;background:#0d1117;border:1px solid #58a6ff;border-radius:4px;padding:6px;font-size:12px;color:#58a6ff;">Rank 3<br><span style="color:#8b949e;">param[0..1023] bf16</span></div>
+            </div>
+          </div>
+          <div style="color:#8b949e;font-size:13px;">
+            若开启 <code>overlap_param_gather=True</code>，All-Gather 延迟到下一次前向的
+            pre-hook 中发起，与计算重叠，进一步隐藏通信延迟。
+          </div>
+        </div>
+      </div>
+
+      <!-- 完整调用链 -->
+      <div style="margin-top:20px;padding-top:16px;border-top:1px solid #30363d;">
+        <div style="color:#8b949e;font-size:12px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;">
+          完整调用链（MixedPrecisionOptimizer.step 视角）
+        </div>
+        <div style="display:flex;gap:0;flex-wrap:wrap;align-items:center;font-size:12px;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;">
+          <span style="background:#1f2937;border:1px solid #30363d;border-radius:4px;padding:4px 8px;color:#d2a8ff;margin:3px;">step()</span>
+          <span style="color:#30363d;margin:1px;">→</span>
+          <span style="background:#1f2937;border:1px solid #30363d;border-radius:4px;padding:4px 8px;color:#f0883e;margin:3px;">prepare_grads()</span>
+          <span style="color:#30363d;margin:1px;">→</span>
+          <span style="background:#1f2937;border:1px solid #30363d;border-radius:4px;padding:4px 8px;color:#f0883e;margin:3px;">_copy_model_grads_to_main_grads()</span>
+          <span style="color:#30363d;margin:1px;">→</span>
+          <span style="background:#1f2937;border:1px solid #30363d;border-radius:4px;padding:4px 8px;color:#d2a8ff;margin:3px;">clip_grad_norm()</span>
+          <span style="color:#30363d;margin:1px;">→</span>
+          <span style="background:#1f2937;border:1px solid #30363d;border-radius:4px;padding:4px 8px;color:#d2a8ff;margin:3px;">step_with_ready_grads()</span>
+          <span style="color:#30363d;margin:1px;">→</span>
+          <span style="background:#1f2937;border:1px solid #30363d;border-radius:4px;padding:4px 8px;color:#f0883e;margin:3px;">optimizer.step()</span>
+          <span style="color:#30363d;margin:1px;">→</span>
+          <span style="background:#1f2937;border:1px solid #30363d;border-radius:4px;padding:4px 8px;color:#f0883e;margin:3px;">_copy_main_params_to_model_params()</span>
+          <span style="color:#30363d;margin:1px;">→</span>
+          <span style="background:#1f2937;border:1px solid #30363d;border-radius:4px;padding:4px 8px;color:#3fb950;margin:3px;">start_param_sync()</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout-key">
+      <strong>为什么 Reduce-Scatter 之后梯度"自动"在正确位置？</strong>
+      <p style="margin:8px 0 0 0;">
+        <code>grad_data</code> buffer 的第 <code>[rank × 256, (rank+1) × 256)</code> 位置，
+        在 Reduce-Scatter 之后存放的就是该区间的已归约梯度。
+        <code>_copy_model_grads_to_main_grads()</code> 中用的 <code>param_range</code>
+        坐标系（参数内子区间）是相对于 gbuf_local 视图计算的，
+        两者的边界由 <code>_build_model_gbuf_param_range_map()</code> 预先对齐，
+        因此直接按 <code>param_range.start:param_range.end</code> 切片就能拿到正确的已归约梯度，
+        无需额外的偏移换算。注意这里是 <code>param.main_grad.view(-1)</code> 的切片，
+        而非整个 grad_data buffer 的切片，坐标系从参数在 grad_data 中的起点开始。
+      </p>
+    </div>
+
+    <div class="callout-info">
+      <strong>overlap_grad_reduce 与 overlap_param_gather 两个 overlap 开关</strong>
+      <p style="margin:8px 0 0 0;">
+        上述 6 个阶段以同步方式描述。实际训练中两个 overlap 开关可以把通信隐藏在计算后面：
+      </p>
+      <ul style="margin:6px 0 0 0;padding-left:20px;">
+        <li>
+          <code>overlap_grad_reduce=True</code>：Reduce-Scatter（阶段 2）在反向传播的 bucket 填满时
+          立即异步发起，与后续层的反向计算重叠。bucket 越多重叠效果越好。
+        </li>
+        <li>
+          <code>overlap_param_gather=True</code>：All-Gather（阶段 6）延迟到下一次迭代的前向
+          pre-hook 中发起，与第一层前向计算重叠。此时 <code>step_with_ready_grads()</code>
+          中不调用 <code>start_param_sync()</code>，转而由 zero_grad() / forward pre-hook 负责。
+        </li>
+      </ul>
+      <p style="margin:6px 0 0 0;">
+        这两个开关不改变数据正确性，只改变通信与计算的调度时序，
+        是大规模训练的重要吞吐量优化手段。
+      </p>
+    </div>
+
+    <div class="callout-warn">
+      <strong>fp16 场景下的额外步骤：grad scaler 与 inf/nan 检测</strong>
+      <p style="margin:8px 0 0 0;">
+        bf16 训练时 <code>grad_scaler</code> 可以为 <code>None</code>（无需动态 loss scaling）。
+        fp16 训练时 <code>prepare_grads()</code> 在拷贝梯度之后还会调用
+        <code>_unscale_main_grads_and_check_for_nan()</code>，
+        对 fp32 主梯度做反缩放并检测 inf/nan，若发现则跳过本次优化器步骤并更新 loss scale。
+        这一检测通过 all-reduce <code>found_inf</code> 张量跨 MP rank 同步，
+        保证所有 rank 在是否跳过步骤上达成一致。
+      </p>
+    </div>
+
+  </div>
+</section>
+
+<!-- ==================== SECTION 07 ==================== -->
+<section id="sec07">
+  <div class="section-header">
+    <span class="section-num">07</span>
+    <h2>Overlap 与异步优化</h2>
+  </div>
+  <div class="prose">
+
+    <p>
+      <code>DistributedOptimizer</code> 提供了两个关键的 overlap 选项，可以大幅隐藏通信延迟：
+      <code>overlap_grad_reduce</code>（梯度 reduce-scatter 与反向传播 overlap）
+      和 <code>overlap_param_gather</code>（参数 all-gather 与前向传播 overlap）。
+      两者配合使用时，整个通信开销几乎可以完全隐藏在计算之后。
+    </p>
+
+    <h3>7.1 overlap_grad_reduce：Bucket 级别异步 reduce-scatter</h3>
+
+    <p>
+      在没有 overlap 时，反向传播结束后必须等所有参数的梯度都就绪，才能发起一次全局的 reduce-scatter。
+      而 <code>overlap_grad_reduce=True</code> 的核心思想是：将参数分成若干 <strong>bucket</strong>，
+      每当一个 bucket 内的所有参数梯度计算完毕，立即异步触发该 bucket 的 reduce-scatter，
+      不等待其他 bucket 完成。这样后续 bucket 的梯度计算可以与前面 bucket 的通信并行进行。
+    </p>
+
+    <p>
+      触发的入口是注册在每个参数梯度累加器（<code>AccumulateGrad</code>）上的 backward post-hook：
+    </p>
+
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># megatron/core/distributed/distributed_data_parallel.py</span>
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">_make_backward_post_hook</span>(<span class="hljs-params">self, param: torch.nn.Parameter</span>):
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">hook</span>(<span class="hljs-params">*unused</span>):
+        <span class="hljs-keyword">if</span> param <span class="hljs-keyword">in</span> self.param_to_bucket_group:
+            bucket_group = self.param_to_bucket_group[param]
+
+            <span class="hljs-keyword">if</span> bucket_group.ddp_config.overlap_grad_reduce:
+                <span class="hljs-keyword">assert</span> param.grad <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span>, \
+                    <span class="hljs-string">'param.grad being None is not safe when overlap_grad_reduce is True'</span>
+            <span class="hljs-keyword">if</span> param.grad <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span> <span class="hljs-keyword">and</span> (
+                <span class="hljs-keyword">not</span> param.grad_added_to_main_grad <span class="hljs-keyword">or</span> <span class="hljs-built_in">getattr</span>(param, <span class="hljs-string">'zero_out_wgrad'</span>, <span class="hljs-literal">False</span>)
+            ):
+                param.grad.data.record_stream(torch.cuda.current_stream())
+                param.main_grad.add_(param.grad.data)
+            param.grad = <span class="hljs-literal">None</span>
+
+            <span class="hljs-keyword">if</span> bucket_group.ddp_config.overlap_grad_reduce:
+                bucket_group.register_grad_ready(param)  <span class="hljs-comment"># 触发时机</span>
+    <span class="hljs-keyword">return</span> hook</code></pre>
+
+    <p>
+      <code>register_grad_ready()</code> 维护一个 <code>params_with_grad</code> 集合，
+      当集合大小等于该 bucket group 的总参数数时，立即调用 <code>start_grad_sync()</code>：
+    </p>
+
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># megatron/core/distributed/param_and_grad_buffer.py</span>
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">register_grad_ready</span>(<span class="hljs-params">self, param: torch.nn.Parameter</span>):
+    <span class="hljs-keyword">assert</span> self.ddp_config.overlap_grad_reduce
+    <span class="hljs-keyword">if</span> self.is_last_microbatch:          <span class="hljs-comment"># 仅最后一个 microbatch 才同步</span>
+        self.params_with_grad.add(param)
+        <span class="hljs-comment"># 当 bucket 内所有参数梯度就绪 -&gt; 立即触发通信</span>
+        <span class="hljs-keyword">if</span> <span class="hljs-built_in">len</span>(self.params_with_grad) == <span class="hljs-built_in">len</span>(self.params):
+            self.start_grad_sync()</code></pre>
+
+    <p>
+      <code>start_grad_sync()</code> 内部使用 <code>_coalescing_manager</code> 将同一
+      bucket group 内多个 bucket 的通信内核合并，然后异步发起 reduce-scatter（DistributedOptimizer）
+      或 all-reduce（非分布式优化器）：
+    </p>
+
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># megatron/core/distributed/param_and_grad_buffer.py（start_grad_sync 核心）</span>
+async_op = (
+    self.ddp_config.overlap_grad_reduce
+    <span class="hljs-keyword">and</span> self.ddp_config.num_distributed_optimizer_instances == <span class="hljs-number">1</span>
+)
+<span class="hljs-keyword">with</span> _coalescing_manager(communication_group, async_ops=async_op) <span class="hljs-keyword">as</span> cm:
+    <span class="hljs-keyword">for</span> idx, bucket <span class="hljs-keyword">in</span> <span class="hljs-built_in">enumerate</span>(self.buckets):
+        <span class="hljs-keyword">if</span> self.ddp_config.use_distributed_optimizer:
+            local_data_view = self.cached_grad_buffer_shard_list[idx][
+                self.intra_distributed_optimizer_instance_rank
+            ]
+            grad_reduce_handle = dist_reduce_scatter_func(
+                local_data_view,          <span class="hljs-comment"># output: 本 rank 的梯度分片</span>
+                bucket.grad_data,         <span class="hljs-comment"># input:  完整梯度 buffer</span>
+                op=reduce_op,
+                group=communication_group,
+                async_op=async_op,        <span class="hljs-comment"># True -&gt; 立即返回 handle，不阻塞</span>
+            )</code></pre>
+
+    <h3>7.2 overlap_param_gather：all-gather 与前向传播 overlap</h3>
+
+    <p>
+      优化器 step 完成后，每个 rank 只持有自己分片的 fp32 参数，需要通过 all-gather
+      重建完整 bf16 参数才能进行下一次前向传播。<code>overlap_param_gather=True</code>
+      将这一步拆分为：
+    </p>
+    <ol>
+      <li>step 结束时，<strong>异步</strong>发起第一个 bucket 的 all-gather（而非同步等待完成）；</li>
+      <li>前向传播中，每个子模块执行前，forward pre-hook 等待该模块所需参数所在 bucket 的
+          all-gather 完成，同时异步发起下一个 bucket 的 all-gather；</li>
+      <li>这样 all-gather 与前向计算流水线交替进行。</li>
+    </ol>
+
+    <p>
+      在 <code>step_with_ready_grads()</code> 中，根据 overlap 标志决定是否同步：
+    </p>
+
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># megatron/core/optimizer/distrib_optimizer.py</span>
+<span class="hljs-meta">@torch.no_grad()</span>
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">step_with_ready_grads</span>(<span class="hljs-params">self</span>) -&gt; <span class="hljs-built_in">bool</span>:
+    <span class="hljs-string">"""Step the optimizer with ready gradients, return successful.
+    Under the hood, either launch synchronous param all-gathers or get ready to launch
+    asynchorous all-gathers that get overlapped with the next forward pass.
+    """</span>
+    update_successful = <span class="hljs-built_in">super</span>().step_with_ready_grads()
+    <span class="hljs-comment"># ...</span>
+    <span class="hljs-comment"># 如果不开 overlap，在这里做同步 all-gather</span>
+    <span class="hljs-comment"># 如果开 overlap，第一个 all-gather 将在下一个 optimizer.zero_grad() 中</span>
+    <span class="hljs-comment"># 以异步方式发起，后续由 forward pre-hook 驱动流水线</span>
+    <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> self.ddp_config.overlap_param_gather:
+        <span class="hljs-keyword">for</span> model_chunk <span class="hljs-keyword">in</span> self.model_chunks:
+            model_chunk.start_param_sync()   <span class="hljs-comment"># 同步，阻塞直到完成</span></code></pre>
+
+    <p>
+      <code>BucketGroup.start_param_sync()</code> 根据 <code>overlap_param_gather</code>
+      决定 <code>async_op</code>，将分片参数通过 all-gather 写回完整参数 buffer：
+    </p>
+
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># megatron/core/distributed/param_and_grad_buffer.py</span>
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">start_param_sync</span>(<span class="hljs-params">self, force_sync: <span class="hljs-built_in">bool</span> = <span class="hljs-literal">False</span></span>):
+    <span class="hljs-keyword">assert</span> self.ddp_config.use_distributed_optimizer
+
+    async_op = self.ddp_config.overlap_param_gather <span class="hljs-keyword">and</span> <span class="hljs-keyword">not</span> force_sync
+
+    <span class="hljs-keyword">with</span> _coalescing_manager(
+        self.intra_distributed_optimizer_instance_group, async_ops=async_op
+    ) <span class="hljs-keyword">as</span> cm:
+        <span class="hljs-keyword">for</span> idx, bucket <span class="hljs-keyword">in</span> <span class="hljs-built_in">enumerate</span>(self.buckets):
+            local_data_view = self.cached_param_buffer_shard_list[idx][
+                self.intra_distributed_optimizer_instance_rank
+            ]
+            dist_all_gather_func(
+                bucket.param_data,      <span class="hljs-comment"># output: 重建后的完整参数 buffer</span>
+                local_data_view,        <span class="hljs-comment"># input:  本 rank 持有的参数分片</span>
+                group=self.intra_distributed_optimizer_instance_group,
+                async_op=async_op,
+            )
+    <span class="hljs-keyword">if</span> async_op:
+        self.param_gather_handle = cm   <span class="hljs-comment"># 保存 handle，供 finish_param_sync 等待</span>
+    <span class="hljs-keyword">else</span>:
+        self.param_gather_handle = <span class="hljs-literal">None</span>
+    self.param_gather_dispatched = <span class="hljs-literal">True</span></code></pre>
+
+    <p>
+      forward pre-hook 在每个模块执行前调用 <code>finish_param_sync()</code>，
+      等待当前 bucket 完成并提前发起下一个 bucket：
+    </p>
+
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># megatron/core/distributed/distributed_data_parallel.py</span>
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">_make_forward_pre_hook</span>(<span class="hljs-params">self</span>):
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">hook</span>(<span class="hljs-params">module, *unused</span>):
+        <span class="hljs-keyword">for</span> param <span class="hljs-keyword">in</span> module.parameters(recurse=<span class="hljs-literal">False</span>):
+            <span class="hljs-keyword">if</span> param <span class="hljs-keyword">not</span> <span class="hljs-keyword">in</span> self.param_to_bucket_group:
+                <span class="hljs-keyword">continue</span>
+            bucket_group = self.param_to_bucket_group[param]
+            skip_next_bucket_dispatch = (
+                self.ddp_config.align_param_gather
+                <span class="hljs-keyword">or</span> self.overlap_param_gather_with_optimizer_step
+            )
+            <span class="hljs-comment"># 等待本 bucket 的 all-gather 完成，同时触发下一个 bucket 的异步 all-gather</span>
+            self.param_to_bucket_group[param].finish_param_sync(
+                skip_next_bucket_dispatch=skip_next_bucket_dispatch
+            )
+    <span class="hljs-keyword">return</span> hook
+
+<span class="hljs-comment"># finish_param_sync 核心逻辑（param_and_grad_buffer.py）：</span>
+<span class="hljs-keyword">def</span> <span class="hljs-title function_">finish_param_sync</span>(<span class="hljs-params">self, skip_next_bucket_dispatch: <span class="hljs-built_in">bool</span> = <span class="hljs-literal">False</span></span>):
+    <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> self.param_gather_dispatched:
+        self.start_param_sync()              <span class="hljs-comment"># 如果尚未发起，先发起</span>
+    <span class="hljs-keyword">if</span> self.param_gather_handle <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span>:
+        self.param_gather_handle.wait()      <span class="hljs-comment"># 等待完成</span>
+        self.param_gather_handle = <span class="hljs-literal">None</span>
+        <span class="hljs-comment"># 立即触发下一个 bucket 的异步 all-gather，实现流水线</span>
+        <span class="hljs-keyword">if</span> self.next_param_gather_bucket_group <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">None</span> \
+                <span class="hljs-keyword">and</span> <span class="hljs-keyword">not</span> skip_next_bucket_dispatch:
+            self.next_param_gather_bucket_group.start_param_sync()</code></pre>
+
+    <h3>7.3 时序对比图</h3>
+
+    <p>
+      以下时序图展示无 overlap 与有 overlap（同时开启两个选项）时，单次训练迭代的时间线对比：
+    </p>
+
+    <!-- 时序对比图：HTML+CSS 实现，避免 Mermaid 兼容问题 -->
+    <div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:24px;margin:20px 0;overflow-x:auto;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;min-width:600px;">
+
+        <!-- 左：无 Overlap -->
+        <div>
+          <div style="text-align:center;font-size:0.78rem;font-weight:600;color:#f0883e;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:16px;padding:6px;background:rgba(240,136,62,0.08);border-radius:5px;">无 Overlap（串行）</div>
+          <div style="display:flex;flex-direction:column;gap:0;">
+
+            <div style="display:flex;align-items:stretch;gap:8px;">
+              <div style="width:56px;flex-shrink:0;display:flex;align-items:center;justify-content:flex-end;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;font-size:0.7rem;color:#8b949e;">BW</div>
+              <div style="display:flex;flex-direction:column;align-items:center;width:16px;flex-shrink:0;">
+                <div style="width:2px;height:10px;background:transparent;"></div>
+                <div style="width:10px;height:10px;border-radius:50%;background:#58a6ff;flex-shrink:0;"></div>
+                <div style="width:2px;flex-grow:1;background:#58a6ff;"></div>
+              </div>
+              <div style="flex:1;background:rgba(88,166,255,0.12);border:1px solid #58a6ff;border-radius:5px;padding:7px 10px;margin:2px 0;font-size:0.8rem;color:#e6edf3;">反向传播<br><span style="color:#8b949e;font-size:0.72rem;">等所有梯度就绪</span></div>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:8px;padding:4px 0;">
+              <div style="width:56px;flex-shrink:0;"></div>
+              <div style="width:16px;flex-shrink:0;display:flex;justify-content:center;"><div style="width:2px;height:100%;background:#30363d;"></div></div>
+              <div style="flex:1;display:flex;align-items:center;gap:6px;color:#8b949e;font-size:0.75rem;">
+                <div style="flex:1;height:1px;background:#30363d;"></div>
+                <span>同步 Reduce-Scatter</span>
+                <div style="width:0;height:0;border-left:6px solid #30363d;border-top:4px solid transparent;border-bottom:4px solid transparent;"></div>
+              </div>
+            </div>
+
+            <div style="display:flex;align-items:stretch;gap:8px;">
+              <div style="width:56px;flex-shrink:0;display:flex;align-items:center;justify-content:flex-end;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;font-size:0.7rem;color:#8b949e;">RS</div>
+              <div style="display:flex;flex-direction:column;align-items:center;width:16px;flex-shrink:0;">
+                <div style="width:10px;height:10px;border-radius:50%;background:#3fb950;flex-shrink:0;"></div>
+                <div style="width:2px;flex-grow:1;background:#3fb950;"></div>
+              </div>
+              <div style="flex:1;background:rgba(63,185,80,0.12);border:1px solid #3fb950;border-radius:5px;padding:7px 10px;margin:2px 0;font-size:0.8rem;color:#e6edf3;">Reduce-Scatter<br><span style="color:#8b949e;font-size:0.72rem;">阻塞等待完成</span></div>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:8px;padding:4px 0;">
+              <div style="width:56px;flex-shrink:0;"></div>
+              <div style="width:16px;flex-shrink:0;display:flex;justify-content:center;"><div style="width:2px;height:100%;background:#30363d;"></div></div>
+              <div style="flex:1;display:flex;align-items:center;gap:6px;color:#8b949e;font-size:0.75rem;">
+                <div style="flex:1;height:1px;background:#30363d;"></div>
+                <span>完成通知</span>
+                <div style="width:0;height:0;border-left:6px solid #30363d;border-top:4px solid transparent;border-bottom:4px solid transparent;"></div>
+              </div>
+            </div>
+
+            <div style="display:flex;align-items:stretch;gap:8px;">
+              <div style="width:56px;flex-shrink:0;display:flex;align-items:center;justify-content:flex-end;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;font-size:0.7rem;color:#8b949e;">OPT</div>
+              <div style="display:flex;flex-direction:column;align-items:center;width:16px;flex-shrink:0;">
+                <div style="width:10px;height:10px;border-radius:50%;background:#d2a8ff;flex-shrink:0;"></div>
+                <div style="width:2px;flex-grow:1;background:#d2a8ff;"></div>
+              </div>
+              <div style="flex:1;background:rgba(210,168,255,0.12);border:1px solid #d2a8ff;border-radius:5px;padding:7px 10px;margin:2px 0;font-size:0.8rem;color:#e6edf3;">optimizer.step()<br><span style="color:#8b949e;font-size:0.72rem;">更新全量 fp32 分片</span></div>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:8px;padding:4px 0;">
+              <div style="width:56px;flex-shrink:0;"></div>
+              <div style="width:16px;flex-shrink:0;display:flex;justify-content:center;"><div style="width:2px;height:100%;background:#30363d;"></div></div>
+              <div style="flex:1;display:flex;align-items:center;gap:6px;color:#8b949e;font-size:0.75rem;">
+                <div style="flex:1;height:1px;background:#30363d;"></div>
+                <span>同步 All-Gather</span>
+                <div style="width:0;height:0;border-left:6px solid #30363d;border-top:4px solid transparent;border-bottom:4px solid transparent;"></div>
+              </div>
+            </div>
+
+            <div style="display:flex;align-items:stretch;gap:8px;">
+              <div style="width:56px;flex-shrink:0;display:flex;align-items:center;justify-content:flex-end;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;font-size:0.7rem;color:#8b949e;">AG</div>
+              <div style="display:flex;flex-direction:column;align-items:center;width:16px;flex-shrink:0;">
+                <div style="width:10px;height:10px;border-radius:50%;background:#f0883e;flex-shrink:0;"></div>
+                <div style="width:2px;flex-grow:1;background:#f0883e;"></div>
+              </div>
+              <div style="flex:1;background:rgba(240,136,62,0.12);border:1px solid #f0883e;border-radius:5px;padding:7px 10px;margin:2px 0;font-size:0.8rem;color:#e6edf3;">All-Gather<br><span style="color:#8b949e;font-size:0.72rem;">阻塞等待完成</span></div>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:8px;padding:4px 0;">
+              <div style="width:56px;flex-shrink:0;"></div>
+              <div style="width:16px;flex-shrink:0;display:flex;justify-content:center;"><div style="width:2px;height:100%;background:#30363d;"></div></div>
+              <div style="flex:1;display:flex;align-items:center;gap:6px;color:#8b949e;font-size:0.75rem;">
+                <div style="flex:1;height:1px;background:#30363d;"></div>
+                <span>完成后才能启动前向</span>
+                <div style="width:0;height:0;border-left:6px solid #30363d;border-top:4px solid transparent;border-bottom:4px solid transparent;"></div>
+              </div>
+            </div>
+
+            <div style="display:flex;align-items:stretch;gap:8px;">
+              <div style="width:56px;flex-shrink:0;display:flex;align-items:center;justify-content:flex-end;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;font-size:0.7rem;color:#8b949e;">FW</div>
+              <div style="display:flex;flex-direction:column;align-items:center;width:16px;flex-shrink:0;">
+                <div style="width:10px;height:10px;border-radius:50%;background:#58a6ff;flex-shrink:0;"></div>
+              </div>
+              <div style="flex:1;background:rgba(88,166,255,0.08);border:1px solid #58a6ff;border-radius:5px;padding:7px 10px;margin:2px 0;font-size:0.8rem;color:#e6edf3;">下一次前向</div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- 右：有 Overlap -->
+        <div>
+          <div style="text-align:center;font-size:0.78rem;font-weight:600;color:#3fb950;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:16px;padding:6px;background:rgba(63,185,80,0.08);border-radius:5px;">有 Overlap（两个选项均开启）</div>
+          <div style="display:flex;flex-direction:column;gap:2px;">
+
+            <!-- BW + RS 并行行 -->
+            <div style="font-size:0.7rem;color:#8b949e;padding:2px 0 4px 80px;">── 反向传播期间，bucket 完成即触发 RS ──</div>
+
+            <div style="display:flex;gap:8px;align-items:center;">
+              <div style="width:56px;flex-shrink:0;text-align:right;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;font-size:0.7rem;color:#8b949e;">BW</div>
+              <div style="width:16px;flex-shrink:0;display:flex;justify-content:center;"><div style="width:10px;height:10px;border-radius:50%;background:#58a6ff;"></div></div>
+              <div style="flex:1;display:flex;gap:3px;">
+                <div style="flex:1;background:rgba(88,166,255,0.12);border:1px solid #58a6ff;border-radius:4px;padding:5px 7px;font-size:0.74rem;color:#e6edf3;">Bucket N<br><span style="color:#8b949e;font-size:0.68rem;">计算梯度</span></div>
+                <div style="flex:1;background:rgba(88,166,255,0.12);border:1px solid #58a6ff;border-radius:4px;padding:5px 7px;font-size:0.74rem;color:#e6edf3;">Bucket 1<br><span style="color:#8b949e;font-size:0.68rem;">计算梯度</span></div>
+                <div style="flex:1;background:rgba(88,166,255,0.12);border:1px solid #58a6ff;border-radius:4px;padding:5px 7px;font-size:0.74rem;color:#e6edf3;">Bucket 0<br><span style="color:#8b949e;font-size:0.68rem;">计算梯度</span></div>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:8px;align-items:center;">
+              <div style="width:56px;flex-shrink:0;text-align:right;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;font-size:0.7rem;color:#8b949e;">RS</div>
+              <div style="width:16px;flex-shrink:0;display:flex;justify-content:center;"><div style="width:10px;height:10px;border-radius:50%;background:#3fb950;"></div></div>
+              <div style="flex:1;display:flex;gap:3px;">
+                <div style="flex:0.4;"></div>
+                <div style="flex:1;background:rgba(63,185,80,0.12);border:1px solid #3fb950;border-radius:4px;padding:5px 7px;font-size:0.74rem;color:#e6edf3;">Bucket N RS<br><span style="color:#8b949e;font-size:0.68rem;">异步进行</span></div>
+                <div style="flex:1;background:rgba(63,185,80,0.12);border:1px solid #3fb950;border-radius:4px;padding:5px 7px;font-size:0.74rem;color:#e6edf3;">Bucket 1 RS<br><span style="color:#8b949e;font-size:0.68rem;">异步进行</span></div>
+                <div style="flex:1;background:rgba(63,185,80,0.12);border:1px solid #3fb950;border-radius:4px;padding:5px 7px;font-size:0.74rem;color:#e6edf3;">Bucket 0 RS<br><span style="color:#8b949e;font-size:0.68rem;">异步进行</span></div>
+              </div>
+            </div>
+
+            <div style="height:8px;"></div>
+
+            <div style="display:flex;gap:8px;align-items:center;">
+              <div style="width:56px;flex-shrink:0;text-align:right;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;font-size:0.7rem;color:#8b949e;">OPT</div>
+              <div style="width:16px;flex-shrink:0;display:flex;justify-content:center;"><div style="width:10px;height:10px;border-radius:50%;background:#d2a8ff;"></div></div>
+              <div style="flex:1;background:rgba(210,168,255,0.12);border:1px solid #d2a8ff;border-radius:4px;padding:7px 10px;font-size:0.8rem;color:#e6edf3;">optimizer.step()<br><span style="color:#8b949e;font-size:0.72rem;">等所有 RS handle 完成后执行</span></div>
+            </div>
+
+            <div style="height:4px;"></div>
+            <div style="font-size:0.7rem;color:#8b949e;padding:2px 0 4px 80px;">── step 结束，异步发起第一个 AG，与前向流水线 ──</div>
+
+            <!-- FW + AG 并行行 -->
+            <div style="display:flex;gap:8px;align-items:center;">
+              <div style="width:56px;flex-shrink:0;text-align:right;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;font-size:0.7rem;color:#8b949e;">FW</div>
+              <div style="width:16px;flex-shrink:0;display:flex;justify-content:center;"><div style="width:10px;height:10px;border-radius:50%;background:#58a6ff;"></div></div>
+              <div style="flex:1;display:flex;gap:3px;">
+                <div style="flex:0.3;"></div>
+                <div style="flex:1;background:rgba(88,166,255,0.12);border:1px solid #58a6ff;border-radius:4px;padding:5px 7px;font-size:0.74rem;color:#e6edf3;">模块 0 前向<br><span style="color:#8b949e;font-size:0.68rem;">wait AG[0]</span></div>
+                <div style="flex:1;background:rgba(88,166,255,0.12);border:1px solid #58a6ff;border-radius:4px;padding:5px 7px;font-size:0.74rem;color:#e6edf3;">模块 1 前向<br><span style="color:#8b949e;font-size:0.68rem;">wait AG[1]</span></div>
+                <div style="flex:1;background:rgba(88,166,255,0.12);border:1px solid #58a6ff;border-radius:4px;padding:5px 7px;font-size:0.74rem;color:#e6edf3;">模块 N 前向<br><span style="color:#8b949e;font-size:0.68rem;">wait AG[N]</span></div>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:8px;align-items:center;">
+              <div style="width:56px;flex-shrink:0;text-align:right;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;font-size:0.7rem;color:#8b949e;">AG</div>
+              <div style="width:16px;flex-shrink:0;display:flex;justify-content:center;"><div style="width:10px;height:10px;border-radius:50%;background:#f0883e;"></div></div>
+              <div style="flex:1;display:flex;gap:3px;">
+                <div style="flex:1;background:rgba(240,136,62,0.12);border:1px solid #f0883e;border-radius:4px;padding:5px 7px;font-size:0.74rem;color:#e6edf3;">Bucket 0 AG<br><span style="color:#8b949e;font-size:0.68rem;">异步进行</span></div>
+                <div style="flex:1;background:rgba(240,136,62,0.12);border:1px solid #f0883e;border-radius:4px;padding:5px 7px;font-size:0.74rem;color:#e6edf3;">Bucket 1 AG<br><span style="color:#8b949e;font-size:0.68rem;">异步进行</span></div>
+                <div style="flex:1;background:rgba(240,136,62,0.12);border:1px solid #f0883e;border-radius:4px;padding:5px 7px;font-size:0.74rem;color:#e6edf3;">Bucket N AG<br><span style="color:#8b949e;font-size:0.68rem;">异步进行</span></div>
+                <div style="flex:0.3;"></div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+
+      <!-- 图例 -->
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:20px;padding-top:14px;border-top:1px solid #30363d;font-size:0.75rem;">
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;border-radius:50%;background:#58a6ff;"></div><span style="color:#8b949e;">BW 反向传播</span></div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;border-radius:50%;background:#3fb950;"></div><span style="color:#8b949e;">RS Reduce-Scatter</span></div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;border-radius:50%;background:#d2a8ff;"></div><span style="color:#8b949e;">OPT optimizer.step</span></div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;border-radius:50%;background:#f0883e;"></div><span style="color:#8b949e;">AG All-Gather</span></div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;border-radius:2px;background:rgba(63,185,80,0.2);border:1px solid #3fb950;"></div><span style="color:#3fb950;">有 overlap 的阶段同时在时间轴上并列</span></div>
+      </div>
+    </div>
+
+    <div class="callout callout-warn">
+      <div class="callout-title">使用 Overlap 的注意事项</div>
+      <p>
+        <strong>1. handle 必须在使用参数前等待完成。</strong>
+        <code>finish_param_sync()</code> 负责调用 <code>param_gather_handle.wait()</code>。
+        若跳过此步骤（如在 <code>align_param_gather</code> 或
+        <code>overlap_param_gather_with_optimizer_step</code> 模式下提前跳过 dispatch），
+        参数 buffer 中的数据可能仍是上一个迭代的旧值，导致前向计算结果错误。
+      </p>
+      <p>
+        <strong>2. 参数注册顺序须与前向执行顺序一致。</strong>
+        源码中有明确警告：若 next bucket 的 AG 已经被 dispatch 过
+        （<code>param_gather_dispatched == True</code>），说明参数注册顺序与实际前向顺序
+        不匹配，会导致 overlap 性能退化甚至数据不一致：
+        <em>"The next bucket's parameter all-gather operation has already been dispatched.
+        This may be caused by a mismatch between the order of parameter registration
+        and forward pass execution, which will hurt the communication-computation overlap performance."</em>
+      </p>
+      <p>
+        <strong>3. 梯度 overlap 仅在最后一个 microbatch 触发。</strong>
+        <code>register_grad_ready()</code> 检查 <code>is_last_microbatch</code>，
+        梯度累积阶段（非最后 microbatch）不会提前触发 reduce-scatter，
+        避免中间梯度被错误通信。
+      </p>
+      <p>
+        <strong>4. 多 DistOpt 实例场景下需额外 stream 同步。</strong>
+        当 <code>num_distributed_optimizer_instances &gt; 1</code> 时，
+        reduce-scatter 在单独的 communication stream 上执行，需等待默认 stream
+        完成梯度计算后才能发起（<code>communication_stream.wait_stream(torch.cuda.default_stream())</code>），
+        且仅该场景下 <code>async_op</code> 仍为 True（通过 stream 隔离实现异步）。
+      </p>
+    </div>
+
+  </div>
+</section>
+
+<!-- ==================== SECTION 08 ==================== -->
+<section id="sec08">
+  <div class="section-header">
+    <span class="section-num">08</span>
+    <h2>对比与总结</h2>
+  </div>
+  <div class="prose">
+
+    <h3>8.1 内存占用对比</h3>
+
+    <p>
+      设模型参数量为 <em>P</em>，数据并行度为 <em>DP</em>。
+      <code>Float16OptimizerWithFloat16Params</code>（即非分布式优化器）在每个 rank 上
+      均持有完整的 fp32 主参数及 Adam 状态；<code>DistributedOptimizer</code> 将这三份
+      fp32 数据分片到各 DP rank，每个 rank 只持有 <em>P/DP</em> 的份额。
+      前者在 <code>fp32_from_float16_groups</code> 中为每个 bf16 参数存储了完整的 fp32 副本，
+      后者则在 <code>shard_fp32_from_float16_groups</code> 中只存储本 rank 负责的分片。
+    </p>
+
+    <table style="width:100%;border-collapse:collapse;margin:20px 0;">
+      <thead>
+        <tr style="background:#161b22;border-bottom:2px solid #30363d;">
+          <th style="padding:10px 14px;text-align:left;color:#8b949e;font-weight:600;">组件</th>
+          <th style="padding:10px 14px;text-align:left;color:#8b949e;font-weight:600;">Float16Optimizer（每 rank）</th>
+          <th style="padding:10px 14px;text-align:left;color:#8b949e;font-weight:600;">DistributedOptimizer（每 rank）</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom:1px solid #30363d;">
+          <td style="padding:10px 14px;color:#e6edf3;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;">模型参数（bf16）</td>
+          <td style="padding:10px 14px;color:#e6edf3;">P × 2 bytes（全量，常驻）</td>
+          <td style="padding:10px 14px;color:#e6edf3;">P × 2 bytes（all-gather 后临时重建，常驻于 param buffer）</td>
+        </tr>
+        <tr style="border-bottom:1px solid #30363d;background:rgba(255,255,255,0.02);">
+          <td style="padding:10px 14px;color:#e6edf3;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;">fp32 主参数<br><small style="color:#8b949e;">fp32_from_float16_groups</small></td>
+          <td style="padding:10px 14px;color:#e6edf3;">P × 4 bytes（全量）</td>
+          <td style="padding:10px 14px;color:#3fb950;font-weight:600;">P/DP × 4 bytes（本 rank 分片）</td>
+        </tr>
+        <tr style="border-bottom:1px solid #30363d;">
+          <td style="padding:10px 14px;color:#e6edf3;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;">Adam <code>exp_avg</code>（fp32）</td>
+          <td style="padding:10px 14px;color:#e6edf3;">P × 4 bytes（全量）</td>
+          <td style="padding:10px 14px;color:#3fb950;font-weight:600;">P/DP × 4 bytes（本 rank 分片）</td>
+        </tr>
+        <tr style="border-bottom:1px solid #30363d;background:rgba(255,255,255,0.02);">
+          <td style="padding:10px 14px;color:#e6edf3;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;">Adam <code>exp_avg_sq</code>（fp32）</td>
+          <td style="padding:10px 14px;color:#e6edf3;">P × 4 bytes（全量）</td>
+          <td style="padding:10px 14px;color:#3fb950;font-weight:600;">P/DP × 4 bytes（本 rank 分片）</td>
+        </tr>
+        <tr style="border-bottom:1px solid #30363d;">
+          <td style="padding:10px 14px;color:#e6edf3;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;">梯度 buffer（bf16）</td>
+          <td style="padding:10px 14px;color:#e6edf3;">P × 2 bytes（全量）</td>
+          <td style="padding:10px 14px;color:#e6edf3;">P × 2 bytes（全量；RS 后本 rank 的梯度分片留在 grad_data 内）</td>
+        </tr>
+        <tr style="border-bottom:2px solid #58a6ff;background:#1c2129;">
+          <td style="padding:12px 14px;color:#58a6ff;font-weight:700;">fp32 状态合计（可节省部分）</td>
+          <td style="padding:12px 14px;color:#f0883e;font-weight:700;">P × 12 bytes（baseline）</td>
+          <td style="padding:12px 14px;color:#3fb950;font-weight:700;">
+            P × 12 / DP bytes<br>
+            <span style="font-size:0.85em;color:#8b949e;">节省约 (1 − 1/DP) × P × 12 bytes</span>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p style="color:#8b949e;font-size:0.9em;">
+      注：bf16 参数（2 bytes × P）在两种优化器中均以全量存在（前者常驻，后者通过 all-gather 重建），
+      因此 bf16 参数部分无节省。可节省的是 fp32 主参数 + Adam m/v 合计 12 bytes/元素的
+      <code>(1 − 1/DP)</code> 比例。以 7B 模型、DP=8 为例：fp32 状态共约 84 GB，
+      DistributedOptimizer 将其压缩至约 10.5 GB/rank，节省约 73.5 GB。
+    </p>
+
+    <h3>8.2 通信量对比</h3>
+
+    <p>
+      两种方案的总通信量在数学上是等价的（Ring All-Reduce = Reduce-Scatter + All-Gather），
+      区别在于时序灵活性和峰值内存行为：
+    </p>
+
+    <table style="width:100%;border-collapse:collapse;margin:20px 0;">
+      <thead>
+        <tr style="background:#161b22;border-bottom:2px solid #30363d;">
+          <th style="padding:10px 14px;text-align:left;color:#8b949e;font-weight:600;">维度</th>
+          <th style="padding:10px 14px;text-align:left;color:#8b949e;font-weight:600;">All-Reduce（非分布式优化器）</th>
+          <th style="padding:10px 14px;text-align:left;color:#8b949e;font-weight:600;">Reduce-Scatter + All-Gather（DistributedOptimizer）</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom:1px solid #30363d;">
+          <td style="padding:10px 14px;color:#e6edf3;">总通信量（per rank）</td>
+          <td style="padding:10px 14px;color:#e6edf3;">2 × (N−1)/N × P</td>
+          <td style="padding:10px 14px;color:#e6edf3;">
+            RS：(N−1)/N × P<br>
+            AG：(N−1)/N × P<br>
+            <strong>合计：2 × (N−1)/N × P（完全相同）</strong>
+          </td>
+        </tr>
+        <tr style="border-bottom:1px solid #30363d;background:rgba(255,255,255,0.02);">
+          <td style="padding:10px 14px;color:#e6edf3;">通信时机</td>
+          <td style="padding:10px 14px;color:#f0883e;">等所有梯度就绪后一次性发起（低灵活性）</td>
+          <td style="padding:10px 14px;color:#3fb950;">按 bucket 流水线触发（高灵活性，可 overlap）</td>
+        </tr>
+        <tr style="border-bottom:1px solid #30363d;">
+          <td style="padding:10px 14px;color:#e6edf3;">梯度 buffer 峰值</td>
+          <td style="padding:10px 14px;color:#e6edf3;">需全量梯度 buffer（P × 2 bytes），all-reduce 期间持续占用</td>
+          <td style="padding:10px 14px;color:#e6edf3;">同样需全量（RS 前），RS 完成后各 bucket 的梯度分片已写回 grad_data 分片区，可被主参数更新覆盖</td>
+        </tr>
+        <tr style="border-bottom:1px solid #30363d;background:rgba(255,255,255,0.02);">
+          <td style="padding:10px 14px;color:#e6edf3;">通信与计算 overlap</td>
+          <td style="padding:10px 14px;color:#f0883e;">难以 overlap（需等待全部梯度才能发起）</td>
+          <td style="padding:10px 14px;color:#3fb950;">支持 bucket 级别 overlap（<code>overlap_grad_reduce</code>）<br>支持 AG 与前向 overlap（<code>overlap_param_gather</code>）</td>
+        </tr>
+        <tr style="border-bottom:1px solid #30363d;">
+          <td style="padding:10px 14px;color:#e6edf3;">参数更新后额外通信</td>
+          <td style="padding:10px 14px;color:#e6edf3;">无需（all-reduce 已同步梯度，参数各 rank 原地更新后一致）</td>
+          <td style="padding:10px 14px;color:#e6edf3;">需 all-gather 重建完整参数（可 overlap 下一轮前向）</td>
+        </tr>
+        <tr style="border-bottom:2px solid #30363d;background:#1c2129;">
+          <td style="padding:10px 14px;color:#8b949e;font-style:italic;">综合评价</td>
+          <td style="padding:10px 14px;color:#8b949e;">实现简单，无需分片逻辑，但内存高，无法 overlap</td>
+          <td style="padding:10px 14px;color:#3fb950;font-weight:600;">通信量相同，内存大幅节省（12×P 降至 12×P/DP），支持全面 overlap，是大模型标配</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>8.3 何时选择 DistributedOptimizer？</h3>
+
+    <div class="callout callout-key">
+      <div class="callout-title">选择建议</div>
+      <p>
+        <strong>DP ≥ 4 时内存节省已相当可观。</strong>
+        fp32 主参数 + Adam 状态的节省比例为 <code>(1 − 1/DP)</code>：
+        DP=4 节省 75%，DP=8 节省 87.5%，DP=16 节省 93.75%。
+        对于 70B 以上规模模型，这直接决定了能否在有限显存内完成训练。
+      </p>
+      <p>
+        <strong>模型 fp32 状态超过单卡显存容量时必须使用。</strong>
+        以 7B 参数模型为例（bf16 约 14 GB），fp32 主参数 + Adam 状态约 84 GB，
+        单张 A100 80G 完全无法容纳，必须依赖 DistributedOptimizer 分摊到多张卡上。
+      </p>
+      <p>
+        <strong>通信带宽充足时，建议同时开启 overlap 选项。</strong>
+        在 NVLink 互联（节点内）或高速 InfiniBand（跨节点）环境下，
+        <code>overlap_grad_reduce=True</code> + <code>overlap_param_gather=True</code>
+        可将通信延迟几乎完全隐藏，训练吞吐接近纯计算上限。
+        带宽有限（如低速以太网）时，overlap 帮助有限，且引入额外代码复杂度，
+        建议先关闭 overlap 验证正确性。
+      </p>
+      <p>
+        <strong>无需 overlap 或应关闭 overlap 的场景：</strong>
+        调试阶段（overlap 会使错误更难复现）、使用 Pipeline Parallelism 且开启
+        <code>align_param_gather</code> 时（AG 时机由调度器控制，无需前向 hook）、
+        或使用 <code>use_megatron_fsdp=True</code> 时（FSDP 路径有独立的 param sync 逻辑）。
+      </p>
+    </div>
+
+    <h3>8.4 延伸阅读</h3>
+
+    <div class="callout callout-info">
+      <div class="callout-title">相关资料</div>
+      <ul>
+        <li>
+          <strong>ZeRO 论文</strong>（Rajbhandari et al., 2020）：
+          "ZeRO: Memory Optimizations Toward Training Trillion Parameter Models"（<em>SC '20</em>）。
+          提出了 ZeRO Stage 1/2/3 三个阶段的优化器、梯度和参数分片方案。
+          Megatron-LM <code>DistributedOptimizer</code> 对应 ZeRO Stage 1（仅分片优化器状态和梯度）。
+        </li>
+        <li>
+          <strong>DeepSpeed ZeRO</strong>：
+          DeepSpeed 的实现支持 ZeRO Stage 1/2/3，Stage 2 额外分片梯度（类比 RS 后不重建），
+          Stage 3 进一步分片模型参数（等价于 FSDP）。与 Megatron-LM 的
+          DistributedOptimizer 相比，DeepSpeed 的通用性更强但与 Megatron-LM
+          Pipeline/Tensor Parallelism 的深度集成需要额外适配。
+        </li>
+        <li>
+          <strong>PyTorch FSDP</strong>（Zhao et al., 2023）：
+          "PyTorch FSDP: Experiences on Scaling Fully Sharded Data Parallel"。
+          FSDP 对应 ZeRO Stage 3（参数、梯度、优化器状态全部分片），
+          Megatron-LM 也提供了 <code>use_megatron_fsdp=True</code> 选项接入此路径，
+          内部使用 DTensor 管理分片。
+        </li>
+        <li>
+          <strong>Megatron-LM 训练效率论文</strong>（Narayanan et al., 2021）：
+          "Efficient Large-Scale Language Model Training on GPU Clusters Using Megatron-LM"，
+          详细分析了 TP + PP + DP 三维并行组合下的内存模型与通信瓶颈，
+          是理解 DistributedOptimizer 设计背景的必读材料。
+        </li>
+        <li>
+          <strong>源码入口</strong>（按阅读顺序）：
+          <code>megatron/core/optimizer/distrib_optimizer.py</code>（优化器主体：分片建立、step、checkpoint）、
+          <code>megatron/core/distributed/param_and_grad_buffer.py</code>（Bucket 管理：start_param_sync、start_grad_sync）、
+          <code>megatron/core/distributed/distributed_data_parallel.py</code>（Hook 注册：backward post-hook、forward pre-hook、overlap 调度）。
+        </li>
+      </ul>
+    </div>
+
+  </div>
+</section>
+
+
+<!-- ==================== SECTION 09 ==================== -->
+<section id="sec09">
+  <div class="section-header">
+    <span class="section-num">09</span>
+    <h2>内存三块全景与 ZeRO 边界</h2>
+  </div>
+  <div class="prose">
+
+    <p>
+      把混合精度训练里的内存拆成三块，是理解 ZeRO 各阶段边界的最直接方式。
+    </p>
+
+    <h3>三块内存是什么</h3>
+
+    <!-- 三块内存图 -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin:20px 0;">
+
+      <div style="background:#0d1117;border:2px solid #58a6ff;border-radius:8px;padding:16px;">
+        <div style="color:#58a6ff;font-weight:700;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;margin-bottom:8px;">① bf16 param_data</div>
+        <div style="color:#8b949e;font-size:0.85rem;margin-bottom:10px;">模型参数本体</div>
+        <div style="color:#e6edf3;font-size:0.88rem;line-height:1.7;">
+          前向、反向计算直接用这块内存。
+          每个 <code>nn.Parameter</code> 是它的一个 view。
+          <br><br>
+          <strong>DP 内完全冗余</strong>——同一 PP/TP 位置的所有 DP rank 持有完全相同的内容。
+        </div>
+        <div style="margin-top:10px;padding:8px;background:#0a1628;border-radius:4px;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;font-size:0.78rem;color:#58a6ff;">
+          大小：N × 2 bytes<br>
+          常驻显存
+        </div>
+      </div>
+
+      <div style="background:#0d1117;border:2px solid #3fb950;border-radius:8px;padding:16px;">
+        <div style="color:#3fb950;font-weight:700;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;margin-bottom:8px;">② bf16 grad_data</div>
+        <div style="color:#8b949e;font-size:0.85rem;margin-bottom:10px;">参数的梯度</div>
+        <div style="color:#e6edf3;font-size:0.88rem;line-height:1.7;">
+          反向传播写入，<code>param.main_grad</code> 是它的 view。
+          <br><br>
+          Reduce-Scatter <strong>之前</strong>：各 rank 持有自己 mini-batch 的局部梯度，内容不同。<br>
+          Reduce-Scatter <strong>之后</strong>：每 rank 只有 1/DP 是有效的全局聚合梯度，但整块 buffer 仍然占着内存。
+        </div>
+        <div style="margin-top:10px;padding:8px;background:#0a1f10;border-radius:4px;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;font-size:0.78rem;color:#3fb950;">
+          大小：N × 2 bytes<br>
+          常驻（到 zero_grad 为止）
+        </div>
+      </div>
+
+      <div style="background:#0d1117;border:2px solid #f0883e;border-radius:8px;padding:16px;">
+        <div style="color:#f0883e;font-weight:700;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;margin-bottom:8px;">③ fp32 optimizer state</div>
+        <div style="color:#8b949e;font-size:0.85rem;margin-bottom:10px;">Adam 三件套</div>
+        <div style="color:#e6edf3;font-size:0.88rem;line-height:1.7;">
+          <code>fp32 master param</code>：Adam 实际更新的目标，更新后 cast 回 bf16 写入 ①。<strong>不是 ① 的备份，是 ① 的源头。</strong>
+          <br><br>
+          <code>exp_avg (m)</code>：一阶矩<br>
+          <code>exp_avg_sq (v)</code>：二阶矩
+        </div>
+        <div style="margin-top:10px;padding:8px;background:#1f1000;border-radius:4px;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;font-size:0.78rem;color:#f0883e;">
+          大小：N × 12 bytes（3 × fp32）<br>
+          常驻显存
+        </div>
+      </div>
+
+    </div>
+
+    <div class="callout callout-info">
+      <div class="callout-title">因果方向：fp32 是主，bf16 是导出</div>
+      <p>
+        直觉上容易误以为 fp32 master param 是从 bf16 param_data "备份"出来的。
+        实际相反：每次 step 结束后，是 fp32 master param（Adam 更新后）→ cast → 写回 bf16 param_data。
+        bf16 是 fp32 的低精度快照，用于高效计算；fp32 才是真正的参数状态。
+      </p>
+    </div>
+
+    <h3>ZeRO-1 唯一做的事</h3>
+
+    <p>
+      对比标准 DP，ZeRO-1 只改了一件事：把 All-Reduce 拆成 Reduce-Scatter + All-Gather，
+      顺手让 optimizer state 跟着分片存。通信总量不变，内存省了 ③ 的 (1 − 1/DP)。
+    </p>
+
+    <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;margin:20px 0;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+
+        <div>
+          <div style="color:#f0883e;font-size:0.78rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:12px;">标准 DP（All-Reduce）</div>
+          <div style="display:flex;flex-direction:column;gap:6px;font-size:0.84rem;">
+            <div style="background:#0d1117;border:1px solid #30363d;border-radius:5px;padding:8px 12px;color:#e6edf3;">backward → <span style="color:#3fb950;">grad_data</span>（局部）</div>
+            <div style="text-align:center;color:#8b949e;font-size:0.75rem;">All-Reduce（全量梯度求和广播）</div>
+            <div style="background:#0d1117;border:1px solid #30363d;border-radius:5px;padding:8px 12px;color:#e6edf3;"><span style="color:#3fb950;">grad_data</span>（全局，每卡相同）</div>
+            <div style="text-align:center;color:#8b949e;font-size:0.75rem;">Adam.step() 更新全量 ③</div>
+            <div style="background:#0d1117;border:1px solid #30363d;border-radius:5px;padding:8px 12px;color:#e6edf3;"><span style="color:#f0883e;">fp32 master + m + v</span>（全量，每卡相同）</div>
+            <div style="text-align:center;color:#8b949e;font-size:0.75rem;">cast → 写回</div>
+            <div style="background:#0d1117;border:1px solid #30363d;border-radius:5px;padding:8px 12px;color:#e6edf3;"><span style="color:#58a6ff;">bf16 param_data</span> 更新完毕</div>
+          </div>
+        </div>
+
+        <div>
+          <div style="color:#3fb950;font-size:0.78rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:12px;">ZeRO-1（Reduce-Scatter + All-Gather）</div>
+          <div style="display:flex;flex-direction:column;gap:6px;font-size:0.84rem;">
+            <div style="background:#0d1117;border:1px solid #30363d;border-radius:5px;padding:8px 12px;color:#e6edf3;">backward → <span style="color:#3fb950;">grad_data</span>（局部）</div>
+            <div style="text-align:center;color:#8b949e;font-size:0.75rem;">Reduce-Scatter（每卡只得到 1/DP 的聚合梯度）</div>
+            <div style="background:#0d1117;border:1px solid #3fb950;border-radius:5px;padding:8px 12px;color:#e6edf3;"><span style="color:#3fb950;">grad_data 分片</span>（1/DP，各卡不同）</div>
+            <div style="text-align:center;color:#8b949e;font-size:0.75rem;">Adam.step() 只更新本卡的 1/DP ③</div>
+            <div style="background:#0d1117;border:1px solid #3fb950;border-radius:5px;padding:8px 12px;color:#e6edf3;"><span style="color:#f0883e;">fp32 master + m + v</span>（<strong>1/DP</strong>，各卡不同）</div>
+            <div style="text-align:center;color:#8b949e;font-size:0.75rem;">cast → 写回分片 → All-Gather</div>
+            <div style="background:#0d1117;border:1px solid #30363d;border-radius:5px;padding:8px 12px;color:#e6edf3;"><span style="color:#58a6ff;">bf16 param_data</span> 更新完毕（完整）</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <h3>ZeRO-1 / 2 / 3 各自省掉哪块</h3>
+
+    <table style="width:100%;border-collapse:collapse;margin:20px 0;">
+      <thead>
+        <tr style="background:#161b22;border-bottom:2px solid #30363d;">
+          <th style="padding:10px 14px;text-align:left;color:#8b949e;">内存块</th>
+          <th style="padding:10px 14px;text-align:center;color:#8b949e;">标准 DP</th>
+          <th style="padding:10px 14px;text-align:center;color:#8b949e;">ZeRO-1</th>
+          <th style="padding:10px 14px;text-align:center;color:#8b949e;">ZeRO-2</th>
+          <th style="padding:10px 14px;text-align:center;color:#8b949e;">ZeRO-3</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom:1px solid #30363d;">
+          <td style="padding:10px 14px;color:#58a6ff;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;">① bf16 param_data</td>
+          <td style="padding:10px 14px;text-align:center;color:#e6edf3;">N × 2B</td>
+          <td style="padding:10px 14px;text-align:center;color:#e6edf3;">N × 2B</td>
+          <td style="padding:10px 14px;text-align:center;color:#e6edf3;">N × 2B</td>
+          <td style="padding:10px 14px;text-align:center;color:#3fb950;font-weight:600;">N/DP × 2B ✓</td>
+        </tr>
+        <tr style="border-bottom:1px solid #30363d;background:rgba(255,255,255,0.02);">
+          <td style="padding:10px 14px;color:#3fb950;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;">② bf16 grad_data</td>
+          <td style="padding:10px 14px;text-align:center;color:#e6edf3;">N × 2B</td>
+          <td style="padding:10px 14px;text-align:center;color:#e6edf3;">N × 2B</td>
+          <td style="padding:10px 14px;text-align:center;color:#3fb950;font-weight:600;">N/DP × 2B ✓</td>
+          <td style="padding:10px 14px;text-align:center;color:#3fb950;font-weight:600;">N/DP × 2B ✓</td>
+        </tr>
+        <tr style="border-bottom:1px solid #30363d;">
+          <td style="padding:10px 14px;color:#f0883e;font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;">③ fp32 optimizer state</td>
+          <td style="padding:10px 14px;text-align:center;color:#e6edf3;">N × 12B</td>
+          <td style="padding:10px 14px;text-align:center;color:#3fb950;font-weight:600;">N/DP × 12B ✓</td>
+          <td style="padding:10px 14px;text-align:center;color:#3fb950;font-weight:600;">N/DP × 12B ✓</td>
+          <td style="padding:10px 14px;text-align:center;color:#3fb950;font-weight:600;">N/DP × 12B ✓</td>
+        </tr>
+        <tr style="background:#1c2129;border-top:2px solid #30363d;">
+          <td style="padding:10px 14px;color:#8b949e;font-weight:600;">合计（DP=8，N=4.375B params）</td>
+          <td style="padding:10px 14px;text-align:center;color:#f0883e;">~61 GB</td>
+          <td style="padding:10px 14px;text-align:center;color:#e6edf3;">~26 GB</td>
+          <td style="padding:10px 14px;text-align:center;color:#e6edf3;">~17 GB</td>
+          <td style="padding:10px 14px;text-align:center;color:#3fb950;font-weight:600;">~9 GB</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p style="color:#8b949e;font-size:0.85rem;">
+      注：上表中 N=4.375B 对应 70B 模型在 PP=4, TP=4 下每卡持有的参数量。
+      标准 DP 合计 = 4.375B × (2+2+12) = 4.375B × 16B ≈ 70 GB；
+      但 ① 和 ② 约为 8.75 GB 各一份，③ 约 52.5 GB，合计约 70 GB。
+      ZeRO-1 省掉 ③ 的 7/8 → 省 45.9 GB，合计约 26 GB。
+      ZeRO-2 再省 ② 的 7/8 → 再省 7.6 GB，合计约 17 GB。
+      ZeRO-3 再省 ① 的 7/8 → 再省 7.6 GB，合计约 9 GB。
+    </p>
+
+    <h3>PP 不是 ZeRO-3</h3>
+
+    <p>
+      PP 和 ZeRO-3 都能让每张卡持有更少的参数，但切法完全不同：
+    </p>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:20px 0;">
+      <div style="background:#0d1117;border:1px solid #d2a8ff;border-radius:8px;padding:16px;">
+        <div style="color:#d2a8ff;font-weight:700;margin-bottom:10px;">ZeRO-3：横向切（DP 维度）</div>
+        <div style="font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;font-size:0.78rem;color:#8b949e;line-height:2;">
+          <div>同一层权重 W[H, 4H]：</div>
+          <div style="color:#3fb950;">rank 0: W 的 [0,   H/4) 列</div>
+          <div style="color:#58a6ff;">rank 1: W 的 [H/4, H/2) 列</div>
+          <div style="color:#d2a8ff;">rank 2: W 的 [H/2, 3H/4) 列</div>
+          <div style="color:#f0883e;">rank 3: W 的 [3H/4, H) 列</div>
+        </div>
+        <div style="margin-top:10px;color:#8b949e;font-size:0.82rem;">
+          每 rank 持有所有层，但每层只有 1/DP。<br>
+          前向前需要 All-Gather 重建完整 W。
+        </div>
+      </div>
+      <div style="background:#0d1117;border:1px solid #f0883e;border-radius:8px;padding:16px;">
+        <div style="color:#f0883e;font-weight:700;margin-bottom:10px;">PP：纵向切（模型深度）</div>
+        <div style="font-family:&#39;SF Mono&#39;,&#39;Fira Code&#39;,monospace;font-size:0.78rem;color:#8b949e;line-height:2;">
+          <div>Stage 0: Layer 0~7 完整参数</div>
+          <div>Stage 1: Layer 8~15 完整参数</div>
+          <div>Stage 2: Layer 16~23 完整参数</div>
+          <div>Stage 3: Layer 24~31 完整参数</div>
+        </div>
+        <div style="margin-top:10px;color:#8b949e;font-size:0.82rem;">
+          每 rank 只持有部分层，但每层参数是完整的。<br>
+          <strong>DP 内仍然完全冗余</strong>——同一 stage 的所有 DP 副本参数完全相同。
+        </div>
+      </div>
+    </div>
+
+    <div class="callout callout-warn">
+      <div class="callout-title">PP 不解决 DP 冗余问题</div>
+      <p>
+        PP 减少了"每卡持有的层数"，但对于 <em>同一 PP stage 内</em> 的 DP 副本，参数冗余一点没少。
+        8-way DP 的某个 stage 上，8 张卡的 bf16 param_data 内容完全相同——这正是 ZeRO-3 要解决的问题，PP 无法替代。
+      </p>
+      <p>
+        Megatron-LM 不做 ZeRO-3 是一个<strong>工程权衡</strong>：PP+TP 已经把每卡参数量降到足够小（70B → 4.375B），
+        ZeRO-1 再处理 optimizer state，剩余的 bf16 param_data 冗余（约 8.75 GB）相对可接受，
+        而 ZeRO-3 要求每次前向都 All-Gather bf16 参数，在已有 PP/TP 通信的情况下带宽代价较高。
+      </p>
+    </div>
+
+    <h3>fp32 main_grad 的特殊地位</h3>
+
+    <p>
+      前面步骤图里出现的 <code>fp32 main_grad</code>（即 <code>shard_main_param.grad</code>）
+      并不属于上面三块常驻内存，它是一个<strong>临时变量</strong>：
+    </p>
+
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># distrib_optimizer.py:2442</span>
+shard_main_param.grad = shard_model_grad.<span class="hljs-built_in">float</span>()   <span class="hljs-comment"># ← 新分配 fp32 tensor（N/DP × 4B）</span>
+<span class="hljs-comment">#                                        ↑</span>
+<span class="hljs-comment">#                          .float() 不是 view，是真实内存分配</span></code></pre>
+
+    <div style="display:flex;align-items:center;gap:0;margin:16px 0;font-size:0.84rem;flex-wrap:wrap;">
+      <div style="background:#0d1117;border:1px solid #30363d;border-radius:5px;padding:8px 14px;color:#8b949e;">zero_grad()</div>
+      <div style="color:#30363d;padding:0 8px;font-size:1.2rem;">→</div>
+      <div style="background:#0d1117;border:1px solid #30363d;border-radius:5px;padding:8px 14px;color:#8b949e;">... backward ...</div>
+      <div style="color:#30363d;padding:0 8px;font-size:1.2rem;">→</div>
+      <div style="background:#0d1117;border:1px solid #3fb950;border-radius:5px;padding:8px 14px;color:#3fb950;font-weight:600;">prepare_grads()<br><span style="font-size:0.78rem;font-weight:400;">分配 fp32 main_grad</span></div>
+      <div style="color:#30363d;padding:0 8px;font-size:1.2rem;">→</div>
+      <div style="background:#0d1117;border:1px solid #f0883e;border-radius:5px;padding:8px 14px;color:#f0883e;">Adam.step()</div>
+      <div style="color:#30363d;padding:0 8px;font-size:1.2rem;">→</div>
+      <div style="background:#0d1117;border:1px solid #30363d;border-radius:5px;padding:8px 14px;color:#8b949e;">zero_grad()<br><span style="font-size:0.78rem;">.grad = None 释放</span></div>
+    </div>
+
+    <p>
+      它的大小是 <code>N/DP × 4 bytes</code>（已经 ZeRO 分片后的），生命周期只在 optimizer step 期间。
+      峰值显存需要把它算进去，但稳态（step 完成后）它不存在。
+    </p>
+
+  </div>
+</section>
+
+</div><!-- /main-content -->
+</div><!-- /page-body -->
+
+<footer><p>Megatron-LM 源码精读 · 基于 NVIDIA Megatron-LM 代码库</p></footer>
+<script>hljs.highlightAll();</script>
+<script src="./Megatron-LM distrib_optimizer.py 源码精读_files/update-checker.js"></script>
+
+<div class="mermaidTooltip" style="opacity: 0;"></div></body></html>

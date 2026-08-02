@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<!-- saved from url=(0079)https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/memory_calculator.html -->
+<html lang="zh-CN"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Megatron-LM GPU 显存计算逻辑详解</title>
+<link rel="stylesheet" href="./Megatron-LM GPU 显存计算逻辑详解_files/github-dark.min.css">
+<link rel="stylesheet" href="./Megatron-LM GPU 显存计算逻辑详解_files/style.css">
+<script src="./Megatron-LM GPU 显存计算逻辑详解_files/highlight.min.js"></script>
+<script src="./Megatron-LM GPU 显存计算逻辑详解_files/highlight-python.min.js"></script>
+<script src="./Megatron-LM GPU 显存计算逻辑详解_files/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      darkMode: true,
+      background: '#1c2129',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
+      fontSize: '13px',
+      primaryColor: '#1f2937',
+      primaryTextColor: '#e6edf3',
+      primaryBorderColor: '#30363d',
+      lineColor: '#58a6ff',
+      secondaryColor: '#161b22',
+      tertiaryColor: '#0d1117',
+      mainBkg: '#161b22',
+      nodeBorder: '#30363d',
+      clusterBkg: 'rgba(88,166,255,0.05)',
+      clusterBorder: '#30363d',
+      titleColor: '#e6edf3',
+      edgeLabelBackground: '#1c2129',
+      nodeTextColor: '#e6edf3'
+    }
+  });
+</script>
+</head>
+<body>
+
+<!-- ==================== HERO ==================== -->
+<div class="hero">
+  <div class="container">
+    <h1>Megatron-LM <span class="file">GPU 显存计算</span> 逻辑详解</h1>
+    <p class="subtitle">静态显存（权重/梯度/优化器/FP8缓存）与动态显存（Activation）的逐模块计算公式，PP Layout / VPP / MoE 重计算影响分析</p>
+    <div class="meta">
+      <span>Megatron-LM (NVIDIA)</span>
+      <span>显存估算</span>
+      <span>FP8 / MoE / VPP</span>
+    </div>
+  </div>
+</div>
+
+<div class="page-body">
+
+<!-- ==================== TOC (Left Sidebar) ==================== -->
+<aside class="toc-sidebar">
+<nav class="toc">
+  <div id="global-nav"><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/index.html" class="toc-home">← 文档目录</a>
+<div class="toc-group">入口</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/entry/pretrain_gpt.html" class="toc-doc">pretrain_gpt.py</a>
+<div class="toc-group">基础设施</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/pretrain_and_setup.html" class="toc-doc">初始化篇</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/training_loop.html" class="toc-doc">训练循环篇</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/memory_calculator.html" class="toc-doc active">GPU 显存计算</a>
+<div class="toc-group">并行策略</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/rank_and_parallel_groups.html" class="toc-doc">Rank 与并行组</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/collective_operations.html" class="toc-doc">集合通信操作</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/tensor_parallel.html" class="toc-doc">Tensor Parallelism</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/pipeline_parallel.html" class="toc-doc">Pipeline Parallelism</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/schedules_deep_dive.html" class="toc-doc">Schedule 深度精读</a>
+<div class="toc-group">模型架构</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/transformer_architecture.html" class="toc-doc">GPT 模型架构</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/moe_layer.html" class="toc-doc">MoE 层与 EP</a>
+<div class="toc-group">数据</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/data/vpp_data_iterator.html" class="toc-doc">VPP 数据迭代器</a>
+<div class="toc-group">优化器</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/optimizer/distrib_optimizer.html" class="toc-doc">分布式优化器</a>
+</div>
+  <script src="./Megatron-LM GPU 显存计算逻辑详解_files/nav.js"></script>
+  <div class="toc-divider"></div>
+  <h2>本文目录</h2>
+  <ol>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/memory_calculator.html#sec01">整体架构</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/memory_calculator.html#sec02">并行维度与分片大小</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/memory_calculator.html#sec03">getModuleMemory() 静态显存</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/memory_calculator.html#sec04">各模块参数量</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/memory_calculator.html#sec05">PP Layout 与 VPP</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/memory_calculator.html#sec06">Activation 动态显存</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/memory_calculator.html#sec07">MoE Activation Recomputation</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/memory_calculator.html#sec08">VPP 对 Activation 的影响</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/memory_calculator.html#sec09">ViT 显存</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/memory_calculator.html#sec10">总显存汇总公式</a></li>
+  </ol>
+</nav>
+</aside>
+
+<!-- ==================== MAIN ==================== -->
+<div class="main-content">
+
+<!-- ==================== 01 整体架构 ==================== -->
+<section id="sec01">
+  <div class="section-header">
+    <span class="section-num">01</span>
+    <h2>整体架构</h2>
+  </div>
+  <div class="prose">
+    <p>GPU 显存消耗分为两大类：</p>
+
+    <table>
+      <thead><tr><th>类型</th><th>包含内容</th><th>特点</th></tr></thead>
+      <tbody>
+        <tr><td><strong>静态显存</strong></td><td>权重 (weight)、FP8 转置缓存 (fp8_cache)、梯度 (grad)、分片参数 (sharded_param)、优化器状态 (optimizer_state)</td><td>训练期间固定占用，与 batch size / seq_len 无关</td></tr>
+        <tr><td><strong>动态显存 (Activation)</strong></td><td>前向传播中 <code>save_for_backward</code> 保存的张量</td><td>随 micro_batch_size 和 seq_len 线性增长</td></tr>
+      </tbody>
+    </table>
+
+    <p>计算器的主函数 <code>calculate()</code> 的执行流程：</p>
+
+    <div class="mermaid" data-processed="true"><svg aria-roledescription="flowchart-v2" role="graphics-document document" viewBox="-8 -8 259.6640625 708.21875" style="max-width: 259.6640625px;" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="100%" id="mermaid-1783857484206"><style>#mermaid-1783857484206{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;fill:#e6edf3;}#mermaid-1783857484206 .error-icon{fill:#0d1117;}#mermaid-1783857484206 .error-text{fill:#f2eee8;stroke:#f2eee8;}#mermaid-1783857484206 .edge-thickness-normal{stroke-width:2px;}#mermaid-1783857484206 .edge-thickness-thick{stroke-width:3.5px;}#mermaid-1783857484206 .edge-pattern-solid{stroke-dasharray:0;}#mermaid-1783857484206 .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-1783857484206 .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-1783857484206 .marker{fill:#58a6ff;stroke:#58a6ff;}#mermaid-1783857484206 .marker.cross{stroke:#58a6ff;}#mermaid-1783857484206 svg{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;}#mermaid-1783857484206 .label{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:#e6edf3;}#mermaid-1783857484206 .cluster-label text{fill:#e6edf3;}#mermaid-1783857484206 .cluster-label span,#mermaid-1783857484206 p{color:#e6edf3;}#mermaid-1783857484206 .label text,#mermaid-1783857484206 span,#mermaid-1783857484206 p{fill:#e6edf3;color:#e6edf3;}#mermaid-1783857484206 .node rect,#mermaid-1783857484206 .node circle,#mermaid-1783857484206 .node ellipse,#mermaid-1783857484206 .node polygon,#mermaid-1783857484206 .node path{fill:#161b22;stroke:#30363d;stroke-width:1px;}#mermaid-1783857484206 .flowchart-label text{text-anchor:middle;}#mermaid-1783857484206 .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#mermaid-1783857484206 .node .label{text-align:center;}#mermaid-1783857484206 .node.clickable{cursor:pointer;}#mermaid-1783857484206 .arrowheadPath{fill:#e3ded6;}#mermaid-1783857484206 .edgePath .path{stroke:#58a6ff;stroke-width:2.0px;}#mermaid-1783857484206 .flowchart-link{stroke:#58a6ff;fill:none;}#mermaid-1783857484206 .edgeLabel{background-color:#1c2129;text-align:center;}#mermaid-1783857484206 .edgeLabel rect{opacity:0.5;background-color:#1c2129;fill:#1c2129;}#mermaid-1783857484206 .labelBkg{background-color:rgba(28, 33, 41, 0.5);}#mermaid-1783857484206 .cluster rect{fill:rgba(88,166,255,0.05);stroke:#30363d;stroke-width:1px;}#mermaid-1783857484206 .cluster text{fill:#e6edf3;}#mermaid-1783857484206 .cluster span,#mermaid-1783857484206 p{color:#e6edf3;}#mermaid-1783857484206 div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:12px;background:#0d1117;border:1px solid hsl(216, 0%, 17.0588235294%);border-radius:2px;pointer-events:none;z-index:100;}#mermaid-1783857484206 .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#e6edf3;}#mermaid-1783857484206 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="6" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857484206_flowchart-pointEnd"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 0 L 10 5 L 0 10 z"></path></marker><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="4.5" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857484206_flowchart-pointStart"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 5 L 10 10 L 10 0 z"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="11" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857484206_flowchart-circleEnd"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="-1" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857484206_flowchart-circleStart"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="12" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783857484206_flowchart-crossEnd"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="-1" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783857484206_flowchart-crossStart"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><g class="root"><g class="clusters"></g><g class="edgePaths"><path marker-end="url(#mermaid-1783857484206_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-A LE-B" id="L-A-B-0" d="M121.832,59.188L121.832,63.354C121.832,67.521,121.832,75.854,121.832,83.304C121.832,90.754,121.832,97.321,121.832,100.604L121.832,103.888"></path><path marker-end="url(#mermaid-1783857484206_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-B LE-C" id="L-B-C-0" d="M121.832,168.375L121.832,172.542C121.832,176.708,121.832,185.042,121.832,192.492C121.832,199.942,121.832,206.508,121.832,209.792L121.832,213.075"></path><path marker-end="url(#mermaid-1783857484206_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-C LE-D" id="L-C-D-0" d="M121.832,277.563L121.832,281.729C121.832,285.896,121.832,294.229,121.832,301.679C121.832,309.129,121.832,315.696,121.832,318.979L121.832,322.263"></path><path marker-end="url(#mermaid-1783857484206_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-D LE-E" id="L-D-E-0" d="M121.832,386.75L121.832,390.917C121.832,395.083,121.832,403.417,121.832,410.867C121.832,418.317,121.832,424.883,121.832,428.167L121.832,431.45"></path><path marker-end="url(#mermaid-1783857484206_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-E LE-F" id="L-E-F-0" d="M121.832,495.938L121.832,500.104C121.832,504.271,121.832,512.604,121.832,520.054C121.832,527.504,121.832,534.071,121.832,537.354L121.832,540.638"></path><path marker-end="url(#mermaid-1783857484206_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-F LE-G" id="L-F-G-0" d="M121.832,605.125L121.832,609.292C121.832,613.458,121.832,621.792,121.832,629.242C121.832,636.692,121.832,643.258,121.832,646.542L121.832,649.825"></path></g><g class="edgeLabels"><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g></g><g class="nodes"><g transform="translate(121.83203125, 29.59375)" data-id="A" data-node="true" id="flowchart-A-0" class="node default default flowchart-label"><rect height="59.1875" width="243.6640625" y="-29.59375" x="-121.83203125" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-114.33203125, -22.09375)" style="" class="label"><rect></rect><foreignobject height="44.1875" width="228.6640625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">读取输入参数<br>(nodes, PP, TP, CP, EP, hidden_size...)</span></div></foreignobject></g></g><g transform="translate(121.83203125, 138.78125)" data-id="B" data-node="true" id="flowchart-B-1" class="node default default flowchart-label"><rect height="59.1875" width="154.3828125" y="-29.59375" x="-77.19140625" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-69.69140625, -22.09375)" style="" class="label"><rect></rect><foreignobject height="44.1875" width="139.3828125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">计算派生值<br>(DP, EDP, SEDP, VPP...)</span></div></foreignobject></g></g><g transform="translate(121.83203125, 247.96875)" data-id="C" data-node="true" id="flowchart-C-3" class="node default default flowchart-label"><rect height="59.1875" width="129.53125" y="-29.59375" x="-64.765625" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-57.265625, -22.09375)" style="" class="label"><rect></rect><foreignobject height="44.1875" width="114.53125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">parsePPLayout()<br>解析 PP 布局字符串</span></div></foreignobject></g></g><g transform="translate(121.83203125, 357.15625)" data-id="D" data-node="true" id="flowchart-D-5" class="node default default flowchart-label"><rect height="59.1875" width="198.5703125" y="-29.59375" x="-99.28515625" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-91.78515625, -22.09375)" style="" class="label"><rect></rect><foreignobject height="44.1875" width="183.5703125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">构建 chunk_meta<br>每个 PP rank 持有的层类型统计</span></div></foreignobject></g></g><g transform="translate(121.83203125, 466.34375)" data-id="E" data-node="true" id="flowchart-E-7" class="node default default flowchart-label"><rect height="59.1875" width="168.46875" y="-29.59375" x="-84.234375" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-76.734375, -22.09375)" style="" class="label"><rect></rect><foreignobject height="44.1875" width="153.46875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">遍历各模块<br>调用 getModuleMemory()</span></div></foreignobject></g></g><g transform="translate(121.83203125, 575.53125)" data-id="F" data-node="true" id="flowchart-F-9" class="node default default flowchart-label"><rect height="59.1875" width="130.703125" y="-29.59375" x="-65.3515625" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-57.8515625, -22.09375)" style="" class="label"><rect></rect><foreignobject height="44.1875" width="115.703125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">计算每层 Activation<br>逐子模块求和</span></div></foreignobject></g></g><g transform="translate(121.83203125, 673.671875)" data-id="G" data-node="true" id="flowchart-G-11" class="node default default flowchart-label"><rect height="37.09375" width="206.6328125" y="-18.546875" x="-103.31640625" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-95.81640625, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="191.6328125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">汇总: 静态 + 动态 + NCCL buffer</span></div></foreignobject></g></g></g></g></g></svg></div>
+
+    <p>源码参考：<code>megatron/training/theoretical_memory_usage.py</code> 提供了官方的理论估算函数 <code>compute_weight_and_optimizer_memory()</code> 和 <code>compute_activation_memory()</code>。计算器在此基础上做了更精细的逐模块拆分。</p>
+  </div>
+</section>
+
+<!-- ==================== 02 并行维度与分片大小 ==================== -->
+<section id="sec02">
+  <div class="section-header">
+    <span class="section-num">02</span>
+    <h2>并行维度与分片大小</h2>
+  </div>
+  <div class="prose">
+    <h3>2.1 并行度计算</h3>
+    <pre><code class="language-python hljs" data-highlighted="yes">total_gpus = nodes * <span class="hljs-number">8</span>                    <span class="hljs-comment"># 每节点 8 卡</span>
+
+DP   = total_gpus / PP / TP / CP          <span class="hljs-comment"># 数据并行度</span>
+EDP  = total_gpus / PP / EP               <span class="hljs-comment"># Expert 数据并行度</span>
+SEDP = total_gpus / PP                    <span class="hljs-comment"># Shared Expert 数据并行度 (= TP * CP * DP)</span>
+VDP  = total_gpus                         <span class="hljs-comment"># ViT 数据并行度 (全局)</span></code></pre>
+
+    <h3>2.2 shard_size 的含义</h3>
+    <p>使用 Distributed Optimizer (ZeRO-1) 时，优化器状态和 master weights 按 DP rank 分片。不同模块因并行方式不同，其 <code>shard_size</code> 也不同：</p>
+
+    <table>
+      <thead><tr><th>模块</th><th>shard_size</th><th>原因</th></tr></thead>
+      <tbody>
+        <tr><td>Embedding, AttentionQKV/Out, SharedExpert, OutputLayer</td><td><strong>DP</strong></td><td>已被 TP 切分，TP group 内每卡持有不同参数，只在 DP 维度分片</td></tr>
+        <tr><td>MoE Gate, DenseFC1/FC2</td><td><strong>SEDP</strong> (= TP×CP×DP)</td><td>不做 TP 切分，所有 GPU 持有相同副本，分片范围更大</td></tr>
+        <tr><td>MoE Experts (FC1/FC2)</td><td><strong>EDP</strong></td><td>Expert 只在 EP 组内复制，分片在 Expert DP 维度</td></tr>
+      </tbody>
+    </table>
+
+    <p><strong>源码对应</strong>：<code>megatron/core/optimizer/distrib_optimizer.py</code> 中，每个参数组根据其所属的 process group 确定分片大小。参数按 <code>ParamAndGradBuffer</code> 中的 bucket 划分，每个 bucket 的 DP group 决定了 shard_size。</p>
+
+    <div class="mermaid" data-processed="true"><svg aria-roledescription="flowchart-v2" role="graphics-document document" viewBox="-7.5 -8 359.2421875 364.375" style="max-width: 359.2421875px;" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="100%" id="mermaid-1783857484226"><style>#mermaid-1783857484226{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;fill:#e6edf3;}#mermaid-1783857484226 .error-icon{fill:#0d1117;}#mermaid-1783857484226 .error-text{fill:#f2eee8;stroke:#f2eee8;}#mermaid-1783857484226 .edge-thickness-normal{stroke-width:2px;}#mermaid-1783857484226 .edge-thickness-thick{stroke-width:3.5px;}#mermaid-1783857484226 .edge-pattern-solid{stroke-dasharray:0;}#mermaid-1783857484226 .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-1783857484226 .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-1783857484226 .marker{fill:#58a6ff;stroke:#58a6ff;}#mermaid-1783857484226 .marker.cross{stroke:#58a6ff;}#mermaid-1783857484226 svg{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;}#mermaid-1783857484226 .label{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:#e6edf3;}#mermaid-1783857484226 .cluster-label text{fill:#e6edf3;}#mermaid-1783857484226 .cluster-label span,#mermaid-1783857484226 p{color:#e6edf3;}#mermaid-1783857484226 .label text,#mermaid-1783857484226 span,#mermaid-1783857484226 p{fill:#e6edf3;color:#e6edf3;}#mermaid-1783857484226 .node rect,#mermaid-1783857484226 .node circle,#mermaid-1783857484226 .node ellipse,#mermaid-1783857484226 .node polygon,#mermaid-1783857484226 .node path{fill:#161b22;stroke:#30363d;stroke-width:1px;}#mermaid-1783857484226 .flowchart-label text{text-anchor:middle;}#mermaid-1783857484226 .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#mermaid-1783857484226 .node .label{text-align:center;}#mermaid-1783857484226 .node.clickable{cursor:pointer;}#mermaid-1783857484226 .arrowheadPath{fill:#e3ded6;}#mermaid-1783857484226 .edgePath .path{stroke:#58a6ff;stroke-width:2.0px;}#mermaid-1783857484226 .flowchart-link{stroke:#58a6ff;fill:none;}#mermaid-1783857484226 .edgeLabel{background-color:#1c2129;text-align:center;}#mermaid-1783857484226 .edgeLabel rect{opacity:0.5;background-color:#1c2129;fill:#1c2129;}#mermaid-1783857484226 .labelBkg{background-color:rgba(28, 33, 41, 0.5);}#mermaid-1783857484226 .cluster rect{fill:rgba(88,166,255,0.05);stroke:#30363d;stroke-width:1px;}#mermaid-1783857484226 .cluster text{fill:#e6edf3;}#mermaid-1783857484226 .cluster span,#mermaid-1783857484226 p{color:#e6edf3;}#mermaid-1783857484226 div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:12px;background:#0d1117;border:1px solid hsl(216, 0%, 17.0588235294%);border-radius:2px;pointer-events:none;z-index:100;}#mermaid-1783857484226 .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#e6edf3;}#mermaid-1783857484226 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="6" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857484226_flowchart-pointEnd"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 0 L 10 5 L 0 10 z"></path></marker><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="4.5" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857484226_flowchart-pointStart"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 5 L 10 10 L 10 0 z"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="11" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857484226_flowchart-circleEnd"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="-1" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857484226_flowchart-circleStart"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="12" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783857484226_flowchart-crossEnd"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="-1" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783857484226_flowchart-crossStart"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><g class="root"><g class="clusters"></g><g class="edgePaths"></g><g class="edgeLabels"></g><g class="nodes"><g transform="translate(-7.5, -8)" class="root"><g class="clusters"><g id="subGraph0" class="cluster default flowchart-label"><rect height="261.28125" width="343.2421875" y="8" x="8" ry="0" rx="0" style=""></rect><g transform="translate(59.2578125, 8)" class="cluster-label"><foreignobject height="22.09375" width="240.7265625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">TP 切分的模块 (Attention, Embedding...)</span></div></foreignobject></g></g></g><g class="edgePaths"><path style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-A1 LE-A2" id="L-A1-A2-0" d="M214.22,70.094L221.936,74.26C229.652,78.427,245.084,86.76,252.8,95.094C260.516,103.427,260.516,111.76,260.516,115.927L260.516,120.094"></path><path style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-A3 LE-A4" id="L-A3-A4-0" d="M99.234,157.188L99.234,161.354C99.234,165.521,99.234,173.854,106.95,182.188C114.666,190.521,130.098,198.854,137.814,203.021L145.53,207.188"></path><path style="fill:none;stroke-width:2px;stroke-dasharray:3;" class="edge-thickness-normal edge-pattern-dotted flowchart-link LS-A1 LE-A3" id="L-A1-A3-0" d="M145.53,70.094L137.814,74.26C130.098,78.427,114.666,86.76,106.95,95.094C99.234,103.427,99.234,111.76,99.234,115.927L99.234,120.094"></path><path style="fill:none;stroke-width:2px;stroke-dasharray:3;" class="edge-thickness-normal edge-pattern-dotted flowchart-link LS-A2 LE-A4" id="L-A2-A4-0" d="M260.516,157.188L260.516,161.354C260.516,165.521,260.516,173.854,252.8,182.188C245.084,190.521,229.652,198.854,221.936,203.021L214.22,207.188"></path></g><g class="edgeLabels"><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g></g><g class="nodes"><g transform="translate(260.515625, 138.640625)" data-id="A2" data-node="true" id="flowchart-A2-13" class="node default default flowchart-label"><rect height="37.09375" width="110.265625" y="-18.546875" x="-55.1328125" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-47.6328125, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="95.265625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">GPU 1: 参数片 B</span></div></foreignobject></g></g><g transform="translate(179.875, 51.546875)" data-id="A1" data-node="true" id="flowchart-A1-12" class="node default default flowchart-label"><rect height="37.09375" width="112.640625" y="-18.546875" x="-56.3203125" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-48.8203125, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="97.640625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">GPU 0: 参数片 A</span></div></foreignobject></g></g><g transform="translate(99.234375, 138.640625)" data-id="A3" data-node="true" id="flowchart-A3-14" class="node default default flowchart-label"><rect height="37.09375" width="112.296875" y="-18.546875" x="-56.1484375" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-48.6484375, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="97.296875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">GPU 2: 参数片 A</span></div></foreignobject></g></g><g transform="translate(179.875, 225.734375)" data-id="A4" data-node="true" id="flowchart-A4-15" class="node default default flowchart-label"><rect height="37.09375" width="112.390625" y="-18.546875" x="-56.1953125" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-48.6953125, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="97.390625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">GPU 3: 参数片 B</span></div></foreignobject></g></g></g></g><g transform="translate(171.62109375, 329.828125)" data-id="subGraph1" data-node="true" id="flowchart-subGraph1-20" class="node default default flowchart-label"><rect height="37.09375" width="127.1328125" y="-18.546875" x="-63.56640625" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-56.06640625, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="112.1328125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">DP 分片优化器状态</span></div></foreignobject></g></g></g></g></g></svg></div>
+    <p style="color:var(--text-muted);font-size:0.9em;">TP=2, DP=2: TP 内持有不同参数片，DP 内持有相同参数片 → 优化器状态只需在 DP=2 维度分片。</p>
+  </div>
+</section>
+
+<!-- ==================== 03 getModuleMemory() ==================== -->
+<section id="sec03">
+  <div class="section-header">
+    <span class="section-num">03</span>
+    <h2><code>getModuleMemory()</code> 静态显存公式</h2>
+  </div>
+  <div class="prose">
+    <p>核心函数，为每个模块计算五项显存（单位 GiB）：</p>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">def</span> <span class="hljs-title function_">getModuleMemory</span>(<span class="hljs-params">num_elements, element_size, shard_size, has_fp8_cache=<span class="hljs-literal">False</span></span>):
+    <span class="hljs-comment"># FP8 权重可选择存为 2 bytes (BF16 副本)</span>
+    weight_bytes = <span class="hljs-number">2</span> <span class="hljs-keyword">if</span> (weight_2b_for_1b <span class="hljs-keyword">and</span> element_size &lt; <span class="hljs-number">2</span>) <span class="hljs-keyword">else</span> element_size
+
+    weight        = num_elements * weight_bytes / (<span class="hljs-number">1024</span>**<span class="hljs-number">3</span>)            <span class="hljs-comment"># 权重本体</span>
+    fp8_cache     = weight <span class="hljs-keyword">if</span> has_fp8_cache <span class="hljs-keyword">else</span> <span class="hljs-number">0</span>                     <span class="hljs-comment"># FP8 转置缓存</span>
+    grad          = num_elements * <span class="hljs-number">4</span> / (<span class="hljs-number">1024</span>**<span class="hljs-number">3</span>)                       <span class="hljs-comment"># 梯度 (固定 FP32)</span>
+    sharded_param = num_elements * <span class="hljs-number">4</span> / shard_size / (<span class="hljs-number">1024</span>**<span class="hljs-number">3</span>)          <span class="hljs-comment"># Master weights 分片</span>
+    optimizer_state = num_elements * <span class="hljs-number">4</span> / shard_size / (<span class="hljs-number">1024</span>**<span class="hljs-number">3</span>)        <span class="hljs-comment"># 优化器动量分片</span></code></pre>
+
+    <h3>3.1 各项详解</h3>
+
+    <h4>weight（权重本体）</h4>
+    <ul>
+      <li>BF16 训练：<code>element_size = 2</code>，每个参数 2 bytes</li>
+      <li>FP8 训练：<code>element_size = 1</code>，但若 <code>weight_2b_for_1b = true</code>，实际以 BF16 (2 bytes) 存储</li>
+      <li>源码：<code>megatron/core/tensor_parallel/layers.py</code> — weight 的 dtype 由 <code>params_dtype</code> 决定</li>
+    </ul>
+
+    <h4>fp8_cache（FP8 转置缓存）</h4>
+    <ul>
+      <li>FP8 训练中，反向传播需要权重的转置版本。为避免反复计算，缓存转置后的权重</li>
+      <li>仅线性层有此缓存（Embedding / Gate / OutputLayer 无）</li>
+      <li>大小等于 weight 本身</li>
+      <li>源码：<code>megatron/core/fp8_utils.py</code> — lazy transposition cache</li>
+    </ul>
+
+    <h4>grad（梯度）</h4>
+    <ul>
+      <li>固定 FP32 (4 bytes)，不论前向精度如何</li>
+      <li>梯度在反向传播时以 <code>torch.float32</code> 累积，确保数值精度</li>
+    </ul>
+
+    <h4>sharded_param（Master Weights 分片）</h4>
+    <ul>
+      <li>Distributed Optimizer 中，FP32 master weights 被均匀分片到各 DP rank</li>
+      <li>每个 rank 只存 <code>num_elements / shard_size</code> 个参数的 FP32 副本</li>
+      <li>源码：<code>distrib_optimizer.py</code> 中 <code>_build_model_gbuf_range_map()</code> 方法完成分片映射</li>
+    </ul>
+
+    <h4>optimizer_state（优化器状态）</h4>
+    <ul>
+      <li>Adam 优化器包含：momentum (FP32) + variance (FP32) = 8 bytes/element</li>
+      <li>分片后每 rank：<code>num_elements * 8 / shard_size</code> bytes</li>
+      <li>计算器简化为一个字段 (4 bytes)，对应 momentum 的一阶矩</li>
+    </ul>
+
+    <h3>3.2 源码对照：<code>theoretical_memory_usage.py</code></h3>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># 源码中的等价公式 (line 179-183)</span>
+num_bytes_per_parameter = (
+    <span class="hljs-number">18</span> <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> args.use_distributed_optimizer
+    <span class="hljs-keyword">else</span> <span class="hljs-number">6</span> + (<span class="hljs-number">12</span> / args.data_parallel_size)
+)
+<span class="hljs-comment"># 18 = 2(weight) + 4(grad) + 4(master) + 4(momentum) + 4(variance)</span>
+<span class="hljs-comment"># 分布式优化器: 6 = 2(weight) + 4(grad), 12/DP = (4+4+4)/DP</span></code></pre>
+  </div>
+</section>
+
+<!-- ==================== 04 各模块参数量 ==================== -->
+<section id="sec04">
+  <div class="section-header">
+    <span class="section-num">04</span>
+    <h2>各模块参数量</h2>
+  </div>
+  <div class="prose">
+    <p>以下公式为每个 PP rank 上单层或单模块的参数元素数量（<code>num_elements</code>），传入 <code>getModuleMemory()</code> 后乘以该 PP rank 上的层数。</p>
+
+    <h3>4.1 Embedding</h3>
+    <pre><code class="language-python hljs" data-highlighted="yes">num_embedding_params = vocab_size * hidden_size / TP</code></pre>
+    <ul>
+      <li>词表沿 vocab 维度按 TP 切分（<code>VocabParallelEmbedding</code>）</li>
+      <li><code>shard_size = DP</code>，<code>has_fp8_cache = false</code></li>
+      <li>源码：<code>megatron/core/models/gpt/gpt_embedding.py</code></li>
+    </ul>
+
+    <h3>4.2 Attention QKV (ColumnParallelLinear)</h3>
+    <pre><code class="language-python hljs" data-highlighted="yes">num_LinearQKV_params = kv_channels * (num_attn_heads * (<span class="hljs-number">1</span> + output_gate) + <span class="hljs-number">2</span> * num_query_groups) * hidden_size / TP</code></pre>
+    <ul>
+      <li><code>kv_channels</code> = head_dim（每个注意力头的维度）</li>
+      <li><code>num_attn_heads</code> = Q 头数</li>
+      <li><code>num_query_groups</code> = KV 头数（GQA 时 &lt; num_attn_heads）</li>
+      <li><code>output_gate</code>：是否使用 attention output gate（额外一组 Q 投影）</li>
+      <li>QKV 融合为一个 <code>ColumnParallelLinear</code>，output 维度 = Q + K + V 的 head dims 之和</li>
+      <li>源码：<code>attention.py</code> — <code>self.linear_qkv</code></li>
+      <li>源码：<code>layers.py</code> — <code>ColumnParallelLinear</code> 沿 output 维度按 TP 切分</li>
+    </ul>
+
+    <h3>4.3 Attention Output Projection (RowParallelLinear)</h3>
+    <pre><code class="language-python hljs" data-highlighted="yes">num_LinearOut_params = kv_channels * num_attn_heads * hidden_size / TP</code></pre>
+    <ul>
+      <li>权重形状 <code>[query_projection_size / TP, hidden_size]</code></li>
+      <li>源码：<code>attention.py</code> — <code>self.linear_proj</code> 是 <code>RowParallelLinear</code>，input 维度按 TP 切分</li>
+    </ul>
+
+    <h3>4.4 MoE Gate (Router)</h3>
+    <pre><code class="language-python hljs" data-highlighted="yes">num_MoE_Gate_params = hidden_size * num_experts</code></pre>
+    <ul>
+      <li><strong>不做 TP 切分</strong>，每个 GPU 都有完整副本</li>
+      <li><code>shard_size = SEDP</code>（所有 TP/CP rank 持有相同参数，可在更大范围分片优化器状态）</li>
+      <li>源码：<code>megatron/core/transformer/moe/router.py</code> — <code>TopKRouter</code> 中的 <code>self.weight</code></li>
+    </ul>
+
+    <h3>4.5 MoE Shared Expert FC1</h3>
+    <pre><code class="language-python hljs" data-highlighted="yes">num_MoE_LinearFC1_shared_expert_params = shared_expert_intermediate_size * hidden_size * <span class="hljs-number">2</span> * shared_expert / TP</code></pre>
+    <ul>
+      <li><code>* 2</code>：SwiGLU 门控导致 FC1 输出维度翻倍（gate 分支 + up 分支）</li>
+      <li><code>shared_expert</code>：0 或 1 (是否启用共享专家)</li>
+      <li>按 TP 切分，<code>shard_size = DP</code></li>
+      <li>源码：<code>moe_layer.py</code> — <code>self.shared_experts</code> 使用标准 <code>MLP</code> 模块</li>
+    </ul>
+
+    <h3>4.6 MoE Routed Expert FC1</h3>
+    <pre><code class="language-python hljs" data-highlighted="yes">num_local_experts = num_experts / EP
+num_MoE_LinearFC1_experts_params = num_local_experts * hidden_size * ffn_hidden_size * <span class="hljs-number">2</span></code></pre>
+    <ul>
+      <li><code>num_local_experts</code>：每个 EP rank 上的本地专家数</li>
+      <li><strong>不做 TP 切分</strong>（<code>GroupedMLP</code> 内部以 Grouped GEMM 整体执行）</li>
+      <li><code>shard_size = EDP</code></li>
+      <li>源码：<code>experts.py:128-133</code> — <code>fc1_output_size = moe_ffn_hidden_size * num_local_experts (* 2 if gated)</code></li>
+    </ul>
+
+    <h3>4.7 MoE FC2 (Shared + Routed)</h3>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># Shared Expert FC2</span>
+num_MoE_LinearFC2_shared_expert_params = shared_expert_intermediate_size * hidden_size * shared_expert / TP
+
+<span class="hljs-comment"># Routed Expert FC2</span>
+num_MoE_LinearFC2_experts_params = num_local_experts * hidden_size * ffn_hidden_size</code></pre>
+    <ul>
+      <li>FC2 无门控因子（SwiGLU 的 ×2 只影响 FC1）</li>
+    </ul>
+
+    <h3>4.8 Dense Layer FC1 / FC2</h3>
+    <pre><code class="language-python hljs" data-highlighted="yes">dense_ffn_hidden_size = ffn_hidden_size * topk
+
+num_dense_LinearFC1_params = dense_ffn_hidden_size * hidden_size * <span class="hljs-number">2</span>   <span class="hljs-comment"># * 2 for SwiGLU</span>
+num_dense_LinearFC2_params = dense_ffn_hidden_size * hidden_size</code></pre>
+    <ul>
+      <li>Dense 层不做 TP 切分，<code>shard_size = SEDP</code></li>
+      <li>源码：<code>megatron/core/transformer/mlp.py</code></li>
+    </ul>
+
+    <h3>4.9 Output Layer</h3>
+    <pre><code class="language-python hljs" data-highlighted="yes">num_OutputLayer_params = vocab_size * hidden_size / TP</code></pre>
+    <ul>
+      <li>与 Embedding 可共享权重（<code>untie_embeddings_and_output_weights</code>）</li>
+      <li>源码：<code>megatron/core/models/gpt/gpt_model.py</code> — <code>self.output_layer</code></li>
+    </ul>
+
+    <h3>4.10 模块汇总表</h3>
+    <table>
+      <thead><tr><th>模块</th><th>num_elements</th><th>element_size</th><th>shard_size</th><th>fp8_cache</th></tr></thead>
+      <tbody>
+        <tr><td>Embedding</td><td>vocab × hidden / TP</td><td>emb_bytes</td><td>DP</td><td>No</td></tr>
+        <tr><td>AttentionQKV</td><td>kv_ch × (heads×(1+gate) + 2×kv_groups) × hidden / TP</td><td>linear_bytes</td><td>DP</td><td>Yes</td></tr>
+        <tr><td>AttentionOut</td><td>kv_ch × heads × hidden / TP</td><td>linear_bytes</td><td>DP</td><td>Yes</td></tr>
+        <tr><td>Gate</td><td>hidden × num_experts</td><td>logits_bytes</td><td>SEDP</td><td>No</td></tr>
+        <tr><td>MoEFC1/shared</td><td>shared_ffn × hidden × 2 / TP</td><td>linear_bytes</td><td>DP</td><td>Yes</td></tr>
+        <tr><td>MoEFC1/experts</td><td>local_experts × hidden × ffn × 2</td><td>linear_bytes</td><td>EDP</td><td>Yes</td></tr>
+        <tr><td>MoEFC2/shared</td><td>shared_ffn × hidden / TP</td><td>linear_bytes</td><td>DP</td><td>Yes</td></tr>
+        <tr><td>MoEFC2/experts</td><td>local_experts × hidden × ffn</td><td>linear_bytes</td><td>EDP</td><td>Yes</td></tr>
+        <tr><td>DenseFC1</td><td>ffn×topk × hidden × 2</td><td>linear_bytes</td><td>SEDP</td><td>Yes</td></tr>
+        <tr><td>DenseFC2</td><td>ffn×topk × hidden</td><td>linear_bytes</td><td>SEDP</td><td>Yes</td></tr>
+        <tr><td>OutputLayer</td><td>vocab × hidden / TP</td><td>output_bytes</td><td>DP</td><td>No</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ==================== 05 PP Layout 与 VPP ==================== -->
+<section id="sec05">
+  <div class="section-header">
+    <span class="section-num">05</span>
+    <h2>PP Layout 与 VPP</h2>
+  </div>
+  <div class="prose">
+    <h3>5.1 PP Layout 语法</h3>
+    <p><code>parsePPLayout()</code> 解析 Python 风格的列表表达式，例如：</p>
+    <pre><code class="language-python hljs" data-highlighted="yes">[<span class="hljs-string">'Ett'</span>] + [<span class="hljs-string">'ttt'</span>] * <span class="hljs-number">18</span> + [<span class="hljs-string">'mL'</span>]</code></pre>
+    <p>解析结果是一个字符串数组，每个元素代表一个 <strong>PP stage 的 model chunk</strong>。每个字符表示一种层类型：</p>
+    <table>
+      <thead><tr><th>字符</th><th>含义</th></tr></thead>
+      <tbody>
+        <tr><td><code>E</code></td><td>Embedding 层</td></tr>
+        <tr><td><code>t</code></td><td>Transformer 层（按模型顺序分配 MoE 或 Dense）</td></tr>
+        <tr><td><code>m</code></td><td>MTP 层 (Multi-Token Prediction)</td></tr>
+        <tr><td><code>L</code></td><td>Output Layer（logits / loss 计算）</td></tr>
+      </tbody>
+    </table>
+
+    <h3>5.2 VPP 计算</h3>
+    <pre><code class="language-python hljs" data-highlighted="yes">num_stage = <span class="hljs-built_in">len</span>(pp_layout)    <span class="hljs-comment"># PP layout 中的总 stage 数</span>
+VPP = num_stage / PP          <span class="hljs-comment"># 每个 PP rank 持有的 model chunk 数</span></code></pre>
+    <p>例如 PP=4，20 个 stage → VPP=5，每个 PP rank 执行 5 个 model chunks。</p>
+
+    <h3>5.3 chunk_meta 构建</h3>
+    <p>计算器遍历 PP layout，为每个 PP rank 统计其负责的各类层数量：</p>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># 对每个 PP rank r (0 到 PP-1):</span>
+<span class="hljs-keyword">for</span> stage <span class="hljs-keyword">in</span> <span class="hljs-built_in">range</span>(r, num_stage, PP):
+    chunk = pp_layout[stage]
+    <span class="hljs-keyword">for</span> char <span class="hljs-keyword">in</span> chunk:
+        <span class="hljs-keyword">if</span> char == <span class="hljs-string">'E'</span>: count_Embedding += <span class="hljs-number">1</span>
+        <span class="hljs-keyword">elif</span> char == <span class="hljs-string">'t'</span>:
+            transformer_idx += <span class="hljs-number">1</span>
+            <span class="hljs-keyword">if</span> transformer_idx &lt;= num_dense_layers:
+                count_Dense += <span class="hljs-number">1</span>
+            <span class="hljs-keyword">else</span>:
+                count_MoE += <span class="hljs-number">1</span>
+        <span class="hljs-keyword">elif</span> char == <span class="hljs-string">'m'</span>: count_MTP += <span class="hljs-number">1</span>
+        <span class="hljs-keyword">elif</span> char == <span class="hljs-string">'L'</span>: count_OutputLayer += <span class="hljs-number">1</span></code></pre>
+    <p><code>t</code> 按模型中出现的顺序依次分配类型：前 <code>num_dense_layers</code> 个标记为 Dense，之后标记为 MoE。</p>
+
+    <h3>5.4 PP rank 的参数量</h3>
+    <p>每个 PP rank 的总参数量 = 其持有的各类层数量 × 每层的参数量。</p>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># 计算器对每个 PP rank 调用 getModuleMemory():</span>
+modules = [
+    [<span class="hljs-string">'Embedding'</span>,     chunk_meta.Embedding * num_embedding_params,     emb_bytes,  DP,   <span class="hljs-literal">False</span>],
+    [<span class="hljs-string">'AttentionQKV'</span>,  num_chunk_layers * num_LinearQKV_params,         lin_bytes,  DP,   <span class="hljs-literal">True</span>],
+    [<span class="hljs-string">'AttentionOut'</span>,  num_chunk_layers * num_LinearOut_params,         lin_bytes,  DP,   <span class="hljs-literal">True</span>],
+    [<span class="hljs-string">'Gate'</span>,          chunk_meta.MoELayer * num_MoE_Gate_params,       log_bytes,  SEDP, <span class="hljs-literal">False</span>],
+    [<span class="hljs-string">'MoEFC1/shared'</span>, chunk_meta.MoELayer * num_MoE_FC1_shared,       lin_bytes,  DP,   <span class="hljs-literal">True</span>],
+    [<span class="hljs-string">'MoEFC1/experts'</span>,chunk_meta.MoELayer * num_MoE_FC1_experts,      lin_bytes,  EDP,  <span class="hljs-literal">True</span>],
+    <span class="hljs-comment"># ... (MoEFC2, DenseFC1, DenseFC2, OutputLayer 类似)</span>
+]</code></pre>
+  </div>
+</section>
+
+<!-- ==================== 06 Activation 动态显存 ==================== -->
+<section id="sec06">
+  <div class="section-header">
+    <span class="section-num">06</span>
+    <h2>Activation 动态显存</h2>
+  </div>
+  <div class="prose">
+    <h3>6.1 基本单位</h3>
+    <p>所有 activation 公式的基本形式（单位 MB）：</p>
+    <pre><code class="language-python hljs" data-highlighted="yes">activation_MB = intDiv(intDiv(mbs * seqlen * dim * dtype_bytes, TP), CP) / (<span class="hljs-number">1024</span>**<span class="hljs-number">2</span>)</code></pre>
+    <ul>
+      <li><code>intDiv(x, y) = floor(x / y)</code>：整数除法，与实际 tensor shape 计算一致</li>
+      <li><code>mbs</code>：micro batch size</li>
+      <li><code>seqlen</code>：序列长度</li>
+      <li><code>dim</code>：该张量的特征维度</li>
+      <li><code>/ TP</code>：张量并行切分（特征维度）</li>
+      <li><code>/ CP</code>：上下文并行切分（序列维度）</li>
+    </ul>
+
+    <h3>6.2 Transformer 层前向流程与 Activation</h3>
+    <p>每个 Transformer 层的前向传播流程（源码 <code>transformer_layer.py</code>）：</p>
+
+    <div class="mermaid" data-processed="true"><svg aria-roledescription="flowchart-v2" role="graphics-document document" viewBox="-8 -8 369.865234375 1183.5078125" style="max-width: 369.865234375px;" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="100%" id="mermaid-1783857484237"><style>#mermaid-1783857484237{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;fill:#e6edf3;}#mermaid-1783857484237 .error-icon{fill:#0d1117;}#mermaid-1783857484237 .error-text{fill:#f2eee8;stroke:#f2eee8;}#mermaid-1783857484237 .edge-thickness-normal{stroke-width:2px;}#mermaid-1783857484237 .edge-thickness-thick{stroke-width:3.5px;}#mermaid-1783857484237 .edge-pattern-solid{stroke-dasharray:0;}#mermaid-1783857484237 .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-1783857484237 .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-1783857484237 .marker{fill:#58a6ff;stroke:#58a6ff;}#mermaid-1783857484237 .marker.cross{stroke:#58a6ff;}#mermaid-1783857484237 svg{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;}#mermaid-1783857484237 .label{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:#e6edf3;}#mermaid-1783857484237 .cluster-label text{fill:#e6edf3;}#mermaid-1783857484237 .cluster-label span,#mermaid-1783857484237 p{color:#e6edf3;}#mermaid-1783857484237 .label text,#mermaid-1783857484237 span,#mermaid-1783857484237 p{fill:#e6edf3;color:#e6edf3;}#mermaid-1783857484237 .node rect,#mermaid-1783857484237 .node circle,#mermaid-1783857484237 .node ellipse,#mermaid-1783857484237 .node polygon,#mermaid-1783857484237 .node path{fill:#161b22;stroke:#30363d;stroke-width:1px;}#mermaid-1783857484237 .flowchart-label text{text-anchor:middle;}#mermaid-1783857484237 .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#mermaid-1783857484237 .node .label{text-align:center;}#mermaid-1783857484237 .node.clickable{cursor:pointer;}#mermaid-1783857484237 .arrowheadPath{fill:#e3ded6;}#mermaid-1783857484237 .edgePath .path{stroke:#58a6ff;stroke-width:2.0px;}#mermaid-1783857484237 .flowchart-link{stroke:#58a6ff;fill:none;}#mermaid-1783857484237 .edgeLabel{background-color:#1c2129;text-align:center;}#mermaid-1783857484237 .edgeLabel rect{opacity:0.5;background-color:#1c2129;fill:#1c2129;}#mermaid-1783857484237 .labelBkg{background-color:rgba(28, 33, 41, 0.5);}#mermaid-1783857484237 .cluster rect{fill:rgba(88,166,255,0.05);stroke:#30363d;stroke-width:1px;}#mermaid-1783857484237 .cluster text{fill:#e6edf3;}#mermaid-1783857484237 .cluster span,#mermaid-1783857484237 p{color:#e6edf3;}#mermaid-1783857484237 div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:12px;background:#0d1117;border:1px solid hsl(216, 0%, 17.0588235294%);border-radius:2px;pointer-events:none;z-index:100;}#mermaid-1783857484237 .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#e6edf3;}#mermaid-1783857484237 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="6" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857484237_flowchart-pointEnd"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 0 L 10 5 L 0 10 z"></path></marker><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="4.5" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857484237_flowchart-pointStart"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 5 L 10 10 L 10 0 z"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="11" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857484237_flowchart-circleEnd"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="-1" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857484237_flowchart-circleStart"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="12" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783857484237_flowchart-crossEnd"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="-1" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783857484237_flowchart-crossStart"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><g class="root"><g class="clusters"></g><g class="edgePaths"><path marker-end="url(#mermaid-1783857484237_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-A LE-B" id="L-A-B-0" d="M190.564,37.094L190.564,41.26C190.564,45.427,190.564,53.76,190.564,61.21C190.564,68.66,190.564,75.227,190.564,78.51L190.564,81.794"></path><path marker-end="url(#mermaid-1783857484237_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-B LE-C" id="L-B-C-0" d="M190.564,124.188L190.564,128.354C190.564,132.521,190.564,140.854,190.564,148.304C190.564,155.754,190.564,162.321,190.564,165.604L190.564,168.888"></path><path marker-end="url(#mermaid-1783857484237_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-C LE-D" id="L-C-D-0" d="M190.564,211.281L190.564,215.448C190.564,219.615,190.564,227.948,190.564,235.398C190.564,242.848,190.564,249.415,190.564,252.698L190.564,255.981"></path><path marker-end="url(#mermaid-1783857484237_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-D LE-E" id="L-D-E-0" d="M190.564,320.469L190.564,324.635C190.564,328.802,190.564,337.135,190.564,344.585C190.564,352.035,190.564,358.602,190.564,361.885L190.564,365.169"></path><path marker-end="url(#mermaid-1783857484237_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-E LE-F" id="L-E-F-0" d="M190.564,407.563L190.564,411.729C190.564,415.896,190.564,424.229,190.564,431.679C190.564,439.129,190.564,445.696,190.564,448.979L190.564,452.263"></path><path marker-end="url(#mermaid-1783857484237_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-F LE-G" id="L-F-G-0" d="M190.564,494.656L190.564,498.823C190.564,502.99,190.564,511.323,190.564,518.773C190.564,526.223,190.564,532.79,190.564,536.073L190.564,539.356"></path><path marker-end="url(#mermaid-1783857484237_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-G LE-H" id="L-G-H-0" d="M190.564,581.75L190.564,585.917C190.564,590.083,190.564,598.417,190.63,605.95C190.696,613.484,190.829,620.217,190.895,623.584L190.961,626.951"></path><path marker-end="url(#mermaid-1783857484237_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-H LE-I" id="L-H-I-0" d="M164.589,748.97L158.392,759.307C152.194,769.644,139.799,790.318,133.602,805.78C127.404,821.241,127.404,831.49,127.404,836.615L127.404,841.739"></path><path marker-end="url(#mermaid-1783857484237_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-I LE-J" id="L-I-J-0" d="M101.222,884.133L92.741,890.141C84.26,896.148,67.298,908.164,58.817,919.296C50.336,930.429,50.336,940.678,50.336,945.802L50.336,950.927"></path><path marker-end="url(#mermaid-1783857484237_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-I LE-K" id="L-I-K-0" d="M153.586,884.133L162.067,890.141C170.548,896.148,187.511,908.164,195.992,919.296C204.473,930.429,204.473,940.678,204.473,945.802L204.473,950.927"></path><path marker-end="url(#mermaid-1783857484237_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-J LE-L" id="L-J-L-0" d="M50.336,993.32L50.336,997.487C50.336,1001.654,50.336,1009.987,56.941,1017.886C63.546,1025.785,76.756,1033.249,83.361,1036.981L89.966,1040.713"></path><path marker-end="url(#mermaid-1783857484237_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-K LE-L" id="L-K-L-0" d="M204.473,993.32L204.473,997.487C204.473,1001.654,204.473,1009.987,197.868,1017.886C191.263,1025.785,178.053,1033.249,171.448,1036.981L164.843,1040.713"></path><path marker-end="url(#mermaid-1783857484237_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-H LE-M" id="L-H-M-0" d="M229.023,737.486L242.858,749.737C256.693,761.988,284.363,786.49,298.198,807.84C312.033,829.19,312.033,847.388,312.033,865.586C312.033,883.784,312.033,901.982,312.033,920.18C312.033,938.378,312.033,956.576,312.033,972.932C312.033,989.289,312.033,1003.805,312.033,1014.346C312.033,1024.887,312.033,1031.454,312.033,1034.737L312.033,1038.02"></path><path marker-end="url(#mermaid-1783857484237_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-L LE-N" id="L-L-N-0" d="M127.404,1080.414L127.404,1084.581C127.404,1088.747,127.404,1097.081,132.72,1104.913C138.036,1112.745,148.669,1120.075,153.985,1123.74L159.301,1127.406"></path><path marker-end="url(#mermaid-1783857484237_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-M LE-N" id="L-M-N-0" d="M312.033,1080.414L312.033,1084.581C312.033,1088.747,312.033,1097.081,301.242,1105.116C290.451,1113.151,268.87,1120.888,258.079,1124.757L247.288,1128.625"></path></g><g class="edgeLabels"><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g transform="translate(127.404296875, 810.9921875)" class="edgeLabel"><g transform="translate(-13.28125, -11.046875)" class="label"><foreignobject height="22.09375" width="26.5625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel">MoE</span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g transform="translate(312.033203125, 920.1796875)" class="edgeLabel"><g transform="translate(-19.15625, -11.046875)" class="label"><foreignobject height="22.09375" width="38.3125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel">Dense</span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g></g><g class="nodes"><g transform="translate(190.564453125, 18.546875)" data-id="A" data-node="true" id="flowchart-A-22" class="node default default flowchart-label"><rect height="37.09375" width="135.3203125" y="-18.546875" x="-67.66015625" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-60.16015625, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="120.3203125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">Input hidden_states</span></div></foreignobject></g></g><g transform="translate(190.564453125, 105.640625)" data-id="B" data-node="true" id="flowchart-B-23" class="node default default flowchart-label"><rect height="37.09375" width="136.2890625" y="-18.546875" x="-68.14453125" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-60.64453125, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="121.2890625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">Pre-Attn LayerNorm</span></div></foreignobject></g></g><g transform="translate(190.564453125, 192.734375)" data-id="C" data-node="true" id="flowchart-C-25" class="node default default flowchart-label"><rect height="37.09375" width="82.984375" y="-18.546875" x="-41.4921875" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-33.9921875, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="67.984375"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">Linear QKV</span></div></foreignobject></g></g><g transform="translate(190.564453125, 290.875)" data-id="D" data-node="true" id="flowchart-D-27" class="node default default flowchart-label"><rect height="59.1875" width="102.7109375" y="-29.59375" x="-51.35546875" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-43.85546875, -22.09375)" style="" class="label"><rect></rect><foreignobject height="44.1875" width="87.7109375"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">Core Attention<br>(Q,K,V → O)</span></div></foreignobject></g></g><g transform="translate(190.564453125, 389.015625)" data-id="E" data-node="true" id="flowchart-E-29" class="node default default flowchart-label"><rect height="37.09375" width="143.140625" y="-18.546875" x="-71.5703125" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-64.0703125, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="128.140625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">Attention Output Proj</span></div></foreignobject></g></g><g transform="translate(190.564453125, 476.109375)" data-id="F" data-node="true" id="flowchart-F-31" class="node default default flowchart-label"><rect height="37.09375" width="191.9375" y="-18.546875" x="-95.96875" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-88.46875, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="176.9375"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">Bias-Dropout-Add + Residual</span></div></foreignobject></g></g><g transform="translate(190.564453125, 563.203125)" data-id="G" data-node="true" id="flowchart-G-33" class="node default default flowchart-label"><rect height="37.09375" width="138.1484375" y="-18.546875" x="-69.07421875" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-61.57421875, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="123.1484375"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">Pre-MLP LayerNorm</span></div></foreignobject></g></g><g transform="translate(190.564453125, 703.34765625)" data-id="H" data-node="true" id="flowchart-H-35" class="node default default flowchart-label"><polygon style="" transform="translate(-71.59765625,71.59765625)" class="label-container" points="71.59765625,0 143.1953125,-71.59765625 71.59765625,-143.1953125 0,-71.59765625"></polygon><g transform="translate(-45.55078125, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="91.1015625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">MoE or Dense?</span></div></foreignobject></g></g><g transform="translate(127.404296875, 865.5859375)" data-id="I" data-node="true" id="flowchart-I-37" class="node default default flowchart-label"><rect height="37.09375" width="87.6328125" y="-18.546875" x="-43.81640625" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-36.31640625, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="72.6328125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">Gate/Router</span></div></foreignobject></g></g><g transform="translate(50.3359375, 974.7734375)" data-id="J" data-node="true" id="flowchart-J-39" class="node default default flowchart-label"><rect height="37.09375" width="100.671875" y="-18.546875" x="-50.3359375" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-42.8359375, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="85.671875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">Shared Expert</span></div></foreignobject></g></g><g transform="translate(204.47265625, 974.7734375)" data-id="K" data-node="true" id="flowchart-K-41" class="node default default flowchart-label"><rect height="37.09375" width="107.6015625" y="-18.546875" x="-53.80078125" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-46.30078125, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="92.6015625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">Routed Experts</span></div></foreignobject></g></g><g transform="translate(127.404296875, 1061.8671875)" data-id="L" data-node="true" id="flowchart-L-43" class="node default default flowchart-label"><rect height="37.09375" width="68.9765625" y="-18.546875" x="-34.48828125" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-26.98828125, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="53.9765625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">Combine</span></div></foreignobject></g></g><g transform="translate(312.033203125, 1061.8671875)" data-id="M" data-node="true" id="flowchart-M-47" class="node default default flowchart-label"><rect height="37.09375" width="83.6640625" y="-18.546875" x="-41.83203125" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-34.33203125, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="68.6640625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">Dense MLP</span></div></foreignobject></g></g><g transform="translate(190.564453125, 1148.9609375)" data-id="N" data-node="true" id="flowchart-N-49" class="node default default flowchart-label"><rect height="37.09375" width="191.9375" y="-18.546875" x="-95.96875" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-88.46875, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="176.9375"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">Bias-Dropout-Add + Residual</span></div></foreignobject></g></g></g></g></g></svg></div>
+
+    <h3>6.3 逐子模块 Activation 公式</h3>
+
+    <h4>(a) Pre-Attention LayerNorm</h4>
+    <pre><code class="language-python hljs" data-highlighted="yes">pre_attn_layernorm = mbs * seqlen * hidden_size * <span class="hljs-number">2</span> / TP / CP    <span class="hljs-comment"># BF16 输入</span></code></pre>
+    <p>保存 LayerNorm 的输入用于反向传播。可选重计算：<code>transformer_layer.py:531-536</code> 中 <code>CheckpointWithoutOutput()</code>。</p>
+
+    <h4>(b) Linear QKV (ColumnParallelLinear)</h4>
+    <pre><code class="language-python hljs" data-highlighted="yes">linear_qkv = mbs * seqlen * hidden_size * linear_bytes / TP / CP</code></pre>
+    <ul>
+      <li><code>linear_bytes</code> = 2 (BF16) 或 1 (FP8)</li>
+      <li>保存输入 <code>hidden_states</code> 用于计算权重梯度</li>
+      <li>源码：<code>layers.py:481</code> — <code>ctx.save_for_backward(input, weight)</code></li>
+    </ul>
+
+    <h4>(c) Core Attention (Q, K, V, O)</h4>
+    <pre><code class="language-python hljs" data-highlighted="yes">attention_q = mbs * seqlen * kv_channels * num_attn_heads * <span class="hljs-number">2</span> / TP / CP
+attention_k = mbs * seqlen * kv_channels * num_query_groups * <span class="hljs-number">2</span> / TP / CP
+attention_v = attention_k
+attention_o = attention_q    <span class="hljs-comment"># attention output，与 Q 同形状</span></code></pre>
+    <ul>
+      <li>FlashAttention 中 <code>save_for_backward(q, k, v, ..., *outs)</code></li>
+      <li>源码：<code>dot_product_attention_context_parallel.py</code> — <code>ctx.save_for_backward(q, k, v, attention_mask, *outs, *probs)</code></li>
+      <li>Q 和 O 按 <code>num_attn_heads / TP</code> 切分；K, V 按 <code>num_query_groups / TP</code> 切分</li>
+      <li>均为 BF16 (2 bytes)</li>
+    </ul>
+
+    <h4>(d) Attention Output Projection</h4>
+    <p>RowParallelLinear 保存 <code>core_attn_out</code> 作为输入。FP8 时额外保存 BF16 原始输入：</p>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># attention.py:266-268</span>
+set_save_original_input(self.linear_proj)  <span class="hljs-comment"># FP8 时保存量化前的 BF16 输入</span></code></pre>
+
+    <h4>(e) Pre-MLP LayerNorm</h4>
+    <pre><code class="language-python hljs" data-highlighted="yes">pre_mlp_layernorm = mbs * seqlen * hidden_size * <span class="hljs-number">2</span> / TP / CP</code></pre>
+
+    <h4>(f) MoE Gate Activation</h4>
+    <pre><code class="language-python hljs" data-highlighted="yes">gate_act = mbs * seqlen * hidden_size * <span class="hljs-number">2</span> / TP / CP</code></pre>
+    <ul>
+      <li>Router 的 <code>RouterGatingLinearFunction.save_for_backward(inp, weight, bias)</code></li>
+      <li>保存 BF16 <code>hidden_states</code> 用于 gate 权重的梯度计算</li>
+      <li>源码：<code>moe_utils.py</code></li>
+    </ul>
+
+    <h4>(g) Shared Expert Activations（每 MoE 层）</h4>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># SwiGLU clamp 操作保存的 mask (1 byte per element)</span>
+shared_clamp     = mbs * seqlen * shared_intermediate * <span class="hljs-number">2</span> * <span class="hljs-number">1</span> / TP / CP * shared_expert
+
+<span class="hljs-comment"># SwiGLU 两个分支的激活值 (gate + up), 各 2 bytes</span>
+shared_activation = mbs * seqlen * shared_intermediate * <span class="hljs-number">2</span> * <span class="hljs-number">2</span> / TP / CP * shared_expert
+
+<span class="hljs-comment"># FC2 输入（经过激活后的中间结果）</span>
+shared_fc2       = mbs * seqlen * shared_intermediate * linear_bytes / TP / CP * shared_expert</code></pre>
+
+    <h4>(h) MoE Routed Expert Activations（每 MoE 层）</h4>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># FC1 输入（dispatched hidden states）</span>
+moe_fc1        = mbs * seqlen * topk * droprate * hidden_size * linear_bytes / TP / CP
+
+<span class="hljs-comment"># SwiGLU clamp mask</span>
+moe_clamp      = mbs * seqlen * topk * droprate * ffn_hidden_size * <span class="hljs-number">2</span> * <span class="hljs-number">1</span> / TP / CP
+
+<span class="hljs-comment"># SwiGLU 激活值</span>
+moe_activation = mbs * seqlen * topk * droprate * ffn_hidden_size * <span class="hljs-number">2</span> * <span class="hljs-number">2</span> / TP / CP
+
+<span class="hljs-comment"># FC2 输入</span>
+moe_fc2        = mbs * seqlen * topk * droprate * ffn_hidden_size * linear_bytes / TP / CP</code></pre>
+    <ul>
+      <li><code>topk * droprate</code>：每个 token 被路由到 topk 个专家，<code>droprate</code> 是 token drop 后的保留率</li>
+      <li>源码：<code>experts.py:261-274</code> — <code>gg.ops.gmm</code> 的 grouped GEMM 操作</li>
+    </ul>
+
+    <h4>(i) Dense Layer Activations（每 Dense 层）</h4>
+    <pre><code class="language-python hljs" data-highlighted="yes">dense_ffn_hidden_size = ffn_hidden_size * topk
+
+dense_fc1        = mbs * seqlen * hidden_size * linear_bytes / TP / CP
+dense_clamp      = mbs * seqlen * dense_ffn_hidden_size * <span class="hljs-number">2</span> * <span class="hljs-number">1</span> / TP / CP
+dense_activation = mbs * seqlen * dense_ffn_hidden_size * <span class="hljs-number">2</span> * <span class="hljs-number">2</span> / TP / CP
+dense_fc2        = mbs * seqlen * dense_ffn_hidden_size * linear_bytes / TP / CP</code></pre>
+    <ul>
+      <li>结构与 MoE Expert 类似，但使用 <code>dense_ffn_hidden_size</code>，无 routing 开销</li>
+    </ul>
+
+    <h4>(j) Output Layer Activation</h4>
+    <pre><code class="language-python hljs" data-highlighted="yes">output_layer_act = mbs * seqlen * vocab_size * <span class="hljs-number">2</span> * <span class="hljs-number">3</span> / TP / CP</code></pre>
+    <ul>
+      <li><code>* 3</code>：Cross-entropy loss 保存三个张量</li>
+      <li>源码：<code>cross_entropy.py:187</code> — <code>ctx.save_for_backward(exp_logits, target_mask, masked_target_1d)</code></li>
+      <li><code>exp_logits</code>（softmax 结果）是最大的，形状 <code>[mbs*seqlen, vocab/TP]</code></li>
+    </ul>
+
+    <h3>6.4 每层 Activation 汇总</h3>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># MoE 层 activation</span>
+moe_layer_act = (pre_attn_layernorm + linear_qkv
+    + attention_q + attention_k + attention_v + attention_o
+    + pre_mlp_layernorm + gate_act
+    + shared_clamp + shared_activation + shared_fc2
+    + moe_fc1 + moe_clamp + moe_activation + moe_fc2)
+
+<span class="hljs-comment"># Dense 层 activation</span>
+dense_layer_act = (pre_attn_layernorm + linear_qkv
+    + attention_q + attention_k + attention_v + attention_o
+    + pre_mlp_layernorm
+    + dense_fc1 + dense_clamp + dense_activation + dense_fc2)
+
+<span class="hljs-comment"># PP rank 总 activation</span>
+rank_activation = (sum_moe_layers + sum_dense_layers) * VPP + output_layer_act</code></pre>
+  </div>
+</section>
+
+<!-- ==================== 07 MoE Activation Recomputation ==================== -->
+<section id="sec07">
+  <div class="section-header">
+    <span class="section-num">07</span>
+    <h2>MoE Activation Recomputation</h2>
+  </div>
+  <div class="prose">
+    <h3>7.1 触发条件</h3>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># experts.py:102-105</span>
+self.activation_recompute = (
+    self.config.recompute_granularity == <span class="hljs-string">'selective'</span>
+    <span class="hljs-keyword">and</span> <span class="hljs-string">"moe_act"</span> <span class="hljs-keyword">in</span> self.config.recompute_modules
+)</code></pre>
+    <p>当 <code>recompute_granularity = 'selective'</code> 且 <code>recompute_modules</code> 包含 <code>"moe_act"</code> 时启用。</p>
+
+    <h3>7.2 重计算机制</h3>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># experts.py:264-269</span>
+<span class="hljs-keyword">if</span> self.activation_recompute:
+    <span class="hljs-comment"># CheckpointWithoutOutput: 只保存输入，丢弃激活函数的输出</span>
+    intermediate_parallel = self.activation_checkpoint.checkpoint(
+        self.activation_func_with_probs, fc1_output, permuted_probs.unsqueeze(-<span class="hljs-number">1</span>)
+    )
+    fc2_output = gg.ops.gmm(intermediate_parallel, w2, tokens_per_expert, trans_b=<span class="hljs-literal">False</span>)
+    <span class="hljs-comment"># 丢弃 fc2_output 的保存，反向传播时重新计算</span>
+    self.activation_checkpoint.discard_output_and_register_recompute(fc2_output)</code></pre>
+
+    <div class="mermaid" data-processed="true"><svg aria-roledescription="flowchart-v2" role="graphics-document document" viewBox="-7.5 -8 338.95703125 851.125" style="max-width: 338.95703125px;" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="100%" id="mermaid-1783857484254"><style>#mermaid-1783857484254{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;fill:#e6edf3;}#mermaid-1783857484254 .error-icon{fill:#0d1117;}#mermaid-1783857484254 .error-text{fill:#f2eee8;stroke:#f2eee8;}#mermaid-1783857484254 .edge-thickness-normal{stroke-width:2px;}#mermaid-1783857484254 .edge-thickness-thick{stroke-width:3.5px;}#mermaid-1783857484254 .edge-pattern-solid{stroke-dasharray:0;}#mermaid-1783857484254 .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-1783857484254 .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-1783857484254 .marker{fill:#58a6ff;stroke:#58a6ff;}#mermaid-1783857484254 .marker.cross{stroke:#58a6ff;}#mermaid-1783857484254 svg{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;}#mermaid-1783857484254 .label{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:#e6edf3;}#mermaid-1783857484254 .cluster-label text{fill:#e6edf3;}#mermaid-1783857484254 .cluster-label span,#mermaid-1783857484254 p{color:#e6edf3;}#mermaid-1783857484254 .label text,#mermaid-1783857484254 span,#mermaid-1783857484254 p{fill:#e6edf3;color:#e6edf3;}#mermaid-1783857484254 .node rect,#mermaid-1783857484254 .node circle,#mermaid-1783857484254 .node ellipse,#mermaid-1783857484254 .node polygon,#mermaid-1783857484254 .node path{fill:#161b22;stroke:#30363d;stroke-width:1px;}#mermaid-1783857484254 .flowchart-label text{text-anchor:middle;}#mermaid-1783857484254 .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#mermaid-1783857484254 .node .label{text-align:center;}#mermaid-1783857484254 .node.clickable{cursor:pointer;}#mermaid-1783857484254 .arrowheadPath{fill:#e3ded6;}#mermaid-1783857484254 .edgePath .path{stroke:#58a6ff;stroke-width:2.0px;}#mermaid-1783857484254 .flowchart-link{stroke:#58a6ff;fill:none;}#mermaid-1783857484254 .edgeLabel{background-color:#1c2129;text-align:center;}#mermaid-1783857484254 .edgeLabel rect{opacity:0.5;background-color:#1c2129;fill:#1c2129;}#mermaid-1783857484254 .labelBkg{background-color:rgba(28, 33, 41, 0.5);}#mermaid-1783857484254 .cluster rect{fill:rgba(88,166,255,0.05);stroke:#30363d;stroke-width:1px;}#mermaid-1783857484254 .cluster text{fill:#e6edf3;}#mermaid-1783857484254 .cluster span,#mermaid-1783857484254 p{color:#e6edf3;}#mermaid-1783857484254 div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:12px;background:#0d1117;border:1px solid hsl(216, 0%, 17.0588235294%);border-radius:2px;pointer-events:none;z-index:100;}#mermaid-1783857484254 .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#e6edf3;}#mermaid-1783857484254 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="6" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857484254_flowchart-pointEnd"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 0 L 10 5 L 0 10 z"></path></marker><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="4.5" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857484254_flowchart-pointStart"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 5 L 10 10 L 10 0 z"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="11" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857484254_flowchart-circleEnd"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="-1" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857484254_flowchart-circleStart"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="12" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783857484254_flowchart-crossEnd"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="-1" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783857484254_flowchart-crossStart"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><g class="root"><g class="clusters"></g><g class="edgePaths"></g><g class="edgeLabels"></g><g class="nodes"><g transform="translate(37.66015625, -8)" class="root"><g class="clusters"><g id="subGraph1" class="cluster default flowchart-label"><rect height="392.5625" width="232.63671875" y="8" x="8" ry="0" rx="0" style=""></rect><g transform="translate(76.833984375, 8)" class="cluster-label"><foreignobject height="22.09375" width="94.96875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">moe_act 重计算</span></div></foreignobject></g></g></g><g class="edgePaths"><path marker-end="url(#mermaid-1783857484254_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-A2 LE-B2" id="L-A2-B2-0" d="M124.318,70.094L124.318,74.26C124.318,78.427,124.318,86.76,124.318,94.21C124.318,101.66,124.318,108.227,124.318,111.51L124.318,114.794"></path><path marker-end="url(#mermaid-1783857484254_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-B2 LE-C2" id="L-B2-C2-0" d="M108.496,157.188L103.371,163.195C98.245,169.203,87.995,181.219,82.869,192.351C77.744,203.483,77.744,213.732,77.744,218.857L77.744,223.981"></path><path marker-end="url(#mermaid-1783857484254_flowchart-pointEnd)" style="fill:none;stroke-width:2px;stroke-dasharray:3;" class="edge-thickness-normal edge-pattern-dotted flowchart-link LS-B2 LE-X1" id="L-B2-X1-0" d="M140.141,157.188L145.266,163.195C150.391,169.203,160.642,181.219,165.767,192.351C170.893,203.483,170.893,213.732,170.893,218.857L170.893,223.981"></path><path marker-end="url(#mermaid-1783857484254_flowchart-pointEnd)" style="fill:none;stroke-width:2px;stroke-dasharray:3;" class="edge-thickness-normal edge-pattern-dotted flowchart-link LS-C2 LE-X2" id="L-C2-X2-0" d="M77.744,266.375L77.744,272.383C77.744,278.391,77.744,290.406,77.744,301.539C77.744,312.671,77.744,322.92,77.744,328.044L77.744,333.169"></path></g><g class="edgeLabels"><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g transform="translate(170.892578125, 193.234375)" class="edgeLabel"><g transform="translate(-22.33203125, -11.046875)" class="label"><foreignobject height="22.09375" width="44.6640625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel">discard</span></div></foreignobject></g></g><g transform="translate(77.744140625, 302.421875)" class="edgeLabel"><g transform="translate(-22.33203125, -11.046875)" class="label"><foreignobject height="22.09375" width="44.6640625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel">discard</span></div></foreignobject></g></g></g><g class="nodes"><g transform="translate(124.318359375, 138.640625)" data-id="B2" data-node="true" id="flowchart-B2-63" class="node default default flowchart-label"><rect height="37.09375" width="92.046875" y="-18.546875" x="-46.0234375" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-38.5234375, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="77.046875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">SwiGLU 激活</span></div></foreignobject></g></g><g transform="translate(124.318359375, 51.546875)" data-id="A2" data-node="true" id="flowchart-A2-62" class="node default default flowchart-label"><rect height="37.09375" width="80.90625" y="-18.546875" x="-40.453125" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-32.953125, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="65.90625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">FC1 output</span></div></foreignobject></g></g><g transform="translate(77.744140625, 247.828125)" data-id="C2" data-node="true" id="flowchart-C2-65" class="node default default flowchart-label"><rect height="37.09375" width="39.3671875" y="-18.546875" x="-19.68359375" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-12.18359375, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="24.3671875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">FC2</span></div></foreignobject></g></g><g transform="translate(170.892578125, 247.828125)" data-id="X1" data-node="true" id="flowchart-X1-67" class="node default default flowchart-label"><rect height="37.09375" width="46.9296875" y="-18.546875" x="-23.46484375" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-15.96484375, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="31.9296875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">freed</span></div></foreignobject></g></g><g transform="translate(77.744140625, 357.015625)" data-id="X2" data-node="true" id="flowchart-X2-69" class="node default default flowchart-label"><rect height="37.09375" width="46.9296875" y="-18.546875" x="-23.46484375" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-15.96484375, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="31.9296875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">freed</span></div></foreignobject></g></g></g></g><g transform="translate(-7.5, 434.5625)" class="root"><g class="clusters"><g id="正常前向（无重计算）" class="cluster default flowchart-label"><rect height="392.5625" width="322.95703125" y="8" x="8" ry="0" rx="0" style=""></rect><g transform="translate(104.478515625, 8)" class="cluster-label"><foreignobject height="22.09375" width="130"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">正常前向（无重计算）</span></div></foreignobject></g></g></g><g class="edgePaths"><path marker-end="url(#mermaid-1783857484254_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-A1 LE-B1" id="L-A1-B1-0" d="M165.344,70.094L165.344,74.26C165.344,78.427,165.344,86.76,165.344,94.21C165.344,101.66,165.344,108.227,165.344,111.51L165.344,114.794"></path><path marker-end="url(#mermaid-1783857484254_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-B1 LE-C1" id="L-B1-C1-0" d="M133.084,157.188L122.635,163.195C112.185,169.203,91.286,181.219,80.836,192.351C70.387,203.483,70.387,213.732,70.387,218.857L70.387,223.981"></path><path marker-end="url(#mermaid-1783857484254_flowchart-pointEnd)" style="fill:none;stroke-width:2px;stroke-dasharray:3;" class="edge-thickness-normal edge-pattern-dotted flowchart-link LS-B1 LE-S1" id="L-B1-S1-0" d="M165.344,157.188L165.344,163.195C165.344,169.203,165.344,181.219,165.344,192.351C165.344,203.483,165.344,213.732,165.344,218.857L165.344,223.981"></path><path marker-end="url(#mermaid-1783857484254_flowchart-pointEnd)" style="fill:none;stroke-width:2px;stroke-dasharray:3;" class="edge-thickness-normal edge-pattern-dotted flowchart-link LS-B1 LE-S2" id="L-B1-S2-0" d="M199.502,157.188L210.567,163.195C221.632,169.203,243.761,181.219,254.826,192.351C265.891,203.483,265.891,213.732,265.891,218.857L265.891,223.981"></path><path marker-end="url(#mermaid-1783857484254_flowchart-pointEnd)" style="fill:none;stroke-width:2px;stroke-dasharray:3;" class="edge-thickness-normal edge-pattern-dotted flowchart-link LS-C1 LE-S3" id="L-C1-S3-0" d="M70.387,266.375L70.387,272.383C70.387,278.391,70.387,290.406,70.387,301.539C70.387,312.671,70.387,322.92,70.387,328.044L70.387,333.169"></path></g><g class="edgeLabels"><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g transform="translate(165.34375, 193.234375)" class="edgeLabel"><g transform="translate(-33.91015625, -11.046875)" class="label"><foreignobject height="22.09375" width="67.8203125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel">save clamp</span></div></foreignobject></g></g><g transform="translate(265.890625, 193.234375)" class="edgeLabel"><g transform="translate(-45.06640625, -11.046875)" class="label"><foreignobject height="22.09375" width="90.1328125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel">save activation</span></div></foreignobject></g></g><g transform="translate(70.38671875, 302.421875)" class="edgeLabel"><g transform="translate(-42.38671875, -11.046875)" class="label"><foreignobject height="22.09375" width="84.7734375"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel">save fc2 input</span></div></foreignobject></g></g></g><g class="nodes"><g transform="translate(165.34375, 138.640625)" data-id="B1" data-node="true" id="flowchart-B1-53" class="node default default flowchart-label"><rect height="37.09375" width="92.046875" y="-18.546875" x="-46.0234375" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-38.5234375, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="77.046875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">SwiGLU 激活</span></div></foreignobject></g></g><g transform="translate(165.34375, 51.546875)" data-id="A1" data-node="true" id="flowchart-A1-52" class="node default default flowchart-label"><rect height="37.09375" width="80.90625" y="-18.546875" x="-40.453125" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-32.953125, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="65.90625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">FC1 output</span></div></foreignobject></g></g><g transform="translate(70.38671875, 247.828125)" data-id="C1" data-node="true" id="flowchart-C1-55" class="node default default flowchart-label"><rect height="37.09375" width="39.3671875" y="-18.546875" x="-19.68359375" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-12.18359375, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="24.3671875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">FC2</span></div></foreignobject></g></g><g transform="translate(165.34375, 247.828125)" data-id="S1" data-node="true" id="flowchart-S1-57" class="node default default flowchart-label"><rect height="37.09375" width="50.546875" y="-18.546875" x="-25.2734375" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-17.7734375, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="35.546875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">saved</span></div></foreignobject></g></g><g transform="translate(265.890625, 247.828125)" data-id="S2" data-node="true" id="flowchart-S2-59" class="node default default flowchart-label"><rect height="37.09375" width="50.546875" y="-18.546875" x="-25.2734375" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-17.7734375, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="35.546875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">saved</span></div></foreignobject></g></g><g transform="translate(70.38671875, 357.015625)" data-id="S3" data-node="true" id="flowchart-S3-61" class="node default default flowchart-label"><rect height="37.09375" width="50.546875" y="-18.546875" x="-25.2734375" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-17.7734375, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="35.546875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">saved</span></div></foreignobject></g></g></g></g></g></g></g></svg></div>
+
+    <h3>7.3 显存节省量</h3>
+    <p>启用 <code>moe_act</code> 重计算后，从每个 MoE 层的 activation 中去除三项：</p>
+    <pre><code class="language-python hljs" data-highlighted="yes">savings_per_moe_layer = moe_clamp + moe_activation + moe_fc2</code></pre>
+    <p>以 hidden=7168, ffn=2048, topk=8, seqlen=4096, mbs=1, TP=8, CP=1 为例：</p>
+    <pre><code class="language-python hljs" data-highlighted="yes">moe_clamp      = <span class="hljs-number">1</span> * <span class="hljs-number">4096</span> * <span class="hljs-number">8</span> * <span class="hljs-number">2048</span> * <span class="hljs-number">2</span> * <span class="hljs-number">1</span> / <span class="hljs-number">8</span> = <span class="hljs-number">16</span> MB
+moe_activation = <span class="hljs-number">1</span> * <span class="hljs-number">4096</span> * <span class="hljs-number">8</span> * <span class="hljs-number">2048</span> * <span class="hljs-number">2</span> * <span class="hljs-number">2</span> / <span class="hljs-number">8</span> = <span class="hljs-number">32</span> MB
+moe_fc2        = <span class="hljs-number">1</span> * <span class="hljs-number">4096</span> * <span class="hljs-number">8</span> * <span class="hljs-number">2048</span> * <span class="hljs-number">1</span> / <span class="hljs-number">8</span>     =  <span class="hljs-number">8</span> MB
+<span class="hljs-comment"># 每 MoE 层节省约 56 MB (FP8) 或更多 (BF16)</span></code></pre>
+
+    <h3>7.4 代价</h3>
+    <p>反向传播时需要重新计算 SwiGLU 激活函数和 FC2 的前向，增加约 30% 的 MoE 计算量。这是经典的 <strong>计算换内存</strong> tradeoff。</p>
+  </div>
+</section>
+
+<!-- ==================== 08 VPP 对 Activation 的影响 ==================== -->
+<section id="sec08">
+  <div class="section-header">
+    <span class="section-num">08</span>
+    <h2>VPP 对 Activation 的影响</h2>
+  </div>
+  <div class="prose">
+    <h3>8.1 为什么 VPP 增加 Activation 占用？</h3>
+    <p>VPP (Virtual Pipeline Parallelism) 将每个 PP rank 的层分成多个 model chunks。在 Interleaved Schedule 中，多个 microbatch 同时在不同 chunk 上执行，每个 chunk 都需要保留其 in-flight microbatch 的 activation。</p>
+
+    <h3>8.2 计算器的乘数</h3>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># 计算器使用 VPP 作为直接乘数（保守估计）</span>
+total_activation = per_chunk_activation * VPP</code></pre>
+
+    <h3>8.3 源码的乘数</h3>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># theoretical_memory_usage.py:224-227</span>
+interleaved_schedule_memory_penalty = <span class="hljs-number">1</span> + (PP - <span class="hljs-number">1</span>) / (PP * VPP)</code></pre>
+
+    <h3>8.4 对比</h3>
+    <table>
+      <thead><tr><th>PP</th><th>VPP</th><th>计算器乘数</th><th>源码乘数</th></tr></thead>
+      <tbody>
+        <tr><td>4</td><td>1</td><td>1</td><td>1.75</td></tr>
+        <tr><td>4</td><td>2</td><td>2</td><td>1.375</td></tr>
+        <tr><td>4</td><td>5</td><td>5</td><td>1.15</td></tr>
+        <tr><td>8</td><td>4</td><td>4</td><td>1.21875</td></tr>
+      </tbody>
+    </table>
+    <p>计算器的 VPP 乘数是<strong>保守上界</strong>：假设每个 chunk 都有独立的 microbatch activation 同时存在。源码的公式更精确，反映了实际调度中 in-flight microbatch 的数量。</p>
+    <p>实际 peak activation 取决于调度细节（warmup / steady / cooldown 阶段的 microbatch 重叠情况），两者各有适用场景。</p>
+  </div>
+</section>
+
+<!-- ==================== 09 ViT 显存 ==================== -->
+<section id="sec09">
+  <div class="section-header">
+    <span class="section-num">09</span>
+    <h2>ViT 显存</h2>
+  </div>
+  <div class="prose">
+    <p>计算器单独处理 Vision Transformer (ViT) 的参数和显存。ViT 不做 TP/PP 切分，所有参数用 <code>VDP</code>（全局 GPU 数）分片。</p>
+
+    <h3>9.1 ViT 参数公式</h3>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># Patch Embedding (Conv2d)</span>
+vit_conv_params = patch_dim**<span class="hljs-number">2</span> * <span class="hljs-number">3</span> * vit_hidden_size
+
+<span class="hljs-comment"># Self-Attention（所有 ViT 层）</span>
+vit_QKV_params = vit_num_layers * vit_kv_channels * (vit_num_attn_heads + <span class="hljs-number">2</span> * vit_num_query_groups) * vit_hidden_size
+vit_Out_params = vit_num_layers * vit_kv_channels * vit_num_attn_heads * vit_hidden_size
+
+<span class="hljs-comment"># MLP（所有 ViT 层）</span>
+vit_FC1_params = vit_num_layers * vit_ffn_hidden_size * vit_hidden_size
+vit_FC2_params = vit_num_layers * vit_ffn_hidden_size * vit_hidden_size</code></pre>
+
+    <h3>9.2 Projector &amp; Merge 层</h3>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># 视觉-语言投影层</span>
+projector_FC1_params = vit_hidden_size * projector_ffn_hidden_size
+projector_FC2_params = projector_ffn_hidden_size * hidden_size
+
+<span class="hljs-comment"># 空间合并层</span>
+merge_FC1_params = projector_ffn_hidden_size * hidden_size * spatial_merge_size**<span class="hljs-number">2</span>
+merge_FC2_params = projector_ffn_hidden_size * hidden_size</code></pre>
+
+    <h3>9.3 ViT 显存特点</h3>
+    <ul>
+      <li>ViT 以 BF16 训练（<code>element_size = 2</code>），无 FP8</li>
+      <li><code>shard_size = VDP</code>（全局所有 GPU），因 ViT 不参与 PP/TP/EP</li>
+      <li>ViT 的 activation 独立计算，不计入 LLM 的 VPP 乘数</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ==================== 10 总显存汇总 ==================== -->
+<section id="sec10">
+  <div class="section-header">
+    <span class="section-num">10</span>
+    <h2>总显存汇总公式</h2>
+  </div>
+  <div class="prose">
+    <h3>10.1 端到端计算流程</h3>
+
+    <div class="mermaid" data-processed="true"><svg aria-roledescription="flowchart-v2" role="graphics-document document" viewBox="-8 -8 494.86328125 488.5625" style="max-width: 494.86328125px;" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="100%" id="mermaid-1783857484272"><style>#mermaid-1783857484272{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;fill:#e6edf3;}#mermaid-1783857484272 .error-icon{fill:#0d1117;}#mermaid-1783857484272 .error-text{fill:#f2eee8;stroke:#f2eee8;}#mermaid-1783857484272 .edge-thickness-normal{stroke-width:2px;}#mermaid-1783857484272 .edge-thickness-thick{stroke-width:3.5px;}#mermaid-1783857484272 .edge-pattern-solid{stroke-dasharray:0;}#mermaid-1783857484272 .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-1783857484272 .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-1783857484272 .marker{fill:#58a6ff;stroke:#58a6ff;}#mermaid-1783857484272 .marker.cross{stroke:#58a6ff;}#mermaid-1783857484272 svg{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;}#mermaid-1783857484272 .label{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:#e6edf3;}#mermaid-1783857484272 .cluster-label text{fill:#e6edf3;}#mermaid-1783857484272 .cluster-label span,#mermaid-1783857484272 p{color:#e6edf3;}#mermaid-1783857484272 .label text,#mermaid-1783857484272 span,#mermaid-1783857484272 p{fill:#e6edf3;color:#e6edf3;}#mermaid-1783857484272 .node rect,#mermaid-1783857484272 .node circle,#mermaid-1783857484272 .node ellipse,#mermaid-1783857484272 .node polygon,#mermaid-1783857484272 .node path{fill:#161b22;stroke:#30363d;stroke-width:1px;}#mermaid-1783857484272 .flowchart-label text{text-anchor:middle;}#mermaid-1783857484272 .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#mermaid-1783857484272 .node .label{text-align:center;}#mermaid-1783857484272 .node.clickable{cursor:pointer;}#mermaid-1783857484272 .arrowheadPath{fill:#e3ded6;}#mermaid-1783857484272 .edgePath .path{stroke:#58a6ff;stroke-width:2.0px;}#mermaid-1783857484272 .flowchart-link{stroke:#58a6ff;fill:none;}#mermaid-1783857484272 .edgeLabel{background-color:#1c2129;text-align:center;}#mermaid-1783857484272 .edgeLabel rect{opacity:0.5;background-color:#1c2129;fill:#1c2129;}#mermaid-1783857484272 .labelBkg{background-color:rgba(28, 33, 41, 0.5);}#mermaid-1783857484272 .cluster rect{fill:rgba(88,166,255,0.05);stroke:#30363d;stroke-width:1px;}#mermaid-1783857484272 .cluster text{fill:#e6edf3;}#mermaid-1783857484272 .cluster span,#mermaid-1783857484272 p{color:#e6edf3;}#mermaid-1783857484272 div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:12px;background:#0d1117;border:1px solid hsl(216, 0%, 17.0588235294%);border-radius:2px;pointer-events:none;z-index:100;}#mermaid-1783857484272 .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#e6edf3;}#mermaid-1783857484272 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="6" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857484272_flowchart-pointEnd"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 0 L 10 5 L 0 10 z"></path></marker><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="4.5" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857484272_flowchart-pointStart"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 5 L 10 10 L 10 0 z"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="11" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857484272_flowchart-circleEnd"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="-1" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783857484272_flowchart-circleStart"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="12" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783857484272_flowchart-crossEnd"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="-1" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783857484272_flowchart-crossStart"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><g class="root"><g class="clusters"></g><g class="edgePaths"><path marker-end="url(#mermaid-1783857484272_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-A LE-B" id="L-A-B-0" d="M224.033,37.094L224.033,41.26C224.033,45.427,224.033,53.76,224.033,61.21C224.033,68.66,224.033,75.227,224.033,78.51L224.033,81.794"></path><path marker-end="url(#mermaid-1783857484272_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-B LE-C" id="L-B-C-0" d="M168.485,124.188L156.006,128.354C143.526,132.521,118.568,140.854,106.089,148.304C93.609,155.754,93.609,162.321,93.609,165.604L93.609,168.888"></path><path marker-end="url(#mermaid-1783857484272_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-C LE-D" id="L-C-D-0" d="M93.609,211.281L93.609,215.448C93.609,219.615,93.609,227.948,93.609,235.398C93.609,242.848,93.609,249.415,93.609,252.698L93.609,255.981"></path><path marker-end="url(#mermaid-1783857484272_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-D LE-E" id="L-D-E-0" d="M93.609,298.375L93.609,302.542C93.609,306.708,93.609,315.042,93.609,322.492C93.609,329.942,93.609,336.508,93.609,339.792L93.609,343.075"></path><path marker-end="url(#mermaid-1783857484272_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-B LE-F" id="L-B-F-0" d="M279.581,124.188L292.061,128.354C304.54,132.521,329.499,140.854,341.978,152.279C354.457,163.703,354.457,178.219,354.457,192.734C354.457,207.25,354.457,221.766,354.457,232.307C354.457,242.848,354.457,249.415,354.457,252.698L354.457,255.981"></path><path marker-end="url(#mermaid-1783857484272_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-F LE-G" id="L-F-G-0" d="M354.457,298.375L354.457,302.542C354.457,306.708,354.457,315.042,354.457,322.492C354.457,329.942,354.457,336.508,354.457,339.792L354.457,343.075"></path><path marker-end="url(#mermaid-1783857484272_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-E LE-H" id="L-E-H-0" d="M93.609,385.469L93.609,389.635C93.609,393.802,93.609,402.135,105.251,410.189C116.892,418.243,140.175,426.016,151.816,429.903L163.458,433.79"></path><path marker-end="url(#mermaid-1783857484272_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-G LE-H" id="L-G-H-0" d="M354.457,385.469L354.457,389.635C354.457,393.802,354.457,402.135,342.816,410.189C331.174,418.243,307.891,426.016,296.25,429.903L284.609,433.79"></path></g><g class="edgeLabels"><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g></g><g class="nodes"><g transform="translate(224.033203125, 18.546875)" data-id="A" data-node="true" id="flowchart-A-72" class="node default default flowchart-label"><rect height="37.09375" width="118.1640625" y="-18.546875" x="-59.08203125" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-51.58203125, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="103.1640625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">1. 解析 PP Layout</span></div></foreignobject></g></g><g transform="translate(224.033203125, 105.640625)" data-id="B" data-node="true" id="flowchart-B-73" class="node default default flowchart-label"><rect height="37.09375" width="187.515625" y="-18.546875" x="-93.7578125" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-86.2578125, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="172.515625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">2. 确定每个 PP rank 的层组成</span></div></foreignobject></g></g><g transform="translate(93.609375, 192.734375)" data-id="C" data-node="true" id="flowchart-C-75" class="node default default flowchart-label"><rect height="37.09375" width="187.21875" y="-18.546875" x="-93.609375" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-86.109375, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="172.21875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">3. 计算每模块 num_elements</span></div></foreignobject></g></g><g transform="translate(93.609375, 279.828125)" data-id="D" data-node="true" id="flowchart-D-77" class="node default default flowchart-label"><rect height="37.09375" width="185.59375" y="-18.546875" x="-92.796875" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-85.296875, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="170.59375"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">4. getModuleMemory × 层数</span></div></foreignobject></g></g><g transform="translate(93.609375, 366.921875)" data-id="E" data-node="true" id="flowchart-E-79" class="node default default flowchart-label"><rect height="37.09375" width="172.8828125" y="-18.546875" x="-86.44140625" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-78.94140625, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="157.8828125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">5. 累加所有模块的静态显存</span></div></foreignobject></g></g><g transform="translate(354.45703125, 279.828125)" data-id="F" data-node="true" id="flowchart-F-81" class="node default default flowchart-label"><rect height="37.09375" width="145.8203125" y="-18.546875" x="-72.91015625" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-65.41015625, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="130.8203125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">6. 计算每层 Activation</span></div></foreignobject></g></g><g transform="translate(354.45703125, 366.921875)" data-id="G" data-node="true" id="flowchart-G-83" class="node default default flowchart-label"><rect height="37.09375" width="248.8125" y="-18.546875" x="-124.40625" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-116.90625, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="233.8125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">7. 各层 Activation × VPP + OutputLayer</span></div></foreignobject></g></g><g transform="translate(224.033203125, 454.015625)" data-id="H" data-node="true" id="flowchart-H-85" class="node default default flowchart-label"><rect height="37.09375" width="242.6875" y="-18.546875" x="-121.34375" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-113.84375, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="227.6875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">8. 总显存 = 静态 + 动态 + NCCL buffer</span></div></foreignobject></g></g></g></g></g></svg></div>
+
+    <h3>10.2 汇总公式</h3>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># 静态显存 (每个 PP rank)</span>
+static_memory = <span class="hljs-built_in">sum</span>(
+    getModuleMemory(chunk_layers * module_params, elem_size, shard_size, fp8_cache)
+    <span class="hljs-keyword">for</span> module <span class="hljs-keyword">in</span> [Embedding, QKV, Out, Gate, SharedFC1, ExpertFC1,
+                   SharedFC2, ExpertFC2, DenseFC1, DenseFC2, OutputLayer]
+)
+
+<span class="hljs-comment"># 动态显存 (每个 PP rank)</span>
+per_moe_layer = (pre_attn_ln + linear_qkv + Q + K + V + O
+    + pre_mlp_ln + gate
+    + shared_clamp + shared_act + shared_fc2
+    + moe_fc1 + moe_clamp + moe_act + moe_fc2)
+
+per_dense_layer = (pre_attn_ln + linear_qkv + Q + K + V + O
+    + pre_mlp_ln
+    + dense_fc1 + dense_clamp + dense_act + dense_fc2)
+
+dynamic_memory = (num_moe_layers * per_moe_layer
+    + num_dense_layers * per_dense_layer) * VPP
+    + output_layer_act
+
+<span class="hljs-comment"># 总显存</span>
+total_gpu_memory = static_memory + dynamic_memory + nccl_buffer</code></pre>
+
+    <h3>10.3 源码中的等价公式</h3>
+    <p><code>theoretical_memory_usage.py</code> 提供简化版公式作为参照：</p>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># 权重 + 优化器</span>
+weight_and_optimizer = num_params_on_shard * bytes_per_param
+<span class="hljs-comment"># 其中 bytes_per_param = 18 (无分布式优化器) 或 6 + 12/DP (有分布式优化器)</span>
+
+<span class="hljs-comment"># Activation (每层)</span>
+activation_per_layer = seq_len * mbs * hidden * (<span class="hljs-number">18</span> + <span class="hljs-number">4</span> * (ffn / hidden))
+<span class="hljs-comment"># 18 包括: layernorm(2) + QKV(2) + Q(2) + K(2) + V(2) + O(2) + proj(2) + mlp_ln(2) + fc1(2)</span>
+<span class="hljs-comment"># 4*(ffn/hidden) 包括: clamp(1) + activation(2) + fc2(1) 按 ffn 缩放</span>
+
+<span class="hljs-comment"># VPP penalty</span>
+activation *= <span class="hljs-number">1</span> + (PP - <span class="hljs-number">1</span>) / (PP * VPP)</code></pre>
+
+    <h3>10.4 计算器 vs 源码的差异</h3>
+    <table>
+      <thead><tr><th>维度</th><th>计算器</th><th>源码 (theoretical_memory_usage.py)</th></tr></thead>
+      <tbody>
+        <tr><td>精度</td><td><code>intDiv</code> 整数除法，匹配实际 tensor shape</td><td>浮点除法</td></tr>
+        <tr><td>优化器</td><td>逐模块 <code>sharded_param + optimizer_state</code></td><td><code>18</code> 或 <code>6 + 12/DP</code> 整体估算</td></tr>
+        <tr><td>MoE/Dense 区分</td><td>分别计算，支持混合 PP layout</td><td>不区分 MoE/Dense 层</td></tr>
+        <tr><td>VPP 乘数</td><td><code>VPP</code>（保守上界）</td><td><code>1 + (PP-1)/(PP*VPP)</code>（更精确）</td></tr>
+        <tr><td>FP8 支持</td><td>区分 <code>linear_bytes</code>, <code>fp8_cache</code></td><td>不支持 FP8</td></tr>
+        <tr><td>MoE 重计算</td><td>可选去除 <code>clamp + activation + fc2</code></td><td>不支持</td></tr>
+        <tr><td>ViT</td><td>独立计算 ViT + Projector</td><td>不支持</td></tr>
+        <tr><td>Cross-Entropy</td><td><code>vocab * 2 * 3</code> 近似</td><td><code>hidden * 4 * (1 + vocab/hidden)</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+</div><!-- /main-content -->
+</div><!-- /page-body -->
+
+<footer><p>Megatron-LM 源码精读 · 基于 NVIDIA Megatron-LM 代码库</p></footer>
+<script>hljs.highlightAll();</script>
+<script src="./Megatron-LM GPU 显存计算逻辑详解_files/update-checker.js"></script>
+
+
+<div class="mermaidTooltip" style="opacity: 0;"></div></body></html>

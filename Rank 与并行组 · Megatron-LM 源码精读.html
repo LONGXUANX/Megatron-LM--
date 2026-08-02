@@ -1,0 +1,1581 @@
+<!DOCTYPE html>
+<!-- saved from url=(0089)https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/rank_and_parallel_groups.html -->
+<html lang="zh-CN"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rank 与并行组 · Megatron-LM 源码精读</title>
+<link rel="stylesheet" href="./Rank 与并行组 · Megatron-LM 源码精读_files/github-dark.min.css">
+<link rel="stylesheet" href="./Rank 与并行组 · Megatron-LM 源码精读_files/style.css">
+<script src="./Rank 与并行组 · Megatron-LM 源码精读_files/highlight.min.js"></script>
+<script src="./Rank 与并行组 · Megatron-LM 源码精读_files/highlight-python.min.js"></script>
+<script>
+MathJax = {
+  tex: { inlineMath: [['\\(','\\)']], displayMath: [['$$','$$']] },
+  svg: { fontCache: 'global' }
+};
+</script>
+<script src="./Rank 与并行组 · Megatron-LM 源码精读_files/tex-chtml.js" async="" defer=""></script>
+<script src="./Rank 与并行组 · Megatron-LM 源码精读_files/mermaid.min.js"></script><style type="text/css">.CtxtMenu_InfoClose {  top:.2em; right:.2em;}
+.CtxtMenu_InfoContent {  overflow:auto; text-align:left; font-size:80%;  padding:.4em .6em; border:1px inset; margin:1em 0px;  max-height:20em; max-width:30em; background-color:#EEEEEE;  white-space:normal;}
+.CtxtMenu_Info.CtxtMenu_MousePost {outline:none;}
+.CtxtMenu_Info {  position:fixed; left:50%; width:auto; text-align:center;  border:3px outset; padding:1em 2em; background-color:#DDDDDD;  color:black;  cursor:default; font-family:message-box; font-size:120%;  font-style:normal; text-indent:0; text-transform:none;  line-height:normal; letter-spacing:normal; word-spacing:normal;  word-wrap:normal; white-space:nowrap; float:none; z-index:201;  border-radius: 15px;                     /* Opera 10.5 and IE9 */  -webkit-border-radius:15px;               /* Safari and Chrome */  -moz-border-radius:15px;                  /* Firefox */  -khtml-border-radius:15px;                /* Konqueror */  box-shadow:0px 10px 20px #808080;         /* Opera 10.5 and IE9 */  -webkit-box-shadow:0px 10px 20px #808080; /* Safari 3 & Chrome */  -moz-box-shadow:0px 10px 20px #808080;    /* Forefox 3.5 */  -khtml-box-shadow:0px 10px 20px #808080;  /* Konqueror */  filter:progid:DXImageTransform.Microsoft.dropshadow(OffX=2, OffY=2, Color="gray", Positive="true"); /* IE */}
+</style><style type="text/css">.CtxtMenu_MenuClose {  position:absolute;  cursor:pointer;  display:inline-block;  border:2px solid #AAA;  border-radius:18px;  -webkit-border-radius: 18px;             /* Safari and Chrome */  -moz-border-radius: 18px;                /* Firefox */  -khtml-border-radius: 18px;              /* Konqueror */  font-family: "Courier New", Courier;  font-size:24px;  color:#F0F0F0}
+.CtxtMenu_MenuClose span {  display:block; background-color:#AAA; border:1.5px solid;  border-radius:18px;  -webkit-border-radius: 18px;             /* Safari and Chrome */  -moz-border-radius: 18px;                /* Firefox */  -khtml-border-radius: 18px;              /* Konqueror */  line-height:0;  padding:8px 0 6px     /* may need to be browser-specific */}
+.CtxtMenu_MenuClose:hover {  color:white!important;  border:2px solid #CCC!important}
+.CtxtMenu_MenuClose:hover span {  background-color:#CCC!important}
+.CtxtMenu_MenuClose:hover:focus {  outline:none}
+</style><style type="text/css">.CtxtMenu_Menu {  position:absolute;  background-color:white;  color:black;  width:auto; padding:5px 0px;  border:1px solid #CCCCCC; margin:0; cursor:default;  font: menu; text-align:left; text-indent:0; text-transform:none;  line-height:normal; letter-spacing:normal; word-spacing:normal;  word-wrap:normal; white-space:nowrap; float:none; z-index:201;  border-radius: 5px;                     /* Opera 10.5 and IE9 */  -webkit-border-radius: 5px;             /* Safari and Chrome */  -moz-border-radius: 5px;                /* Firefox */  -khtml-border-radius: 5px;              /* Konqueror */  box-shadow:0px 10px 20px #808080;         /* Opera 10.5 and IE9 */  -webkit-box-shadow:0px 10px 20px #808080; /* Safari 3 & Chrome */  -moz-box-shadow:0px 10px 20px #808080;    /* Forefox 3.5 */  -khtml-box-shadow:0px 10px 20px #808080;  /* Konqueror */}
+.CtxtMenu_MenuItem {  padding: 1px 2em;  background:transparent;}
+.CtxtMenu_MenuArrow {  position:absolute; right:.5em; padding-top:.25em; color:#666666;  font-family: null; font-size: .75em}
+.CtxtMenu_MenuActive .CtxtMenu_MenuArrow {color:white}
+.CtxtMenu_MenuArrow.CtxtMenu_RTL {left:.5em; right:auto}
+.CtxtMenu_MenuCheck {  position:absolute; left:.7em;  font-family: null}
+.CtxtMenu_MenuCheck.CtxtMenu_RTL { right:.7em; left:auto }
+.CtxtMenu_MenuRadioCheck {  position:absolute; left: .7em;}
+.CtxtMenu_MenuRadioCheck.CtxtMenu_RTL {  right: .7em; left:auto}
+.CtxtMenu_MenuInputBox {  padding-left: 1em; right:.5em; color:#666666;  font-family: null;}
+.CtxtMenu_MenuInputBox.CtxtMenu_RTL {  left: .1em;}
+.CtxtMenu_MenuComboBox {  left:.1em; padding-bottom:.5em;}
+.CtxtMenu_MenuSlider {  left: .1em;}
+.CtxtMenu_SliderValue {  position:absolute; right:.1em; padding-top:.25em; color:#333333;  font-size: .75em}
+.CtxtMenu_SliderBar {  outline: none; background: #d3d3d3}
+.CtxtMenu_MenuLabel {  padding: 1px 2em 3px 1.33em;  font-style:italic}
+.CtxtMenu_MenuRule {  border-top: 1px solid #DDDDDD;  margin: 4px 3px;}
+.CtxtMenu_MenuDisabled {  color:GrayText}
+.CtxtMenu_MenuActive {  background-color: #606872;  color: white;}
+.CtxtMenu_MenuDisabled:focus {  background-color: #E8E8E8}
+.CtxtMenu_MenuLabel:focus {  background-color: #E8E8E8}
+.CtxtMenu_ContextMenu:focus {  outline:none}
+.CtxtMenu_ContextMenu .CtxtMenu_MenuItem:focus {  outline:none}
+.CtxtMenu_SelectionMenu {  position:relative; float:left;  border-bottom: none; -webkit-box-shadow:none; -webkit-border-radius:0px; }
+.CtxtMenu_SelectionItem {  padding-right: 1em;}
+.CtxtMenu_Selection {  right: 40%; width:50%; }
+.CtxtMenu_SelectionBox {  padding: 0em; max-height:20em; max-width: none;  background-color:#FFFFFF;}
+.CtxtMenu_SelectionDivider {  clear: both; border-top: 2px solid #000000;}
+.CtxtMenu_Menu .CtxtMenu_MenuClose {  top:-10px; left:-10px}
+</style>
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      darkMode: true,
+      background: '#1c2129',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
+      fontSize: '13px',
+      primaryColor: '#1f2937',
+      primaryTextColor: '#e6edf3',
+      primaryBorderColor: '#30363d',
+      lineColor: '#58a6ff',
+      secondaryColor: '#161b22',
+      tertiaryColor: '#0d1117',
+      mainBkg: '#161b22',
+      nodeBorder: '#30363d',
+      clusterBkg: 'rgba(88,166,255,0.05)',
+      clusterBorder: '#30363d',
+      titleColor: '#e6edf3',
+      edgeLabelBackground: '#1c2129',
+      nodeTextColor: '#e6edf3'
+    }
+  });
+</script>
+<style id="MJX-CHTML-styles">
+mjx-container[jax="CHTML"] {
+  line-height: 0;
+}
+
+mjx-container [space="1"] {
+  margin-left: .111em;
+}
+
+mjx-container [space="2"] {
+  margin-left: .167em;
+}
+
+mjx-container [space="3"] {
+  margin-left: .222em;
+}
+
+mjx-container [space="4"] {
+  margin-left: .278em;
+}
+
+mjx-container [space="5"] {
+  margin-left: .333em;
+}
+
+mjx-container [rspace="1"] {
+  margin-right: .111em;
+}
+
+mjx-container [rspace="2"] {
+  margin-right: .167em;
+}
+
+mjx-container [rspace="3"] {
+  margin-right: .222em;
+}
+
+mjx-container [rspace="4"] {
+  margin-right: .278em;
+}
+
+mjx-container [rspace="5"] {
+  margin-right: .333em;
+}
+
+mjx-container [size="s"] {
+  font-size: 70.7%;
+}
+
+mjx-container [size="ss"] {
+  font-size: 50%;
+}
+
+mjx-container [size="Tn"] {
+  font-size: 60%;
+}
+
+mjx-container [size="sm"] {
+  font-size: 85%;
+}
+
+mjx-container [size="lg"] {
+  font-size: 120%;
+}
+
+mjx-container [size="Lg"] {
+  font-size: 144%;
+}
+
+mjx-container [size="LG"] {
+  font-size: 173%;
+}
+
+mjx-container [size="hg"] {
+  font-size: 207%;
+}
+
+mjx-container [size="HG"] {
+  font-size: 249%;
+}
+
+mjx-container [width="full"] {
+  width: 100%;
+}
+
+mjx-box {
+  display: inline-block;
+}
+
+mjx-block {
+  display: block;
+}
+
+mjx-itable {
+  display: inline-table;
+}
+
+mjx-row {
+  display: table-row;
+}
+
+mjx-row > * {
+  display: table-cell;
+}
+
+mjx-mtext {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-mstyle {
+  display: inline-block;
+}
+
+mjx-merror {
+  display: inline-block;
+  color: red;
+  background-color: yellow;
+}
+
+mjx-mphantom {
+  visibility: hidden;
+}
+
+_::-webkit-full-page-media, _:future, :root mjx-container {
+  will-change: opacity;
+}
+
+mjx-assistive-mml {
+  position: absolute !important;
+  top: 0px;
+  left: 0px;
+  clip: rect(1px, 1px, 1px, 1px);
+  padding: 1px 0px 0px 0px !important;
+  border: 0px !important;
+  display: block !important;
+  width: auto !important;
+  overflow: hidden !important;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+mjx-assistive-mml[display="block"] {
+  width: 100% !important;
+}
+
+mjx-math {
+  display: inline-block;
+  text-align: left;
+  line-height: 0;
+  text-indent: 0;
+  font-style: normal;
+  font-weight: normal;
+  font-size: 100%;
+  font-size-adjust: none;
+  letter-spacing: normal;
+  border-collapse: collapse;
+  word-wrap: normal;
+  word-spacing: normal;
+  white-space: nowrap;
+  direction: ltr;
+  padding: 1px 0;
+}
+
+mjx-container[jax="CHTML"][display="true"] {
+  display: block;
+  text-align: center;
+  margin: 1em 0;
+}
+
+mjx-container[jax="CHTML"][display="true"][width="full"] {
+  display: flex;
+}
+
+mjx-container[jax="CHTML"][display="true"] mjx-math {
+  padding: 0;
+}
+
+mjx-container[jax="CHTML"][justify="left"] {
+  text-align: left;
+}
+
+mjx-container[jax="CHTML"][justify="right"] {
+  text-align: right;
+}
+
+mjx-mi {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-c {
+  display: inline-block;
+}
+
+mjx-utext {
+  display: inline-block;
+  padding: .75em 0 .2em 0;
+}
+
+mjx-mo {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-stretchy-h {
+  display: inline-table;
+  width: 100%;
+}
+
+mjx-stretchy-h > * {
+  display: table-cell;
+  width: 0;
+}
+
+mjx-stretchy-h > * > mjx-c {
+  display: inline-block;
+  transform: scalex(1.0000001);
+}
+
+mjx-stretchy-h > * > mjx-c::before {
+  display: inline-block;
+  width: initial;
+}
+
+mjx-stretchy-h > mjx-ext {
+  /* IE */ overflow: hidden;
+  /* others */ overflow: clip visible;
+  width: 100%;
+}
+
+mjx-stretchy-h > mjx-ext > mjx-c::before {
+  transform: scalex(500);
+}
+
+mjx-stretchy-h > mjx-ext > mjx-c {
+  width: 0;
+}
+
+mjx-stretchy-h > mjx-beg > mjx-c {
+  margin-right: -.1em;
+}
+
+mjx-stretchy-h > mjx-end > mjx-c {
+  margin-left: -.1em;
+}
+
+mjx-stretchy-v {
+  display: inline-block;
+}
+
+mjx-stretchy-v > * {
+  display: block;
+}
+
+mjx-stretchy-v > mjx-beg {
+  height: 0;
+}
+
+mjx-stretchy-v > mjx-end > mjx-c {
+  display: block;
+}
+
+mjx-stretchy-v > * > mjx-c {
+  transform: scaley(1.0000001);
+  transform-origin: left center;
+  overflow: hidden;
+}
+
+mjx-stretchy-v > mjx-ext {
+  display: block;
+  height: 100%;
+  box-sizing: border-box;
+  border: 0px solid transparent;
+  /* IE */ overflow: hidden;
+  /* others */ overflow: visible clip;
+}
+
+mjx-stretchy-v > mjx-ext > mjx-c::before {
+  width: initial;
+  box-sizing: border-box;
+}
+
+mjx-stretchy-v > mjx-ext > mjx-c {
+  transform: scaleY(500) translateY(.075em);
+  overflow: visible;
+}
+
+mjx-mark {
+  display: inline-block;
+  height: 0px;
+}
+
+mjx-mn {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-mrow {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-mtable {
+  display: inline-block;
+  text-align: center;
+  vertical-align: .25em;
+  position: relative;
+  box-sizing: border-box;
+  border-spacing: 0;
+  border-collapse: collapse;
+}
+
+mjx-mstyle[size="s"] mjx-mtable {
+  vertical-align: .354em;
+}
+
+mjx-labels {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+
+mjx-table {
+  display: inline-block;
+  vertical-align: -.5ex;
+  box-sizing: border-box;
+}
+
+mjx-table > mjx-itable {
+  vertical-align: middle;
+  text-align: left;
+  box-sizing: border-box;
+}
+
+mjx-labels > mjx-itable {
+  position: absolute;
+  top: 0;
+}
+
+mjx-mtable[justify="left"] {
+  text-align: left;
+}
+
+mjx-mtable[justify="right"] {
+  text-align: right;
+}
+
+mjx-mtable[justify="left"][side="left"] {
+  padding-right: 0 ! important;
+}
+
+mjx-mtable[justify="left"][side="right"] {
+  padding-left: 0 ! important;
+}
+
+mjx-mtable[justify="right"][side="left"] {
+  padding-right: 0 ! important;
+}
+
+mjx-mtable[justify="right"][side="right"] {
+  padding-left: 0 ! important;
+}
+
+mjx-mtable[align] {
+  vertical-align: baseline;
+}
+
+mjx-mtable[align="top"] > mjx-table {
+  vertical-align: top;
+}
+
+mjx-mtable[align="bottom"] > mjx-table {
+  vertical-align: bottom;
+}
+
+mjx-mtable[side="right"] mjx-labels {
+  min-width: 100%;
+}
+
+mjx-mtr {
+  display: table-row;
+  text-align: left;
+}
+
+mjx-mtr[rowalign="top"] > mjx-mtd {
+  vertical-align: top;
+}
+
+mjx-mtr[rowalign="center"] > mjx-mtd {
+  vertical-align: middle;
+}
+
+mjx-mtr[rowalign="bottom"] > mjx-mtd {
+  vertical-align: bottom;
+}
+
+mjx-mtr[rowalign="baseline"] > mjx-mtd {
+  vertical-align: baseline;
+}
+
+mjx-mtr[rowalign="axis"] > mjx-mtd {
+  vertical-align: .25em;
+}
+
+mjx-mtd {
+  display: table-cell;
+  text-align: center;
+  padding: .215em .4em;
+}
+
+mjx-mtd:first-child {
+  padding-left: 0;
+}
+
+mjx-mtd:last-child {
+  padding-right: 0;
+}
+
+mjx-mtable > * > mjx-itable > *:first-child > mjx-mtd {
+  padding-top: 0;
+}
+
+mjx-mtable > * > mjx-itable > *:last-child > mjx-mtd {
+  padding-bottom: 0;
+}
+
+mjx-tstrut {
+  display: inline-block;
+  height: 1em;
+  vertical-align: -.25em;
+}
+
+mjx-labels[align="left"] > mjx-mtr > mjx-mtd {
+  text-align: left;
+}
+
+mjx-labels[align="right"] > mjx-mtr > mjx-mtd {
+  text-align: right;
+}
+
+mjx-mtd[extra] {
+  padding: 0;
+}
+
+mjx-mtd[rowalign="top"] {
+  vertical-align: top;
+}
+
+mjx-mtd[rowalign="center"] {
+  vertical-align: middle;
+}
+
+mjx-mtd[rowalign="bottom"] {
+  vertical-align: bottom;
+}
+
+mjx-mtd[rowalign="baseline"] {
+  vertical-align: baseline;
+}
+
+mjx-mtd[rowalign="axis"] {
+  vertical-align: .25em;
+}
+
+mjx-msub {
+  display: inline-block;
+  text-align: left;
+}
+
+mjx-c::before {
+  display: block;
+  width: 0;
+}
+
+.MJX-TEX {
+  font-family: MJXZERO, MJXTEX;
+}
+
+.TEX-B {
+  font-family: MJXZERO, MJXTEX-B;
+}
+
+.TEX-I {
+  font-family: MJXZERO, MJXTEX-I;
+}
+
+.TEX-MI {
+  font-family: MJXZERO, MJXTEX-MI;
+}
+
+.TEX-BI {
+  font-family: MJXZERO, MJXTEX-BI;
+}
+
+.TEX-S1 {
+  font-family: MJXZERO, MJXTEX-S1;
+}
+
+.TEX-S2 {
+  font-family: MJXZERO, MJXTEX-S2;
+}
+
+.TEX-S3 {
+  font-family: MJXZERO, MJXTEX-S3;
+}
+
+.TEX-S4 {
+  font-family: MJXZERO, MJXTEX-S4;
+}
+
+.TEX-A {
+  font-family: MJXZERO, MJXTEX-A;
+}
+
+.TEX-C {
+  font-family: MJXZERO, MJXTEX-C;
+}
+
+.TEX-CB {
+  font-family: MJXZERO, MJXTEX-CB;
+}
+
+.TEX-FR {
+  font-family: MJXZERO, MJXTEX-FR;
+}
+
+.TEX-FRB {
+  font-family: MJXZERO, MJXTEX-FRB;
+}
+
+.TEX-SS {
+  font-family: MJXZERO, MJXTEX-SS;
+}
+
+.TEX-SSB {
+  font-family: MJXZERO, MJXTEX-SSB;
+}
+
+.TEX-SSI {
+  font-family: MJXZERO, MJXTEX-SSI;
+}
+
+.TEX-SC {
+  font-family: MJXZERO, MJXTEX-SC;
+}
+
+.TEX-T {
+  font-family: MJXZERO, MJXTEX-T;
+}
+
+.TEX-V {
+  font-family: MJXZERO, MJXTEX-V;
+}
+
+.TEX-VB {
+  font-family: MJXZERO, MJXTEX-VB;
+}
+
+mjx-stretchy-v mjx-c, mjx-stretchy-h mjx-c {
+  font-family: MJXZERO, MJXTEX-S1, MJXTEX-S4, MJXTEX, MJXTEX-A ! important;
+}
+
+@font-face /* 0 */ {
+  font-family: MJXZERO;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Zero.woff") format("woff");
+}
+
+@font-face /* 1 */ {
+  font-family: MJXTEX;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Main-Regular.woff") format("woff");
+}
+
+@font-face /* 2 */ {
+  font-family: MJXTEX-B;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Main-Bold.woff") format("woff");
+}
+
+@font-face /* 3 */ {
+  font-family: MJXTEX-I;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Math-Italic.woff") format("woff");
+}
+
+@font-face /* 4 */ {
+  font-family: MJXTEX-MI;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Main-Italic.woff") format("woff");
+}
+
+@font-face /* 5 */ {
+  font-family: MJXTEX-BI;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Math-BoldItalic.woff") format("woff");
+}
+
+@font-face /* 6 */ {
+  font-family: MJXTEX-S1;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Size1-Regular.woff") format("woff");
+}
+
+@font-face /* 7 */ {
+  font-family: MJXTEX-S2;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Size2-Regular.woff") format("woff");
+}
+
+@font-face /* 8 */ {
+  font-family: MJXTEX-S3;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Size3-Regular.woff") format("woff");
+}
+
+@font-face /* 9 */ {
+  font-family: MJXTEX-S4;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Size4-Regular.woff") format("woff");
+}
+
+@font-face /* 10 */ {
+  font-family: MJXTEX-A;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_AMS-Regular.woff") format("woff");
+}
+
+@font-face /* 11 */ {
+  font-family: MJXTEX-C;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Calligraphic-Regular.woff") format("woff");
+}
+
+@font-face /* 12 */ {
+  font-family: MJXTEX-CB;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Calligraphic-Bold.woff") format("woff");
+}
+
+@font-face /* 13 */ {
+  font-family: MJXTEX-FR;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Fraktur-Regular.woff") format("woff");
+}
+
+@font-face /* 14 */ {
+  font-family: MJXTEX-FRB;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Fraktur-Bold.woff") format("woff");
+}
+
+@font-face /* 15 */ {
+  font-family: MJXTEX-SS;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_SansSerif-Regular.woff") format("woff");
+}
+
+@font-face /* 16 */ {
+  font-family: MJXTEX-SSB;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_SansSerif-Bold.woff") format("woff");
+}
+
+@font-face /* 17 */ {
+  font-family: MJXTEX-SSI;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_SansSerif-Italic.woff") format("woff");
+}
+
+@font-face /* 18 */ {
+  font-family: MJXTEX-SC;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Script-Regular.woff") format("woff");
+}
+
+@font-face /* 19 */ {
+  font-family: MJXTEX-T;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Typewriter-Regular.woff") format("woff");
+}
+
+@font-face /* 20 */ {
+  font-family: MJXTEX-V;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Vector-Regular.woff") format("woff");
+}
+
+@font-face /* 21 */ {
+  font-family: MJXTEX-VB;
+  src: url("https://cdn.jsdelivr.net/npm/mathjax@3/es5/output/chtml/fonts/woff-v2/MathJax_Vector-Bold.woff") format("woff");
+}
+
+mjx-c.mjx-c1D44C.TEX-I::before {
+  padding: 0.683em 0.763em 0 0;
+  content: "Y";
+}
+
+mjx-c.mjx-c3D::before {
+  padding: 0.583em 0.778em 0.082em 0;
+  content: "=";
+}
+
+mjx-c.mjx-c1D44B.TEX-I::before {
+  padding: 0.683em 0.852em 0 0;
+  content: "X";
+}
+
+mjx-c.mjx-cD7::before {
+  padding: 0.491em 0.778em 0 0;
+  content: "\D7";
+}
+
+mjx-c.mjx-c1D44A.TEX-I::before {
+  padding: 0.683em 1.048em 0.022em 0;
+  content: "W";
+}
+
+mjx-c.mjx-c5B::before {
+  padding: 0.75em 0.278em 0.25em 0;
+  content: "[";
+}
+
+mjx-c.mjx-c31::before {
+  padding: 0.666em 0.5em 0 0;
+  content: "1";
+}
+
+mjx-c.mjx-c2C::before {
+  padding: 0.121em 0.278em 0.194em 0;
+  content: ",";
+}
+
+mjx-c.mjx-c32::before {
+  padding: 0.666em 0.5em 0 0;
+  content: "2";
+}
+
+mjx-c.mjx-c33::before {
+  padding: 0.665em 0.5em 0.022em 0;
+  content: "3";
+}
+
+mjx-c.mjx-c34::before {
+  padding: 0.677em 0.5em 0 0;
+  content: "4";
+}
+
+mjx-c.mjx-c5D::before {
+  padding: 0.75em 0.278em 0.25em 0;
+  content: "]";
+}
+
+mjx-c.mjx-c30::before {
+  padding: 0.666em 0.5em 0.022em 0;
+  content: "0";
+}
+
+mjx-c.mjx-c37::before {
+  padding: 0.676em 0.5em 0.022em 0;
+  content: "7";
+}
+
+mjx-c.mjx-c22C5::before {
+  padding: 0.31em 0.278em 0 0;
+  content: "\22C5";
+}
+
+mjx-c.mjx-c5B.TEX-S3::before {
+  padding: 1.45em 0.528em 0.949em 0;
+  content: "[";
+}
+
+mjx-c.mjx-c5D.TEX-S3::before {
+  padding: 1.45em 0.528em 0.949em 0;
+  content: "]";
+}
+
+mjx-c.mjx-c2B::before {
+  padding: 0.583em 0.778em 0.082em 0;
+  content: "+";
+}
+</style></head>
+<body>
+
+<!-- ==================== HERO ==================== -->
+<div class="hero">
+  <div class="container">
+    <h1>Rank 与<span class="file">并行组</span></h1>
+    <p class="subtitle">理解 Megatron-LM 如何将 GPU 编号映射到多维并行网格</p>
+    <div class="meta">
+      <span>parallel_state.py</span>
+      <span>补充资料</span>
+      <span>TP / PP / DP / CP / EP</span>
+    </div>
+  </div>
+</div>
+
+<div class="page-body">
+
+<!-- ==================== TOC ==================== -->
+<aside class="toc-sidebar">
+<nav class="toc">
+  <div id="global-nav"><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/index.html" class="toc-home">← 文档目录</a>
+<div class="toc-group">入口</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/entry/pretrain_gpt.html" class="toc-doc">pretrain_gpt.py</a>
+<div class="toc-group">基础设施</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/pretrain_and_setup.html" class="toc-doc">初始化篇</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/training_loop.html" class="toc-doc">训练循环篇</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/memory_calculator.html" class="toc-doc">GPU 显存计算</a>
+<div class="toc-group">并行策略</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/rank_and_parallel_groups.html" class="toc-doc active">Rank 与并行组</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/collective_operations.html" class="toc-doc">集合通信操作</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/tensor_parallel.html" class="toc-doc">Tensor Parallelism</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/pipeline_parallel.html" class="toc-doc">Pipeline Parallelism</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/schedules_deep_dive.html" class="toc-doc">Schedule 深度精读</a>
+<div class="toc-group">模型架构</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/transformer_architecture.html" class="toc-doc">GPT 模型架构</a>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/model/moe_layer.html" class="toc-doc">MoE 层与 EP</a>
+<div class="toc-group">数据</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/data/vpp_data_iterator.html" class="toc-doc">VPP 数据迭代器</a>
+<div class="toc-group">优化器</div>
+<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/optimizer/distrib_optimizer.html" class="toc-doc">分布式优化器</a>
+</div>
+  <script src="./Rank 与并行组 · Megatron-LM 源码精读_files/nav.js"></script>
+      <div class="toc-divider"></div>
+    <h2>本文目录</h2>
+  <ol>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/rank_and_parallel_groups.html#what-is-rank">什么是 Rank</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/rank_and_parallel_groups.html#rank-formula">Rank 映射公式</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/rank_and_parallel_groups.html#example">具体示例</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/rank_and_parallel_groups.html#why-this-order">为什么这么排</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/rank_and_parallel_groups.html#cp-ep">CP 与 EP</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/rank_and_parallel_groups.html#rank-generator">RankGenerator</a></li>
+    <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/rank_and_parallel_groups.html#summary">总结</a></li>
+  </ol>
+</nav>
+</aside>
+
+<!-- ==================== Main Content ==================== -->
+<div class="main-content">
+
+<!-- ==================== 1. What is Rank ==================== -->
+<section id="what-is-rank">
+  <div class="section-header">
+    <span class="section-num">01</span>
+    <h2>什么是 Rank</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">parallel_state.py</span>
+    <span class="tag tag-green">基础概念</span>
+  </div>
+
+  <div class="prose">
+    <p><strong>Rank 就是每个 GPU 进程的全局编号</strong>。启动分布式训练时，每个 GPU 运行一个独立进程，<code>torch.distributed</code> 给每个进程分配唯一整数 ID，从 0 到 <code>world_size - 1</code>。</p>
+    <p>但一个 GPU 同时参与多种并行（TP、PP、DP 等），在每种并行维度的通信组内，它又有自己的 <strong>local rank</strong>。</p>
+  </div>
+
+  <table class="data-table">
+    <thead>
+      <tr><th>概念</th><th>含义</th><th>例子</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Global Rank</strong></td>
+        <td>全局唯一编号，0 ~ world_size-1</td>
+        <td>16 卡中第 7 号 → rank=7</td>
+      </tr>
+      <tr>
+        <td><strong>Local Rank</strong></td>
+        <td>在某个通信组内的编号</td>
+        <td>TP 组 <code>[g4, g5]</code> 中，g5 的 tp_rank=1</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="prose">
+    <p>同一个 GPU（如 global rank=5）可以同时有 <code>tp_rank=1</code>、<code>pp_rank=0</code>、<code>dp_rank=1</code>。这些通信组内的 GPU 通过<strong>集合通信操作</strong>（AllReduce、AllGather 等）交换数据——具体操作详见 <a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/collective_operations.html" style="color:var(--accent)">集合通信操作详解</a>。</p>
+  </div>
+</section>
+
+<!-- ==================== 2. Rank Formula ==================== -->
+<section id="rank-formula">
+  <div class="section-header">
+    <span class="section-num">02</span>
+    <h2>Rank 映射公式</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">L282-286</span>
+    <span class="tag tag-purple">核心算法</span>
+  </div>
+
+  <div class="prose">
+    <p>Megatron 默认排列顺序为 <code>tp-cp-ep-dp-pp</code>，含义是 <strong>TP 变化最快（最内层），PP 变化最慢（最外层）</strong>。完整公式包含 5 个维度：</p>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>parallel_state.py — Rank 映射公式（完整 5 维）</span>
+      <span class="lines">L282-286</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># order = "tp-cp-ep-dp-pp"（默认）</span>
+global_rank = tp_rank
+            + cp_rank * tp
+            + ep_rank * tp * cp
+            + dp_rank * tp * cp * ep
+            + pp_rank * tp * cp * ep * dp
+
+<span class="hljs-comment"># 各维度取值范围：</span>
+<span class="hljs-comment">#   tp_rank ∈ [0, tp_size)     Tensor Parallelism</span>
+<span class="hljs-comment">#   cp_rank ∈ [0, cp_size)     Context Parallelism</span>
+<span class="hljs-comment">#   ep_rank ∈ [0, ep_size)     Expert Parallelism</span>
+<span class="hljs-comment">#   dp_rank ∈ [0, dp_size)     Data Parallelism</span>
+<span class="hljs-comment">#   pp_rank ∈ [0, pp_size)     Pipeline Parallelism</span>
+<span class="hljs-comment">#</span>
+<span class="hljs-comment"># 其中 world_size = tp × cp × ep × dp × pp</span></code></pre>
+  </div>
+
+  <div class="prose">
+    <p>这本质上是一个<strong>多维数组的线性索引</strong>：把 (tp, cp, ep, dp, pp) 五维坐标展开为一维整数。谁在最内层（步长=1），谁变化就最快、编号就最相邻。</p>
+    <p>在下面的示例中，我们先用 <strong>TP/DP/PP 三维</strong>建立直觉（cp=1, ep=1 时公式退化为三维），然后在<a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/rank_and_parallel_groups.html#cp-ep" style="color:var(--accent)">第 05 节</a>扩展到 CP 和 EP。</p>
+  </div>
+</section>
+
+<!-- ==================== 3. Example ==================== -->
+<section id="example">
+  <div class="section-header">
+    <span class="section-num">03</span>
+    <h2>具体示例：16 GPU, TP=2, PP=4, DP=2</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">L691-701</span>
+    <span class="tag tag-orange">代码注释示例</span>
+  </div>
+
+  <table class="arch-grid">
+    <thead>
+      <tr><th></th><th>PP stage 0</th><th>PP stage 1</th><th>PP stage 2</th><th>PP stage 3</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="row-label">DP=0</td>
+        <td><span class="gpu tp0">g0</span> <span class="gpu tp1">g1</span><span class="tp-label">← TP →</span></td>
+        <td><span class="gpu tp0">g4</span> <span class="gpu tp1">g5</span><span class="tp-label">← TP →</span></td>
+        <td><span class="gpu tp0">g8</span> <span class="gpu tp1">g9</span><span class="tp-label">← TP →</span></td>
+        <td><span class="gpu tp0">g12</span> <span class="gpu tp1">g13</span><span class="tp-label">← TP →</span></td>
+      </tr>
+      <tr>
+        <td class="row-label">DP=1</td>
+        <td><span class="gpu dp1-tp0">g2</span> <span class="gpu tp1">g3</span><span class="tp-label">← TP →</span></td>
+        <td><span class="gpu dp1-tp0">g6</span> <span class="gpu tp1">g7</span><span class="tp-label">← TP →</span></td>
+        <td><span class="gpu dp1-tp0">g10</span> <span class="gpu tp1">g11</span><span class="tp-label">← TP →</span></td>
+        <td><span class="gpu dp1-tp0">g14</span> <span class="gpu tp1">g15</span><span class="tp-label">← TP →</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="prose">
+    <p>由此生成三种通信组：</p>
+  </div>
+
+  <div class="diagram"><span class="hl">TP 组</span>（切分同一层的参数，通信量最大）
+[g0,g1]  [g2,g3]  [g4,g5]  [g6,g7]  [g8,g9]  [g10,g11]  [g12,g13]  [g14,g15]
+→ 相邻 rank 在同一 TP 组（步长=1）
+
+<span class="hl">PP 组</span>（组成流水线，通信量小）
+[g0,g4,g8,g12]  [g1,g5,g9,g13]  [g2,g6,g10,g14]  [g3,g7,g11,g15]
+→ 步长 = tp_size × dp_size = 4
+
+<span class="hl">DP 组</span>（相同模型处理不同数据，梯度同步）
+[g0,g2]  [g1,g3]  [g4,g6]  [g5,g7]  [g8,g10]  [g9,g11]  [g12,g14]  [g13,g15]
+→ 步长 = tp_size = 2</div>
+
+  <div class="callout callout-info">
+    <div class="callout-title">看懂分组的前提：每个 GPU 到底持有什么？</div>
+    以一个 <strong>24 层 GPT 模型</strong>（hidden_size=4096）为例：
+    <ul style="margin-top:8px">
+      <li><strong>PP=4</strong>：24 层切成 4 段（stage），每段 6 层</li>
+      <li><strong>TP=2</strong>：每层的权重矩阵 [4096×4096] 按行切成上下两半 [2048×4096]</li>
+      <li><strong>DP=2</strong>：整个切好的模型复制 2 份，各自处理不同的 mini-batch</li>
+    </ul>
+  </div>
+
+  <table class="arch-grid">
+    <thead>
+      <tr><th></th><th>PP stage 0<br><span style="font-weight:400;opacity:0.7">层 0-5</span></th><th>PP stage 1<br><span style="font-weight:400;opacity:0.7">层 6-11</span></th><th>PP stage 2<br><span style="font-weight:400;opacity:0.7">层 12-17</span></th><th>PP stage 3<br><span style="font-weight:400;opacity:0.7">层 18-23</span></th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="row-label">数据批次 A<br>(DP=0)</td>
+        <td><span class="gpu tp0">g0</span> 上半权重<br><span class="gpu tp1">g1</span> 下半权重</td>
+        <td><span class="gpu tp0">g4</span> 上半权重<br><span class="gpu tp1">g5</span> 下半权重</td>
+        <td><span class="gpu tp0">g8</span> 上半权重<br><span class="gpu tp1">g9</span> 下半权重</td>
+        <td><span class="gpu tp0">g12</span> 上半权重<br><span class="gpu tp1">g13</span> 下半权重</td>
+      </tr>
+      <tr>
+        <td class="row-label">数据批次 B<br>(DP=1)</td>
+        <td><span class="gpu dp1-tp0">g2</span> 上半权重<br><span class="gpu tp1">g3</span> 下半权重</td>
+        <td><span class="gpu dp1-tp0">g6</span> 上半权重<br><span class="gpu tp1">g7</span> 下半权重</td>
+        <td><span class="gpu dp1-tp0">g10</span> 上半权重<br><span class="gpu tp1">g11</span> 下半权重</td>
+        <td><span class="gpu dp1-tp0">g14</span> 上半权重<br><span class="gpu tp1">g15</span> 下半权重</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="prose">
+    <p>现在回头看三种通信组，<strong>每个组里的 GPU 之间为什么需要通信</strong>就很清楚了：</p>
+  </div>
+
+  <details class="collapsible">
+    <summary>三种通信组的具体数据流 <span class="badge">展开看详细示例</span></summary>
+    <div class="collapsible-body">
+
+  <div class="prose"><p><strong>TP 组 [g0, g1]：同一层的上下半合并</strong>（以 RowParallelLinear 为例）</p></div>
+
+  <div class="prose"><p>完整计算：<mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="0" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44C TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="4"><mjx-c class="mjx-c1D44B TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-cD7"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="3"><mjx-c class="mjx-c1D44A TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>Y</mi><mo>=</mo><mi>X</mi><mo>×</mo><mi>W</mi></math></mjx-assistive-mml></mjx-container>，其中 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="1" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44B TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c5B"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c31"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c2C"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="2"><mjx-c class="mjx-c32"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c2C"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="2"><mjx-c class="mjx-c33"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c2C"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="2"><mjx-c class="mjx-c34"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c5D"></mjx-c></mjx-mo></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>X</mi><mo>=</mo><mo stretchy="false">[</mo><mn>1</mn><mo>,</mo><mn>2</mn><mo>,</mo><mn>3</mn><mo>,</mo><mn>4</mn><mo stretchy="false">]</mo></math></mjx-assistive-mml></mjx-container>，<mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="2" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44A TEX-I"></mjx-c></mjx-mi></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>W</mi></math></mjx-assistive-mml></mjx-container> 是 4×2 矩阵，完整结果 <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" tabindex="0" ctxtmenu_counter="3" style="font-size: 119.1%; position: relative;"><mjx-math class="MJX-TEX" aria-hidden="true"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44C TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c5B"></mjx-c></mjx-mo><mjx-mn class="mjx-n"><mjx-c class="mjx-c33"></mjx-c><mjx-c class="mjx-c30"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c2C"></mjx-c></mjx-mo><mjx-mn class="mjx-n" space="2"><mjx-c class="mjx-c37"></mjx-c><mjx-c class="mjx-c30"></mjx-c></mjx-mn><mjx-mo class="mjx-n"><mjx-c class="mjx-c5D"></mjx-c></mjx-mo></mjx-math><mjx-assistive-mml unselectable="on" display="inline"><math xmlns="http://www.w3.org/1998/Math/MathML"><mi>Y</mi><mo>=</mo><mo stretchy="false">[</mo><mn>30</mn><mo>,</mo><mn>70</mn><mo stretchy="false">]</mo></math></mjx-assistive-mml></mjx-container>。</p>
+  <p>TP=2 时 W 按行切成上下两半，X 也对应切开，每个 GPU 算一项，AllReduce 求和还原完整结果：</p></div>
+
+  <table class="arch-grid">
+    <thead><tr><th><span class="gpu tp0">g0</span> 上半权重</th><th></th><th><span class="gpu tp1">g1</span> 下半权重</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>X_上 = [1, 2]<br>W_上 = [[1,5],[2,6]]</td>
+        <td class="row-label" style="text-align:center;vertical-align:middle">← TP →</td>
+        <td>X_下 = [3, 4]<br>W_下 = [[3,7],[4,8]]</td>
+      </tr>
+      <tr>
+        <td style="text-align:center"><strong style="color:var(--accent)">Y_0 = [5, 17]</strong></td>
+        <td class="row-label" style="text-align:center;vertical-align:middle">AllReduce<br>SUM ↓</td>
+        <td style="text-align:center"><strong style="color:var(--accent3)">Y_1 = [25, 53]</strong></td>
+      </tr>
+    </tbody>
+  </table>
+  <div style="text-align:center;font-size:0.85rem;color:var(--accent2);margin:-8px 0 16px"><strong>Y = Y_0 + Y_1 = [30, 70] ✓</strong></div>
+
+  <div class="callout callout-info" style="margin-top:0">
+    <div class="callout-title">数学原理</div>
+    <mjx-container class="MathJax CtxtMenu_Attached_0" jax="CHTML" display="true" tabindex="0" ctxtmenu_counter="4" style="font-size: 119.1%; position: relative;"><mjx-math display="true" class="MJX-TEX" aria-hidden="true" style="margin-left: 0px; margin-right: 0px;"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44C TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="4"><mjx-c class="mjx-c1D44B TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c22C5"></mjx-c></mjx-mo><mjx-mi class="mjx-i" space="3"><mjx-c class="mjx-c1D44A TEX-I"></mjx-c></mjx-mi><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-mrow space="4"><mjx-mo class="mjx-n"><mjx-c class="mjx-c5B"></mjx-c></mjx-mo><mjx-mtable style="min-width: 3.976em;"><mjx-table><mjx-itable><mjx-mtr><mjx-mtd style="padding-right: 0.5em;"><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44B TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.177em; margin-left: -0.024em;"><mjx-mtext class="mjx-n" size="s"><mjx-utext variant="normal" style="font-size: 83.9%; padding: 0.894em 0px 0.238em; font-family: MJXZERO, serif;">上</mjx-utext></mjx-mtext></mjx-script></mjx-msub><mjx-tstrut></mjx-tstrut></mjx-mtd><mjx-mtd style="padding-left: 0.5em;"><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44B TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.177em; margin-left: -0.024em;"><mjx-mtext class="mjx-n" size="s"><mjx-utext variant="normal" style="font-size: 83.9%; padding: 0.894em 0px 0.238em; font-family: MJXZERO, serif;">下</mjx-utext></mjx-mtext></mjx-script></mjx-msub><mjx-tstrut></mjx-tstrut></mjx-mtd></mjx-mtr></mjx-itable></mjx-table></mjx-mtable><mjx-mo class="mjx-n"><mjx-c class="mjx-c5D"></mjx-c></mjx-mo></mjx-mrow><mjx-mrow space="2"><mjx-mo class="mjx-s3"><mjx-c class="mjx-c5B TEX-S3"></mjx-c></mjx-mo><mjx-mtable style="min-width: 1.604em;"><mjx-table><mjx-itable><mjx-mtr><mjx-mtd style="padding-bottom: 0.2em;"><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44A TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.177em; margin-left: -0.104em;"><mjx-mtext class="mjx-n" size="s"><mjx-utext variant="normal" style="font-size: 83.9%; padding: 0.894em 0px 0.238em; font-family: MJXZERO, serif;">上</mjx-utext></mjx-mtext></mjx-script></mjx-msub><mjx-tstrut></mjx-tstrut></mjx-mtd></mjx-mtr><mjx-mtr><mjx-mtd style="padding-top: 0.2em;"><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44A TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.177em; margin-left: -0.104em;"><mjx-mtext class="mjx-n" size="s"><mjx-utext variant="normal" style="font-size: 83.9%; padding: 0.894em 0px 0.238em; font-family: MJXZERO, serif;">下</mjx-utext></mjx-mtext></mjx-script></mjx-msub><mjx-tstrut></mjx-tstrut></mjx-mtd></mjx-mtr></mjx-itable></mjx-table></mjx-mtable><mjx-mo class="mjx-s3"><mjx-c class="mjx-c5D TEX-S3"></mjx-c></mjx-mo></mjx-mrow><mjx-mo class="mjx-n" space="4"><mjx-c class="mjx-c3D"></mjx-c></mjx-mo><mjx-msub space="4"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44B TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.177em; margin-left: -0.024em;"><mjx-mtext class="mjx-n" size="s"><mjx-utext variant="normal" style="font-size: 83.9%; padding: 0.894em 0px 0.238em; font-family: MJXZERO, serif;">上</mjx-utext></mjx-mtext></mjx-script></mjx-msub><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44A TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.177em; margin-left: -0.104em;"><mjx-mtext class="mjx-n" size="s"><mjx-utext variant="normal" style="font-size: 83.9%; padding: 0.894em 0px 0.238em; font-family: MJXZERO, serif;">上</mjx-utext></mjx-mtext></mjx-script></mjx-msub><mjx-mo class="mjx-n" space="3"><mjx-c class="mjx-c2B"></mjx-c></mjx-mo><mjx-msub space="3"><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44B TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.177em; margin-left: -0.024em;"><mjx-mtext class="mjx-n" size="s"><mjx-utext variant="normal" style="font-size: 83.9%; padding: 0.894em 0px 0.238em; font-family: MJXZERO, serif;">下</mjx-utext></mjx-mtext></mjx-script></mjx-msub><mjx-msub><mjx-mi class="mjx-i"><mjx-c class="mjx-c1D44A TEX-I"></mjx-c></mjx-mi><mjx-script style="vertical-align: -0.177em; margin-left: -0.104em;"><mjx-mtext class="mjx-n" size="s"><mjx-utext variant="normal" style="font-size: 83.9%; padding: 0.894em 0px 0.238em; font-family: MJXZERO, serif;">下</mjx-utext></mjx-mtext></mjx-script></mjx-msub></mjx-math><mjx-assistive-mml unselectable="on" display="block"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><mi>Y</mi><mo>=</mo><mi>X</mi><mo>⋅</mo><mi>W</mi><mo>=</mo><mrow data-mjx-texclass="INNER"><mo data-mjx-texclass="OPEN">[</mo><mtable columnspacing="1em" rowspacing="4pt"><mtr><mtd><msub><mi>X</mi><mtext>上</mtext></msub></mtd><mtd><msub><mi>X</mi><mtext>下</mtext></msub></mtd></mtr></mtable><mo data-mjx-texclass="CLOSE">]</mo></mrow><mrow data-mjx-texclass="INNER"><mo data-mjx-texclass="OPEN">[</mo><mtable columnspacing="1em" rowspacing="4pt"><mtr><mtd><msub><mi>W</mi><mtext>上</mtext></msub></mtd></mtr><mtr><mtd><msub><mi>W</mi><mtext>下</mtext></msub></mtd></mtr></mtable><mo data-mjx-texclass="CLOSE">]</mo></mrow><mo>=</mo><msub><mi>X</mi><mtext>上</mtext></msub><msub><mi>W</mi><mtext>上</mtext></msub><mo>+</mo><msub><mi>X</mi><mtext>下</mtext></msub><msub><mi>W</mi><mtext>下</mtext></msub></math></mjx-assistive-mml></mjx-container>
+    每个 GPU 算一项，AllReduce 求和就是完整结果。不通信的后果：g0 只有 [5,17]，g1 只有 [25,53]，都不是正确的 [30,70]。
+  </div>
+
+  <div class="prose"><p><strong>PP 组 [g0, g4, g8, g12]：流水线的相邻 stage 间传递激活值</strong></p></div>
+
+  <div class="mermaid" data-processed="true"><svg aria-roledescription="flowchart-v2" role="graphics-document document" viewBox="-8 -8 843.9296875 167.28125" style="max-width: 843.9296875px;" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="100%" id="mermaid-1783856749354"><style>#mermaid-1783856749354{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;fill:#e6edf3;}#mermaid-1783856749354 .error-icon{fill:#0d1117;}#mermaid-1783856749354 .error-text{fill:#f2eee8;stroke:#f2eee8;}#mermaid-1783856749354 .edge-thickness-normal{stroke-width:2px;}#mermaid-1783856749354 .edge-thickness-thick{stroke-width:3.5px;}#mermaid-1783856749354 .edge-pattern-solid{stroke-dasharray:0;}#mermaid-1783856749354 .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-1783856749354 .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-1783856749354 .marker{fill:#58a6ff;stroke:#58a6ff;}#mermaid-1783856749354 .marker.cross{stroke:#58a6ff;}#mermaid-1783856749354 svg{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;}#mermaid-1783856749354 .label{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:#e6edf3;}#mermaid-1783856749354 .cluster-label text{fill:#e6edf3;}#mermaid-1783856749354 .cluster-label span,#mermaid-1783856749354 p{color:#e6edf3;}#mermaid-1783856749354 .label text,#mermaid-1783856749354 span,#mermaid-1783856749354 p{fill:#e6edf3;color:#e6edf3;}#mermaid-1783856749354 .node rect,#mermaid-1783856749354 .node circle,#mermaid-1783856749354 .node ellipse,#mermaid-1783856749354 .node polygon,#mermaid-1783856749354 .node path{fill:#161b22;stroke:#30363d;stroke-width:1px;}#mermaid-1783856749354 .flowchart-label text{text-anchor:middle;}#mermaid-1783856749354 .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#mermaid-1783856749354 .node .label{text-align:center;}#mermaid-1783856749354 .node.clickable{cursor:pointer;}#mermaid-1783856749354 .arrowheadPath{fill:#e3ded6;}#mermaid-1783856749354 .edgePath .path{stroke:#58a6ff;stroke-width:2.0px;}#mermaid-1783856749354 .flowchart-link{stroke:#58a6ff;fill:none;}#mermaid-1783856749354 .edgeLabel{background-color:#1c2129;text-align:center;}#mermaid-1783856749354 .edgeLabel rect{opacity:0.5;background-color:#1c2129;fill:#1c2129;}#mermaid-1783856749354 .labelBkg{background-color:rgba(28, 33, 41, 0.5);}#mermaid-1783856749354 .cluster rect{fill:rgba(88,166,255,0.05);stroke:#30363d;stroke-width:1px;}#mermaid-1783856749354 .cluster text{fill:#e6edf3;}#mermaid-1783856749354 .cluster span,#mermaid-1783856749354 p{color:#e6edf3;}#mermaid-1783856749354 div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:12px;background:#0d1117;border:1px solid hsl(216, 0%, 17.0588235294%);border-radius:2px;pointer-events:none;z-index:100;}#mermaid-1783856749354 .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#e6edf3;}#mermaid-1783856749354 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="6" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783856749354_flowchart-pointEnd"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 0 L 10 5 L 0 10 z"></path></marker><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="4.5" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783856749354_flowchart-pointStart"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 5 L 10 10 L 10 0 z"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="11" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783856749354_flowchart-circleEnd"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="-1" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783856749354_flowchart-circleStart"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="12" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783856749354_flowchart-crossEnd"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="-1" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783856749354_flowchart-crossStart"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><g class="root"><g class="clusters"><g id="G12" class="cluster default flowchart-label"><rect height="151.28125" width="130.6640625" y="0" x="697.265625" ry="0" rx="0" style=""></rect><g transform="translate(716.2578125, 0)" class="cluster-label"><foreignobject height="22.09375" width="92.6796875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">g12 — 层 18-23</span></div></foreignobject></g></g><g id="G8" class="cluster default flowchart-label"><rect height="151.28125" width="127.640625" y="0" x="457.171875" ry="0" rx="0" style=""></rect><g transform="translate(478.91015625, 0)" class="cluster-label"><foreignobject height="22.09375" width="84.1640625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">g8 — 层 12-17</span></div></foreignobject></g></g><g id="G4" class="cluster default flowchart-label"><rect height="151.28125" width="120.75" y="0" x="225.34375" ry="0" rx="0" style=""></rect><g transform="translate(247.0546875, 0)" class="cluster-label"><foreignobject height="22.09375" width="77.328125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">g4 — 层 6-11</span></div></foreignobject></g></g><g id="G0" class="cluster default flowchart-label"><rect height="151.28125" width="116.7109375" y="0" x="0" ry="0" rx="0" style=""></rect><g transform="translate(21.796875, 0)" class="cluster-label"><foreignobject height="22.09375" width="73.1171875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">g0 — 层 0-5</span></div></foreignobject></g></g></g><g class="edgePaths"><path marker-end="url(#mermaid-1783856749354_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-i0 LE-i4" id="L-i0-i4-0" d="M91.711,75.641L95.878,75.641C100.044,75.641,108.378,75.641,121.597,75.641C134.816,75.641,152.922,75.641,171.027,75.641C189.133,75.641,207.238,75.641,219.574,75.641C231.91,75.641,238.477,75.641,241.76,75.641L245.044,75.641"></path><path marker-end="url(#mermaid-1783856749354_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-i4 LE-i8" id="L-i4-i8-0" d="M321.094,75.641L325.26,75.641C329.427,75.641,337.76,75.641,351.184,75.641C364.607,75.641,383.12,75.641,401.633,75.641C420.146,75.641,438.659,75.641,451.199,75.641C463.739,75.641,470.305,75.641,473.589,75.641L476.872,75.641"></path><path marker-end="url(#mermaid-1783856749354_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-i8 LE-i12" id="L-i8-i12-0" d="M559.813,75.641L563.979,75.641C568.146,75.641,576.479,75.641,590.017,75.641C603.555,75.641,622.297,75.641,641.039,75.641C659.781,75.641,678.523,75.641,691.178,75.641C703.832,75.641,710.399,75.641,713.682,75.641L716.966,75.641"></path></g><g class="edgeLabels"><g transform="translate(171.02734375, 75.640625)" class="edgeLabel"><g transform="translate(-29.31640625, -22.09375)" class="label"><foreignobject height="44.1875" width="58.6328125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel">P2P Send<br>激活值 a5</span></div></foreignobject></g></g><g transform="translate(401.6328125, 75.640625)" class="edgeLabel"><g transform="translate(-30.5390625, -22.09375)" class="label"><foreignobject height="44.1875" width="61.078125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel">P2P Send<br>激活值 a11</span></div></foreignobject></g></g><g transform="translate(641.0390625, 75.640625)" class="edgeLabel"><g transform="translate(-31.2265625, -22.09375)" class="label"><foreignobject height="44.1875" width="62.453125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel">P2P Send<br>激活值 a17</span></div></foreignobject></g></g></g><g class="nodes"><g transform="translate(762.59765625, 75.640625)" data-id="i12" data-node="true" id="flowchart-i12-3" class="node default default flowchart-label"><rect height="81.28125" width="80.6640625" y="-40.640625" x="-40.33203125" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-32.83203125, -33.140625)" style="" class="label"><rect></rect><foreignobject height="66.28125" width="65.6640625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">收到 a17<br>算层 18-23<br>输出 Loss</span></div></foreignobject></g></g><g transform="translate(520.9921875, 75.640625)" data-id="i8" data-node="true" id="flowchart-i8-2" class="node default default flowchart-label"><rect height="81.28125" width="77.640625" y="-40.640625" x="-38.8203125" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-31.3203125, -33.140625)" style="" class="label"><rect></rect><foreignobject height="66.28125" width="62.640625"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">收到 a11<br>算层 12-17<br>输出 a17</span></div></foreignobject></g></g><g transform="translate(285.71875, 75.640625)" data-id="i4" data-node="true" id="flowchart-i4-1" class="node default default flowchart-label"><rect height="81.28125" width="70.75" y="-40.640625" x="-35.375" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-27.875, -33.140625)" style="" class="label"><rect></rect><foreignobject height="66.28125" width="55.75"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">收到 a5<br>算层 6-11<br>输出 a11</span></div></foreignobject></g></g><g transform="translate(58.35546875, 75.640625)" data-id="i0" data-node="true" id="flowchart-i0-0" class="node default default flowchart-label"><rect height="81.28125" width="66.7109375" y="-40.640625" x="-33.35546875" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-25.85546875, -33.140625)" style="" class="label"><rect></rect><foreignobject height="66.28125" width="51.7109375"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">输入 X<br>算层 0-5<br>输出 a5</span></div></foreignobject></g></g></g></g></g></svg></div>
+
+  <div class="prose"><p>只需 P2P（点对点），不需要 AllReduce。每次只传一个 micro-batch 的激活值，数据量 = batch × seq_len × hidden，<strong>远小于参数量</strong>。</p></div>
+
+  <div class="prose"><p><strong>DP 组 [g0, g2]：相同模型+不同数据 → 梯度求平均</strong></p></div>
+
+  <table class="arch-grid">
+    <thead><tr><th><span class="gpu tp0">g0</span> 数据批次 A</th><th></th><th><span class="gpu dp1-tp0">g2</span> 数据批次 B</th></tr></thead>
+    <tbody>
+      <tr>
+        <td style="text-align:center">持有层 0-5 上半权重<br>用批次 A 做前向+反向</td>
+        <td class="row-label" style="text-align:center;vertical-align:middle">完全相同<br>的参数</td>
+        <td style="text-align:center">持有层 0-5 上半权重<br>用批次 B 做前向+反向</td>
+      </tr>
+      <tr>
+        <td style="text-align:center"><strong style="color:var(--accent)">∇W_A</strong></td>
+        <td class="row-label" style="text-align:center;vertical-align:middle">ReduceScatter<br>↓</td>
+        <td style="text-align:center"><strong style="color:var(--accent4)">∇W_B</strong></td>
+      </tr>
+    </tbody>
+  </table>
+  <div style="text-align:center;font-size:0.85rem;color:var(--accent2);margin:-8px 0 16px"><strong>平均梯度 = (∇W_A + ∇W_B) / 2 → 参数始终保持一致</strong></div>
+
+  <div class="callout callout-key">
+    <div class="callout-title">以 g0 的视角串联：一次前向 + 反向经历了哪些通信？</div>
+    <table class="data-table" style="margin-top:8px">
+      <thead><tr><th>阶段</th><th>通信操作</th><th>通信组</th><th>通信对象</th><th>目的</th></tr></thead>
+      <tbody>
+        <tr><td>前向：算层 0</td><td>AllReduce</td><td>TP [g0,g1]</td><td>g1</td><td>合并上下半的部分输出</td></tr>
+        <tr><td>前向：算层 1-5</td><td>AllReduce ×5</td><td>TP [g0,g1]</td><td>g1</td><td>每层都要合并</td></tr>
+        <tr><td>前向：层 5 算完</td><td>P2P Send</td><td>PP [g0,g4,g8,g12]</td><td>g4</td><td>把激活值传给下一 stage</td></tr>
+        <tr><td>反向：收到梯度</td><td>P2P Recv</td><td>PP [g0,g4,g8,g12]</td><td>g4</td><td>从下一 stage 收梯度</td></tr>
+        <tr><td>反向：算层 5-0</td><td>AllReduce ×6</td><td>TP [g0,g1]</td><td>g1</td><td>每层的梯度也要合并</td></tr>
+        <tr><td>反向：梯度算完</td><td>ReduceScatter</td><td>DP [g0,g2]</td><td>g2</td><td>跨数据副本聚合梯度</td></tr>
+      </tbody>
+    </table>
+    一个完整的 step 中，g0 和 g1（TP 伙伴）通信 <strong>12 次</strong>，和 g4（PP 下游）通信 <strong>2 次</strong>，和 g2（DP 副本）通信 <strong>1 次</strong>。这就是 TP 通信量最大、PP 通信量最小的直观原因。
+  </div>
+
+    </div>
+  </details>
+</section>
+
+<!-- ==================== 4. Why This Order ==================== -->
+<section id="why-this-order">
+  <div class="section-header">
+    <span class="section-num">04</span>
+    <h2>为什么 TP 在最内层</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">L702-705</span>
+    <span class="tag tag-green">硬件拓扑</span>
+  </div>
+
+  <div class="prose">
+    <p>代码注释明确写了：<strong>adjacent ranks are on the same DGX box</strong>。</p>
+  </div>
+
+  <div class="diagram"><span class="hl">物理拓扑与并行维度的对应</span>
+
+机器 A (8 卡 NVLink):  g0  g1  g2  g3  g4  g5  g6  g7
+机器 B (8 卡 NVLink):  g8  g9  g10 g11 g12 g13 g14 g15
+
+<span class="hl2">TP 组</span> [g0,g1] → 同机器，<span class="hl2">NVLink</span>（900 GB/s）   ✓ 通信量大，需要快
+<span class="hl3">DP 组</span> [g0,g2] → 同机器，<span class="hl3">NVLink</span>（900 GB/s）   ✓ 梯度同步可以接受
+<span class="hl4">PP 组</span> [g0,g4,g8,g12] → g0→g4 同机，g4→g8 跨机 <span class="hl4">IB</span>（400 Gb/s）
+                                              ✓ 只传激活值，量小</div>
+
+  <div class="callout callout-key">
+    <div class="callout-title">设计原则</div>
+    <strong>通信量大的并行维度 → 放内层 → 物理上相邻 → 走高速互联</strong>。TP 每层前向/反向都要 all-reduce，通信最频繁；PP 每个 micro-batch 只传一次激活值，通信最少。
+  </div>
+</section>
+
+<!-- ==================== 5. CP & EP ==================== -->
+<section id="cp-ep">
+  <div class="section-header">
+    <span class="section-num">05</span>
+    <h2>Context Parallelism 与 Expert Parallelism</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">parallel_state.py L959-986, L1190-1246</span>
+    <span class="tag tag-green">CP</span>
+    <span class="tag tag-orange">EP</span>
+  </div>
+
+  <div class="prose">
+    <p>前面 3 节用 TP/DP/PP 三维建立了直觉。实际上 Megatron 的默认排列是 <strong>5 维</strong>：<code>tp-cp-ep-dp-pp</code>。CP 和 EP 夹在 TP 和 DP 之间，各自解决不同的问题。</p>
+  </div>
+
+  <table class="data-table">
+    <thead>
+      <tr><th>维度</th><th>切什么</th><th>解决什么问题</th><th>通信原语</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>TP</strong></td>
+        <td>权重矩阵（行/列切分）</td>
+        <td>单层参数太大，一张卡放不下</td>
+        <td>AllReduce / AllGather</td>
+      </tr>
+      <tr>
+        <td><strong>CP</strong></td>
+        <td>序列长度（sequence 维度）</td>
+        <td>长序列的 Attention 显存爆炸</td>
+        <td>AllGather KV（前向）、ReduceScatter（反向）</td>
+      </tr>
+      <tr>
+        <td><strong>EP</strong></td>
+        <td>MoE 专家（每卡持有部分 expert）</td>
+        <td>Expert 数量太多，一张卡放不下</td>
+        <td>AllToAll（token 分发/收集）</td>
+      </tr>
+      <tr>
+        <td><strong>DP</strong></td>
+        <td>数据（不同 mini-batch）</td>
+        <td>加速吞吐量</td>
+        <td>ReduceScatter / AllGather（梯度）</td>
+      </tr>
+      <tr>
+        <td><strong>PP</strong></td>
+        <td>模型层（stage 划分）</td>
+        <td>层数太多，一张卡放不下</td>
+        <td>P2P Send/Recv（激活值）</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- 5.1 Context Parallelism -->
+  <h3 style="margin: 32px 0 16px; font-size: 1.15rem;">5.1 Context Parallelism (CP)：切分序列长度</h3>
+
+  <div class="prose">
+    <p><strong>问题</strong>：训练长序列（如 128K tokens）时，Attention 的 KV cache 显存随序列长度平方增长。一张卡的显存不够存完整 KV。</p>
+    <p><strong>方案</strong>：将序列切成 <code>cp_size</code> 段，每个 CP rank 只处理一段。Attention 计算时，Q 留在本地，K/V 通过 AllGather 从所有 CP rank 收集完整副本。</p>
+  </div>
+
+  <div class="diagram"><span class="hl">CP=4 时，一条 8192 token 的序列被切成 4 段</span>
+
+原始序列: [t0 t1 t2 ... t2047 | t2048 ... t4095 | t4096 ... t6143 | t6144 ... t8191]
+              <span class="hl">CP rank 0</span>         <span class="hl3">CP rank 1</span>         <span class="hl2">CP rank 2</span>         <span class="hl4">CP rank 3</span>
+
+Attention 计算时：
+  Q: 每个 rank 只有自己那段的 Q            → 不需要通信
+  K: 需要完整序列的 K → <span class="hl">AllGather</span> 从所有 CP rank 收集
+  V: 需要完整序列的 V → <span class="hl">AllGather</span> 从所有 CP rank 收集
+
+反向传播时：
+  dK, dV: 每个 rank 算出完整的 dK/dV       → <span class="hl2">ReduceScatter</span> 只保留自己那段的梯度</div>
+
+  <div class="callout callout-key">
+    <div class="callout-title">CP 不影响权重</div>
+    CP 只切分序列，不切分权重矩阵。这意味着同一个 CP 组内的 rank 持有<strong>完全相同的权重副本</strong>。所以权重梯度需要在 CP rank 间做 AllReduce——Megatron 的做法是把 CP rank 合并到 DP 组中（<code>dp-cp</code> 联合组），一起做梯度同步。
+  </div>
+
+  <div class="prose">
+    <p><strong>CP 通信组示例</strong>：8 GPU, TP=2, CP=2, DP=2, PP=1</p>
+  </div>
+
+  <div class="diagram">rank 排列（order = tp-cp-ep-dp-pp）：
+
+        TP=0  TP=1   TP=0  TP=1
+CP=0:  <span class="hl">g0</span>    <span class="hl">g1</span>     <span class="hl4">g4</span>    <span class="hl4">g5</span>      ← DP=0, DP=1
+CP=1:  <span class="hl3">g2</span>    <span class="hl3">g3</span>     <span class="hl2">g6</span>    <span class="hl2">g7</span>      ← DP=0, DP=1
+
+<span class="hl">CP 组</span>（切分序列的 rank，需要 AllGather KV）：
+  [g0, g2]  [g1, g3]  [g4, g6]  [g5, g7]
+  → 步长 = tp_size = 2
+
+<span class="hl">DP-CP 联合组</span>（权重梯度同步）：
+  [g0, g2, g4, g6]  [g1, g3, g5, g7]
+  → 同时跨 CP 和 DP 两个维度做 AllReduce</div>
+
+  <!-- 5.2 Expert Parallelism -->
+  <h3 style="margin: 32px 0 16px; font-size: 1.15rem;">5.2 Expert Parallelism (EP)：分发 MoE 专家</h3>
+
+  <div class="prose">
+    <p><strong>问题</strong>：MoE（Mixture of Experts）模型有大量专家（如 64 个），每个专家都是一个完整的 FFN。所有专家放在一张卡上显存不够。</p>
+    <p><strong>方案</strong>：将专家分配到 <code>ep_size</code> 个 rank 上，每个 rank 只持有 <code>num_experts / ep_size</code> 个专家。Router 决定每个 token 去哪个专家后，通过 <strong>AllToAll</strong> 把 token 发送到对应专家所在的 rank。</p>
+  </div>
+
+  <div class="diagram"><span class="hl">EP=4, 8 个专家</span>（每个 rank 持有 2 个专家）
+
+<span class="hl">EP rank 0</span>        <span class="hl3">EP rank 1</span>        <span class="hl2">EP rank 2</span>        <span class="hl4">EP rank 3</span>
+Expert 0, 1      Expert 2, 3      Expert 4, 5      Expert 6, 7
+
+Step 1: Router 对每个 token 打分，决定去哪个 expert
+        token A → Expert 3 (在 rank 1)
+        token B → Expert 7 (在 rank 3)
+        token C → Expert 0 (在 rank 0，本地！)
+
+Step 2: <span class="hl4">AllToAll</span> — 每个 rank 把 token 发给目标 expert 所在的 rank
+        ┌──────────────────────────────────────────────────┐
+        │  rank 0 ──→ rank 1: token A                      │
+        │  rank 0 ──→ rank 3: token B                      │
+        │  rank 1 ──→ rank 0: token D (某个分配到 Expert 0 的)│
+        │  ...                                              │
+        └──────────────────────────────────────────────────┘
+
+Step 3: 每个 rank 对收到的 token 执行本地 expert 计算
+
+Step 4: <span class="hl4">AllToAll</span>（反向） — 把计算结果发回原始 rank</div>
+
+  <div class="callout callout-warn">
+    <div class="callout-title">EP 会"吃掉"DP</div>
+    EP 的 rank 是从 DP rank 中分出来的。如果原始 DP=8，开启 EP=4 后，<strong>Expert DP</strong> 只剩 8/4=2。这意味着 expert 参数的数据并行度降低了，每个 expert 只有 2 份副本参与梯度同步，而非 8 份。<br><br>
+    公式：<code>expert_dp_size = world_size / (tp × ep × pp)</code>
+  </div>
+
+  <div class="prose">
+    <p><strong>EP 通信组示例</strong>：8 GPU, TP=2, EP=2, DP=2, PP=1</p>
+  </div>
+
+  <div class="diagram">rank 排列（order = tp-cp-ep-dp-pp, cp=1）：
+
+        TP=0  TP=1   TP=0  TP=1
+EP=0:  <span class="hl">g0</span>    <span class="hl">g1</span>     <span class="hl4">g4</span>    <span class="hl4">g5</span>      ← DP=0, DP=1
+EP=1:  <span class="hl3">g2</span>    <span class="hl3">g3</span>     <span class="hl2">g6</span>    <span class="hl2">g7</span>      ← DP=0, DP=1
+
+<span class="hl">EP 组</span>（持有不同 expert 的 rank，需要 AllToAll 交换 token）：
+  [g0, g2]  [g1, g3]  [g4, g6]  [g5, g7]
+  → 步长 = tp_size = 2
+
+<span class="hl">Expert DP 组</span>（持有相同 expert 的 rank，梯度同步）：
+  [g0, g4]  [g1, g5]  [g2, g6]  [g3, g7]
+  → Expert DP size = 2（比完整 DP=4 小了 EP=2 倍）
+
+<span class="hl">TP-EP 联合组</span>（AllToAll 通信的实际范围）：
+  [g0, g1, g2, g3]  [g4, g5, g6, g7]
+  → MoE 的 AllToAll 在 TP-EP 范围内执行</div>
+
+  <!-- 5.3 CP 与 EP 的互斥 -->
+  <h3 style="margin: 32px 0 16px; font-size: 1.15rem;">5.3 CP 与 EP 在同一 RankGenerator 中互斥</h3>
+
+  <div class="prose">
+    <p>Megatron 的 <code>RankGenerator.__init__</code> 中有一个断言：<code>assert ep == 1 or cp == 1</code>。这不是数学上无法同时大于 1，而是因为 <strong>Transformer 中没有任何组件同时需要 CP 和 EP</strong>——它们作用于完全不同的计算。</p>
+  </div>
+
+  <div class="diagram"><span class="hl">一个 MoE Transformer Layer 中，CP 和 EP 作用于不同组件</span>
+
+<span class="hl">Self-Attention</span>                          ← <span class="hl">decoder_rank_generator</span> (cp=2, ep=1)
+├── Q·Kᵀ 是<span class="hl">跨位置</span>运算：pos 0 要看 pos 1,2,...,N 的 K,V
+├── 序列越长 KV cache 越大 → <span class="hl2">需要 CP 切分序列</span>
+└── 没有 expert → <span class="hl4">EP 无意义</span>
+         │
+         ↓
+<span class="hl3">MoE FFN (Expert 层)</span>                     ← <span class="hl3">expert_decoder_rank_generator</span> (cp=1, ep=2)
+├── Router 逐 token 打分，token 独立通过各自的 expert
+├── token 之间<span class="hl3">无交互</span> → <span class="hl4">CP 切分序列无任何收益</span>
+└── 64 个 expert 放不下一张卡 → <span class="hl2">需要 EP 分配</span></div>
+
+  <div class="callout callout-key">
+    <div class="callout-title">为什么 MoE FFN 不需要 CP？</div>
+    CP 的价值在于切分 Attention 的序列维度——因为 <code>Q·Kᵀ</code> 中每个位置要与<strong>所有</strong>其他位置计算注意力，KV cache 随序列长度增长。<br><br>
+    而 FFN/Expert 是<strong>逐 token 独立计算</strong>的：token A 选了 Expert 3，token B 选了 Expert 7，它们各自独立通过自己的 expert。token 之间没有交互，切分序列不会减少任何通信或显存开销。
+  </div>
+
+  <div class="prose">
+    <p><strong>如果强行在一个 RankGenerator 中同时设 CP&gt;1 和 EP&gt;1 会怎样？</strong></p>
+    <p>回顾 rank 公式：<code>world_size = tp × cp × ep × dp × pp</code>，dp 是被其余维度"挤"出来的。同时开启 CP 和 EP 会多占一个维度，白白压缩 DP：</p>
+  </div>
+
+  <table class="data-table">
+    <thead>
+      <tr><th>方案（8 GPU, TP=2, PP=1）</th><th>CP</th><th>EP</th><th>DP</th><th>效果</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>decoder_rank_generator</code></td>
+        <td><strong style="color:var(--accent2)">2</strong></td>
+        <td>1</td>
+        <td><strong style="color:var(--accent2)">2</strong></td>
+        <td style="color:var(--text-muted)">Attention 用 CP 切序列，保留 DP=2</td>
+      </tr>
+      <tr>
+        <td><code>expert_decoder_rank_generator</code></td>
+        <td>1</td>
+        <td><strong style="color:var(--accent2)">2</strong></td>
+        <td><strong style="color:var(--accent2)">2</strong></td>
+        <td style="color:var(--text-muted)">MoE 用 EP 分 expert，保留 DP=2</td>
+      </tr>
+      <tr>
+        <td><strong>假设合并到一个 RankGenerator</strong></td>
+        <td><strong style="color:var(--accent4)">2</strong></td>
+        <td><strong style="color:var(--accent4)">2</strong></td>
+        <td><strong style="color:var(--accent4)">1</strong></td>
+        <td style="color:var(--accent4)">DP 被压到 1，丧失数据并行</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="prose">
+    <p>合并的代价是<strong>双重浪费</strong>：EP 组在 Attention 计算时完全用不上，CP 组在 MoE FFN 计算时完全用不上——它们消耗了 DP 维度却没有提供任何收益。分成两套 RankGenerator，同一组 GPU 在不同计算阶段使用不同的通信组，两个阶段都保留了完整的数据并行度。</p>
+  </div>
+
+  <!-- 5.4 通信量对比 -->
+  <h3 style="margin: 32px 0 16px; font-size: 1.15rem;">5.4 五维并行的通信量对比</h3>
+
+  <table class="data-table">
+    <thead>
+      <tr><th>维度</th><th>通信操作</th><th>频率</th><th>数据量</th><th>理想互联</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>TP</strong></td>
+        <td>AllReduce</td>
+        <td>每层前向+反向各 1 次</td>
+        <td>batch × seq × hidden</td>
+        <td>NVLink</td>
+      </tr>
+      <tr>
+        <td><strong>CP</strong></td>
+        <td>AllGather + ReduceScatter</td>
+        <td>每个 Attention 层 1 次</td>
+        <td>batch × seq × head_dim × num_kv_heads</td>
+        <td>NVLink / NVSwitch</td>
+      </tr>
+      <tr>
+        <td><strong>EP</strong></td>
+        <td>AllToAll</td>
+        <td>每个 MoE 层前向+反向各 1 次</td>
+        <td>取决于 token 分配，通常 &lt; TP</td>
+        <td>NVLink / IB</td>
+      </tr>
+      <tr>
+        <td><strong>DP</strong></td>
+        <td>ReduceScatter + AllGather</td>
+        <td>每步结束 1 次</td>
+        <td>全部参数梯度</td>
+        <td>IB / RoCE</td>
+      </tr>
+      <tr>
+        <td><strong>PP</strong></td>
+        <td>P2P Send/Recv</td>
+        <td>每个 microbatch 1 次</td>
+        <td>batch × seq × hidden（激活值）</td>
+        <td>IB（量小，延迟更重要）</td>
+      </tr>
+    </tbody>
+  </table>
+
+</section>
+
+<!-- ==================== 6. RankGenerator ==================== -->
+<section id="rank-generator">
+  <div class="section-header">
+    <span class="section-num">06</span>
+    <h2>RankGenerator：如何生成通信组</h2>
+  </div>
+
+  <div class="tags">
+    <span class="tag tag-blue">L456-531</span>
+    <span class="tag tag-purple">RankGenerator</span>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>parallel_state.py — RankGenerator 核心接口</span>
+      <span class="lines">L456-531</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-keyword">class</span> <span class="hljs-title class_">RankGenerator</span>(<span class="hljs-title class_ inherited__">object</span>):
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">__init__</span>(<span class="hljs-params">self, tp, ep, dp, pp, cp, order, rank_offset=<span class="hljs-number">0</span></span>):
+        self.world_size = tp * dp * pp * cp * ep
+        <span class="hljs-comment"># 按 order 字符串确定各维度的排列顺序</span>
+        self.ordered_size = [self.name_to_size[token] <span class="hljs-keyword">for</span> token <span class="hljs-keyword">in</span> order.split(<span class="hljs-string">"-"</span>)]
+
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">get_ranks</span>(<span class="hljs-params">self, token</span>):
+        <span class="hljs-string">"""通过 token 获取对应的通信组列表。
+        token 可以是 'tp', 'pp', 'dp', 也可以是 'tp-dp' 这样的组合。
+        """</span>
+        mask = self.get_mask(self.order, token)
+        <span class="hljs-keyword">return</span> generate_masked_orthogonal_rank_groups(
+            self.world_size, self.ordered_size, mask
+        )</code></pre>
+  </div>
+
+  <div class="prose">
+    <p>工作原理：用 <strong>mask</strong> 指定哪些维度"在组内变化"，哪些"在组间变化"。</p>
+  </div>
+
+  <div class="code-block">
+    <div class="code-title">
+      <span>parallel_state.py — 初始化时创建各种通信组</span>
+      <span class="lines">L776-784, L1018-1050</span>
+    </div>
+    <pre><code class="language-python hljs" data-highlighted="yes"><span class="hljs-comment"># ---- Decoder RankGenerator：用于 Attention + 非 MoE 层 ----</span>
+decoder_rank_generator = RankGenerator(
+    tp=tensor_model_parallel_size,
+    ep=<span class="hljs-number">1</span>,                               <span class="hljs-comment"># Attention 不需要 EP</span>
+    dp=data_parallel_size,
+    pp=pipeline_model_parallel_size,
+    cp=context_parallel_size,           <span class="hljs-comment"># CP 在这里生效</span>
+    order=order,                        <span class="hljs-comment"># 默认 "tp-cp-ep-dp-pp"</span>
+)
+
+<span class="hljs-comment"># 用 get_ranks() 生成各种通信组</span>
+<span class="hljs-keyword">for</span> ranks <span class="hljs-keyword">in</span> decoder_rank_generator.get_ranks(<span class="hljs-string">'tp'</span>):        <span class="hljs-comment"># TP 组</span>
+    group = create_group(ranks, ...)
+<span class="hljs-keyword">for</span> ranks <span class="hljs-keyword">in</span> decoder_rank_generator.get_ranks(<span class="hljs-string">'pp'</span>):        <span class="hljs-comment"># PP 组</span>
+    group = create_group(ranks, ...)
+<span class="hljs-keyword">for</span> ranks <span class="hljs-keyword">in</span> decoder_rank_generator.get_ranks(<span class="hljs-string">'dp'</span>):        <span class="hljs-comment"># DP 组</span>
+    group = create_group(ranks, ...)
+<span class="hljs-keyword">for</span> ranks <span class="hljs-keyword">in</span> decoder_rank_generator.get_ranks(<span class="hljs-string">'dp-cp'</span>):     <span class="hljs-comment"># DP-CP 联合组</span>
+    group = create_group(ranks, ...)
+<span class="hljs-keyword">for</span> ranks <span class="hljs-keyword">in</span> decoder_rank_generator.get_ranks(<span class="hljs-string">'cp'</span>):        <span class="hljs-comment"># CP 组</span>
+    group = create_group(ranks, ...)
+
+<span class="hljs-comment"># ---- Expert RankGenerator：用于 MoE 层 ----</span>
+expert_decoder_rank_generator = RankGenerator(
+    tp=expert_tensor_parallel_size,     <span class="hljs-comment"># 可以与 TP 不同</span>
+    ep=expert_model_parallel_size,      <span class="hljs-comment"># EP 在这里生效</span>
+    dp=expert_data_parallel_size,       <span class="hljs-comment"># = world / (tp_e × ep × pp)</span>
+    pp=pipeline_model_parallel_size,
+    cp=<span class="hljs-number">1</span>,                               <span class="hljs-comment"># MoE 不需要 CP</span>
+    order=order,
+)
+
+<span class="hljs-keyword">for</span> ranks <span class="hljs-keyword">in</span> expert_decoder_rank_generator.get_ranks(<span class="hljs-string">'ep'</span>):     <span class="hljs-comment"># EP 组</span>
+    group = create_group(ranks, ...)
+<span class="hljs-keyword">for</span> ranks <span class="hljs-keyword">in</span> expert_decoder_rank_generator.get_ranks(<span class="hljs-string">'dp'</span>):     <span class="hljs-comment"># Expert DP 组</span>
+    group = create_group(ranks, ...)
+<span class="hljs-keyword">for</span> ranks <span class="hljs-keyword">in</span> expert_decoder_rank_generator.get_ranks(<span class="hljs-string">'tp-ep'</span>):  <span class="hljs-comment"># TP-EP 联合组</span>
+    group = create_group(ranks, ...)</code></pre>
+  </div>
+
+  <div class="callout callout-info">
+    <div class="callout-title">组合组的用途</div>
+    <ul style="margin-top: 6px;">
+      <li><code>get_ranks('dp-cp')</code> — 权重梯度的 AllReduce。因为 CP 不切分权重，CP rank 和 DP rank 都需要同步梯度。</li>
+      <li><code>get_ranks('tp-ep')</code> — MoE 的 AllToAll 通信范围。token 在 TP-EP 组内分发到目标 expert。</li>
+      <li><code>get_ranks('tp-dp')</code> — Embedding 权重的梯度 AllReduce，需要在所有持有相同 embedding 副本的 rank 间进行。</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ==================== 7. Summary ==================== -->
+<section id="summary">
+  <div class="section-header">
+    <span class="section-num">07</span>
+    <h2>总结</h2>
+  </div>
+
+  <div class="mermaid" data-processed="true"><svg aria-roledescription="flowchart-v2" role="graphics-document document" viewBox="-8 -8 749.9609375 293.5625" style="max-width: 749.9609375px;" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="100%" id="mermaid-1783856749389"><style>#mermaid-1783856749389{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;fill:#e6edf3;}#mermaid-1783856749389 .error-icon{fill:#0d1117;}#mermaid-1783856749389 .error-text{fill:#f2eee8;stroke:#f2eee8;}#mermaid-1783856749389 .edge-thickness-normal{stroke-width:2px;}#mermaid-1783856749389 .edge-thickness-thick{stroke-width:3.5px;}#mermaid-1783856749389 .edge-pattern-solid{stroke-dasharray:0;}#mermaid-1783856749389 .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-1783856749389 .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-1783856749389 .marker{fill:#58a6ff;stroke:#58a6ff;}#mermaid-1783856749389 .marker.cross{stroke:#58a6ff;}#mermaid-1783856749389 svg{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;}#mermaid-1783856749389 .label{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:#e6edf3;}#mermaid-1783856749389 .cluster-label text{fill:#e6edf3;}#mermaid-1783856749389 .cluster-label span,#mermaid-1783856749389 p{color:#e6edf3;}#mermaid-1783856749389 .label text,#mermaid-1783856749389 span,#mermaid-1783856749389 p{fill:#e6edf3;color:#e6edf3;}#mermaid-1783856749389 .node rect,#mermaid-1783856749389 .node circle,#mermaid-1783856749389 .node ellipse,#mermaid-1783856749389 .node polygon,#mermaid-1783856749389 .node path{fill:#161b22;stroke:#30363d;stroke-width:1px;}#mermaid-1783856749389 .flowchart-label text{text-anchor:middle;}#mermaid-1783856749389 .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#mermaid-1783856749389 .node .label{text-align:center;}#mermaid-1783856749389 .node.clickable{cursor:pointer;}#mermaid-1783856749389 .arrowheadPath{fill:#e3ded6;}#mermaid-1783856749389 .edgePath .path{stroke:#58a6ff;stroke-width:2.0px;}#mermaid-1783856749389 .flowchart-link{stroke:#58a6ff;fill:none;}#mermaid-1783856749389 .edgeLabel{background-color:#1c2129;text-align:center;}#mermaid-1783856749389 .edgeLabel rect{opacity:0.5;background-color:#1c2129;fill:#1c2129;}#mermaid-1783856749389 .labelBkg{background-color:rgba(28, 33, 41, 0.5);}#mermaid-1783856749389 .cluster rect{fill:rgba(88,166,255,0.05);stroke:#30363d;stroke-width:1px;}#mermaid-1783856749389 .cluster text{fill:#e6edf3;}#mermaid-1783856749389 .cluster span,#mermaid-1783856749389 p{color:#e6edf3;}#mermaid-1783856749389 div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:12px;background:#0d1117;border:1px solid hsl(216, 0%, 17.0588235294%);border-radius:2px;pointer-events:none;z-index:100;}#mermaid-1783856749389 .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#e6edf3;}#mermaid-1783856749389 :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="6" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783856749389_flowchart-pointEnd"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 0 L 10 5 L 0 10 z"></path></marker><marker orient="auto" markerHeight="12" markerWidth="12" markerUnits="userSpaceOnUse" refY="5" refX="4.5" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783856749389_flowchart-pointStart"><path style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 0 5 L 10 10 L 10 0 z"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="11" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783856749389_flowchart-circleEnd"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5" refX="-1" viewBox="0 0 10 10" class="marker flowchart" id="mermaid-1783856749389_flowchart-circleStart"><circle style="stroke-width: 1; stroke-dasharray: 1, 0;" class="arrowMarkerPath" r="5" cy="5" cx="5"></circle></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="12" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783856749389_flowchart-crossEnd"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><marker orient="auto" markerHeight="11" markerWidth="11" markerUnits="userSpaceOnUse" refY="5.2" refX="-1" viewBox="0 0 11 11" class="marker cross flowchart" id="mermaid-1783856749389_flowchart-crossStart"><path style="stroke-width: 2; stroke-dasharray: 1, 0;" class="arrowMarkerPath" d="M 1,1 l 9,9 M 10,1 l -9,9"></path></marker><g class="root"><g class="clusters"></g><g class="edgePaths"><path marker-end="url(#mermaid-1783856749389_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-WS LE-RANK" id="L-WS-RANK-0" d="M345.563,37.094L345.563,41.26C345.563,45.427,345.563,53.76,345.563,61.21C345.563,68.66,345.563,75.227,345.563,78.51L345.563,81.794"></path><path marker-end="url(#mermaid-1783856749389_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-RANK LE-TP" id="L-RANK-TP-0" d="M235.801,121.957L205.27,126.495C174.74,131.034,113.678,140.111,83.148,147.932C52.617,155.754,52.617,162.321,52.617,165.604L52.617,168.888"></path><path marker-end="url(#mermaid-1783856749389_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-RANK LE-CP_G" id="L-RANK-CP_G-0" d="M284.099,124.188L270.291,128.354C256.483,132.521,228.866,140.854,215.058,148.304C201.25,155.754,201.25,162.321,201.25,165.604L201.25,168.888"></path><path marker-end="url(#mermaid-1783856749389_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-RANK LE-EP_G" id="L-RANK-EP_G-0" d="M345.563,124.188L345.563,128.354C345.563,132.521,345.563,140.854,345.563,148.304C345.563,155.754,345.563,162.321,345.563,165.604L345.563,168.888"></path><path marker-end="url(#mermaid-1783856749389_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-RANK LE-DP_G" id="L-RANK-DP_G-0" d="M410.45,124.188L425.027,128.354C439.605,132.521,468.759,140.854,483.337,148.304C497.914,155.754,497.914,162.321,497.914,165.604L497.914,168.888"></path><path marker-end="url(#mermaid-1783856749389_flowchart-pointEnd)" style="fill:none;" class="edge-thickness-normal edge-pattern-solid flowchart-link LS-RANK LE-PP_G" id="L-RANK-PP_G-0" d="M455.324,120.466L490.764,125.253C526.204,130.04,597.085,139.614,632.525,147.684C667.965,155.754,667.965,162.321,667.965,165.604L667.965,168.888"></path></g><g class="edgeLabels"><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g><g class="edgeLabel"><g transform="translate(0, 0)" class="label"><foreignobject height="0" width="0"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignobject></g></g></g><g class="nodes"><g transform="translate(345.5625, 18.546875)" data-id="WS" data-node="true" id="flowchart-WS-14" class="node default default flowchart-label"><rect height="37.09375" width="230.296875" y="-18.546875" x="-115.1484375" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-107.6484375, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="215.296875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">world_size = tp × cp × ep × dp × pp</span></div></foreignobject></g></g><g transform="translate(345.5625, 105.640625)" data-id="RANK" data-node="true" id="flowchart-RANK-16" class="node default flowchart-label"><rect height="37.09375" width="219.5234375" y="-18.546875" x="-109.76171875" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-102.26171875, -11.046875)" style="" class="label"><rect></rect><foreignobject height="22.09375" width="204.5234375"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel">Global Rank = 多维坐标的线性展开</span></div></foreignobject></g></g><g transform="translate(52.6171875, 225.875)" data-id="TP" data-node="true" id="flowchart-TP-18" class="node default flowchart-label"><rect height="103.375" width="105.234375" y="-51.6875" x="-52.6171875" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-45.1171875, -44.1875)" style="" class="label"><rect></rect><foreignobject height="88.375" width="90.234375"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel"><b>TP 通信组</b><br>步长=1, 最内层<br>NVLink<br>AllReduce 每层</span></div></foreignobject></g></g><g transform="translate(201.25, 225.875)" data-id="CP_G" data-node="true" id="flowchart-CP_G-20" class="node default flowchart-label"><rect height="103.375" width="92.03125" y="-51.6875" x="-46.015625" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-38.515625, -44.1875)" style="" class="label"><rect></rect><foreignobject height="88.375" width="77.03125"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel"><b>CP 通信组</b><br>步长=tp<br>NVLink<br>AllGather KV</span></div></foreignobject></g></g><g transform="translate(345.5625, 225.875)" data-id="EP_G" data-node="true" id="flowchart-EP_G-22" class="node default flowchart-label"><rect height="103.375" width="96.59375" y="-51.6875" x="-48.296875" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-40.796875, -44.1875)" style="" class="label"><rect></rect><foreignobject height="88.375" width="81.59375"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel"><b>EP 通信组</b><br>步长=tp×cp<br>NVLink/IB<br>AllToAll token</span></div></foreignobject></g></g><g transform="translate(497.9140625, 225.875)" data-id="DP_G" data-node="true" id="flowchart-DP_G-24" class="node default flowchart-label"><rect height="103.375" width="108.109375" y="-51.6875" x="-54.0546875" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-46.5546875, -44.1875)" style="" class="label"><rect></rect><foreignobject height="88.375" width="93.109375"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel"><b>DP 通信组</b><br>步长=tp×cp×ep<br>IB<br>梯度 AllReduce</span></div></foreignobject></g></g><g transform="translate(667.96484375, 225.875)" data-id="PP_G" data-node="true" id="flowchart-PP_G-26" class="node default default flowchart-label"><rect height="103.375" width="131.9921875" y="-51.6875" x="-65.99609375" ry="0" rx="0" style="" class="basic label-container"></rect><g transform="translate(-58.49609375, -44.1875)" style="" class="label"><rect></rect><foreignobject height="88.375" width="116.9921875"><div style="display: inline-block; white-space: nowrap;" xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel"><b>PP 通信组</b><br>步长=tp×cp×ep×dp<br>IB<br>激活值 P2P</span></div></foreignobject></g></g></g></g></g></svg></div>
+
+  <div class="callout callout-key" style="margin-top:24px">
+    <div class="callout-title">下一步阅读</div>
+    <ul style="margin-top:8px">
+      <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/parallel/collective_operations.html" style="color:var(--accent)">集合通信操作详解</a> — AllReduce / AllGather / ReduceScatter / AllToAll / P2P 等通信原语在 Megatron 中的具体用法</li>
+      <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/entry/pretrain_gpt.html" style="color:var(--accent)">pretrain_gpt.py 源码精读</a> — 理解数据如何按 PP/TP/CP 维度切分</li>
+      <li><a href="https://xiaolong-li1.github.io/Blogs/megatron-docs/infra/pretrain_and_setup.html" style="color:var(--accent)">training.py 初始化篇</a> — <code>initialize_megatron()</code> 中如何调用 <code>mpu.initialize_model_parallel()</code> 创建这些通信组</li>
+    </ul>
+  </div>
+</section>
+
+</div><!-- /.main-content -->
+</div><!-- /.page-body -->
+
+<footer>
+  <p>Megatron-LM 源码精读 · 基于 NVIDIA Megatron-LM 代码库</p>
+</footer>
+
+<script>hljs.highlightAll();</script>
+<script src="./Rank 与并行组 · Megatron-LM 源码精读_files/update-checker.js"></script>
+
+
+<div class="mermaidTooltip" style="opacity: 0;"></div></body></html>
